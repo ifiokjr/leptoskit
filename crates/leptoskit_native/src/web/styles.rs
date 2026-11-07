@@ -192,8 +192,91 @@ fn grid_layout(css: &mut String, grid: &GridStyle) {
 fn presentation(css: &mut String, element: &Element) {
 	paints(css, &element.props);
 	corners(css, &element.props);
+	motion(css, &element.props);
 	text(css, element);
 	overrides(css, element);
+}
+
+/// The transform, transition, and animations. A keyframe sequence and an
+/// entering animation both play as CSS animations; [`motion_rules`] writes
+/// their `@keyframes`.
+fn motion(css: &mut String, props: &NativeProps) {
+	if let Some(transform) = props.transform {
+		css.push_str(&transform.css());
+	}
+
+	let Some(animation) = props.animation.as_deref() else {
+		return;
+	};
+
+	if let Some(transition) = animation.transition {
+		css.push_str(&transition.css());
+	}
+
+	let animations = motion_keyframes(animation)
+		.into_iter()
+		.map(|(_, value)| value)
+		.collect::<Vec<_>>();
+
+	if !animations.is_empty() {
+		property(css, "animation", &animations.join(","));
+	}
+}
+
+/// The `@keyframes` rules a node's animations play.
+pub(super) fn motion_rules(props: &NativeProps) -> String {
+	props
+		.animation
+		.as_deref()
+		.map(|animation| {
+			motion_keyframes(animation)
+				.into_iter()
+				.map(|(rule, _)| rule)
+				.collect()
+		})
+		.unwrap_or_default()
+}
+
+/// Each animation's `@keyframes` rule and `animation` value. Names come
+/// from the rule's content, so equal animations share one rule.
+fn motion_keyframes(animation: &crate::Animation) -> Vec<(String, String)> {
+	let mut keyframes = Vec::new();
+
+	if let Some(sequence) = &animation.keyframes {
+		let (rule, _) = sequence.css("_");
+		keyframes.push(sequence.css(&keyframes_name("k", &rule)));
+	}
+
+	// Entering plays once from the entering look to the widget's own, which
+	// a `from`-only rule leaves to the browser. `backwards` holds the
+	// entering look through the delay.
+	if let Some(entering) = animation.entering {
+		let body = format!("from{{{}}}", entering.visual.css());
+		let name = keyframes_name("e", &body);
+		let (duration, easing) = entering.curve.css();
+		keyframes.push((
+			format!("@keyframes {name}{{{body}}}"),
+			format!(
+				"{name} {duration}ms {easing} {}ms backwards",
+				entering.delay_ms
+			),
+		));
+	}
+
+	keyframes
+}
+
+fn keyframes_name(kind: &str, rule: &str) -> String {
+	use sha2::Digest;
+
+	let digest = sha2::Sha256::digest(rule.as_bytes());
+	let mut name = format!("lk-{kind}");
+
+	for byte in &digest[..8] {
+		write!(name, "{byte:02x}").expect("write to String");
+	}
+
+	name
 }
 
 /// The colors and borders that paint inside the box.

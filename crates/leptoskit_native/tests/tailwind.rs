@@ -919,3 +919,229 @@ fn arbitrary_breakpoints_follow_the_viewport_natively() {
 		Display::None
 	);
 }
+
+#[test]
+fn transform_utilities_build_one_transform() {
+	use leptoskit_native::animation::Offset;
+
+	let (_, props) = resolve("translate-x-4 -translate-y-1/2 scale-95 rotate-45");
+	let transform = props.transform.expect("a transform");
+	assert_eq!(transform.translate_x, Offset::points(16.0));
+	assert_eq!(transform.translate_y, Offset::percent(-50.0));
+	close(transform.scale_x, 0.95);
+	close(transform.scale_y, 0.95);
+	close(transform.rotate, 45.0);
+
+	let (_, props) = resolve("scale-x-50 -rotate-[0.25turn]");
+	let transform = props.transform.expect("a transform");
+	close(transform.scale_x, 0.5);
+	close(transform.scale_y, 1.0);
+	close(transform.rotate, -90.0);
+
+	// A transform that moves nothing is no transform at all.
+	let (_, props) = resolve("translate-none scale-none rotate-none");
+	assert_eq!(props.transform, None);
+}
+
+#[test]
+fn arbitrary_transform_values_and_single_axes() {
+	use leptoskit_native::animation::Offset;
+
+	let (_, props) = resolve("scale-y-[1.5] rotate-[17deg] translate-x-[10px]");
+	let transform = props.transform.expect("a transform");
+	close(transform.scale_x, 1.0);
+	close(transform.scale_y, 1.5);
+	close(transform.rotate, 17.0);
+	assert_eq!(transform.translate_x, Offset::points(10.0));
+
+	let (_, props) = resolve("scale-[115%] -scale-x-100");
+	let transform = props.transform.expect("a transform");
+	close(transform.scale_x, -1.0);
+	close(transform.scale_y, 1.15);
+}
+
+#[test]
+fn motion_utilities_reject_what_platforms_cannot_run() {
+	for utility in [
+		"translate-x-auto",
+		"scale-[-1]",
+		"rotate-[1rad]",
+		"duration-[4min]",
+		"duration-[90s]",
+		"delay-[70000ms]",
+		"ease-[steps(4)]",
+		"ease-[cubic-bezier(0.1,0.2,0.3)]",
+		"ease-[cubic-bezier(1.5,0,0.5,1)]",
+		"ease-[cubic-bezier(0,0,x,1)]",
+		"animate-wiggle",
+		"transition-shadow",
+	] {
+		let error = Tailwind::parse(utility).expect_err(utility);
+		assert_ne!(error.reason, "", "{utility}");
+	}
+
+	assert!(Tailwind::parse("-transition").is_err());
+}
+
+#[test]
+fn every_named_transition_and_easing_resolves() {
+	use leptoskit_native::animation::Curve;
+	use leptoskit_native::animation::Easing;
+	use leptoskit_native::animation::Properties;
+
+	for (classes, properties, easing) in [
+		(
+			"transition-colors ease-linear",
+			Properties::COLORS,
+			Easing::Linear,
+		),
+		(
+			"transition-transform ease-in-out",
+			Properties::TRANSFORM,
+			Easing::EASE_IN_OUT,
+		),
+		("transition-all ease-in", Properties::ALL, Easing::EASE_IN),
+		(
+			"transition ease-[cubic-bezier(0.95,0.05,0.795,0.035)]",
+			Properties::ALL,
+			Easing::CubicBezier([0.95, 0.05, 0.795, 0.035]),
+		),
+	] {
+		let (_, props) = resolve(classes);
+		let transition = props
+			.animation
+			.and_then(|animation| animation.transition)
+			.expect(classes);
+		assert_eq!(transition.properties, properties, "{classes}");
+		assert_eq!(transition.curve, Curve::timing(150.0, easing), "{classes}");
+	}
+
+	let (_, props) = resolve("transition duration-[0.4s] delay-[25ms]");
+	let transition = props
+		.animation
+		.and_then(|animation| animation.transition)
+		.expect("a transition");
+	assert_eq!(transition.curve, Curve::timing(400.0, Easing::EASE_IN_OUT));
+	close(transition.delay_ms, 25.0);
+}
+
+#[test]
+fn transition_utilities_combine_in_any_order() {
+	use leptoskit_native::animation::Curve;
+	use leptoskit_native::animation::Easing;
+	use leptoskit_native::animation::Properties;
+
+	for classes in [
+		"transition-opacity duration-300 ease-out delay-75",
+		"delay-75 ease-out duration-300 transition-opacity",
+	] {
+		let (_, props) = resolve(classes);
+		let transition = props
+			.animation
+			.and_then(|animation| animation.transition)
+			.expect("a transition");
+		assert_eq!(transition.properties, Properties::OPACITY, "{classes}");
+		assert_eq!(
+			transition.curve,
+			Curve::timing(300.0, Easing::EASE_OUT),
+			"{classes}"
+		);
+		close(transition.delay_ms, 75.0);
+	}
+
+	let (_, props) = resolve("transition");
+	let transition = props.animation.and_then(|animation| animation.transition);
+	assert_eq!(
+		transition.map(|transition| transition.curve),
+		Some(Curve::DEFAULT)
+	);
+
+	// Timing without a transition animates nothing.
+	let (_, props) = resolve("duration-300 ease-in");
+	assert_eq!(props.animation, None);
+	let (_, props) = resolve("transition-none duration-300");
+	assert_eq!(props.animation, None);
+}
+
+#[test]
+fn animate_presets_loop_on_the_platform() {
+	use leptoskit_native::animation::Iterations;
+	use leptoskit_native::animation::Keyframes;
+
+	let (_, props) = resolve("animate-spin");
+	let keyframes = props
+		.animation
+		.and_then(|animation| animation.keyframes)
+		.expect("keyframes");
+	assert_eq!(keyframes, Keyframes::spin());
+	assert_eq!(keyframes.iterations, Iterations::Infinite);
+
+	for (class, preset) in [
+		("animate-ping", Keyframes::ping()),
+		("animate-bounce", Keyframes::bounce()),
+	] {
+		let (_, props) = resolve(class);
+		assert_eq!(
+			props.animation.and_then(|animation| animation.keyframes),
+			Some(preset),
+			"{class}"
+		);
+	}
+
+	let (_, props) = resolve_at("animate-pulse md:animate-none", 600.0, 800.0, false);
+	assert!(
+		props
+			.animation
+			.and_then(|animation| animation.keyframes)
+			.is_some()
+	);
+	let (_, props) = resolve_at("animate-pulse md:animate-none", 1024.0, 768.0, false);
+	assert_eq!(props.animation, None);
+}
+
+#[test]
+fn starting_rules_become_an_entering_animation() {
+	use leptoskit_native::animation::Curve;
+	use leptoskit_native::animation::Easing;
+	use leptoskit_native::animation::Offset;
+
+	let (_, props) = resolve(
+		"opacity-100 transition duration-500 ease-out starting:opacity-0 starting:translate-y-4",
+	);
+	assert_eq!(props.opacity, Some(1.0));
+	assert_eq!(props.transform, None);
+	let entering = props
+		.animation
+		.and_then(|animation| animation.entering)
+		.expect("an entering animation");
+	assert_eq!(entering.visual.opacity, Some(0.0));
+	assert_eq!(
+		entering
+			.visual
+			.transform
+			.map(|transform| transform.translate_y),
+		Some(Offset::points(16.0))
+	);
+	assert_eq!(entering.curve, Curve::timing(500.0, Easing::EASE_OUT));
+
+	// Only what the transition animates enters.
+	let (_, props) = resolve("transition-opacity starting:opacity-0 starting:scale-50");
+	let entering = props
+		.animation
+		.and_then(|animation| animation.entering)
+		.expect("an entering animation");
+	assert_eq!(entering.visual.opacity, Some(0.0));
+	assert_eq!(entering.visual.transform, None);
+
+	// Without a transition, `starting:` does nothing, as in CSS.
+	let (_, props) = resolve("starting:opacity-0");
+	assert_eq!(props.opacity, None);
+	assert_eq!(props.animation, None);
+
+	// A starting look the transition does not animate enters at once.
+	let (_, props) = resolve("transition-opacity starting:scale-50");
+	assert_eq!(
+		props.animation.and_then(|animation| animation.entering),
+		None
+	);
+}

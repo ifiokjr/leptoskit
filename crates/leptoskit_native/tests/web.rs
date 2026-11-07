@@ -189,6 +189,54 @@ fn emits_deterministic_scoped_styles_below_class_specificity() {
 }
 
 #[test]
+fn motion_props_become_transforms_transitions_and_keyframes() {
+	use leptoskit_native::Transform;
+	use leptoskit_native::animation::Curve;
+	use leptoskit_native::animation::Keyframes;
+	use leptoskit_native::animation::Presence;
+	use leptoskit_native::animation::Spring;
+	use leptoskit_native::animation::Transition;
+
+	let element = Element::view()
+		.transform(Transform::rotate(-3.0))
+		.transition(Transition::spring(Spring::SNAPPY))
+		.keyframes(Keyframes::spin())
+		.entering(Presence::fade().delay(40.0))
+		.exiting(Presence::zoom())
+		.layout_transition(Curve::DEFAULT);
+	let animation = element.props.animation.as_deref().expect("an animation");
+	assert_eq!(animation.exiting, Some(Presence::zoom()));
+	assert_eq!(animation.layout, Some(Curve::DEFAULT));
+
+	let html = render(element.clone()).to_html();
+	assert_eq!(html, render(element).to_html());
+	assert!(html.contains("rotate:-3deg;"), "{html}");
+	assert!(
+		html.contains("transition-property:background-color"),
+		"{html}"
+	);
+	assert!(
+		html.contains("transition-timing-function:linear(0,"),
+		"{html}"
+	);
+
+	// The spin and the entering fade each get a rule named by its content,
+	// played together.
+	assert!(html.contains("@keyframes lk-k"), "{html}");
+	assert!(html.contains("@keyframes lk-e"), "{html}");
+	assert!(html.contains("from{opacity:0;}"), "{html}");
+	assert!(html.contains("ms linear 0ms infinite,lk-e"), "{html}");
+	assert!(html.contains("ms backwards"), "{html}");
+	assert!(html.contains(" 40ms backwards"), "{html}");
+
+	// Without an animation only the transform is written.
+	let still = render(Element::view().transform(Transform::scale(2.0))).to_html();
+	assert!(still.contains("scale:2 2;"), "{still}");
+	assert!(!still.contains("animation:"), "{still}");
+	assert!(!still.contains("@keyframes"), "{still}");
+}
+
+#[test]
 fn classes_override_typed_bases_regardless_of_builder_order() {
 	let before = Element::text("Hello")
 		.font(17.0, FontWeight::Bold)

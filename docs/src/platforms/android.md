@@ -50,6 +50,7 @@ cd android
 
 ## How it differs from macOS
 
+- Transforms and [animations](../guide/32-animations.md) run on Android's animators, springs included. A widget animating out is drawn above its former siblings until it is gone. Only background colors animate; text and border colors jump.
 - Generated apps also draw `Switch`, `Checkbox`, `Radio`, `Slider`, `LinearProgressIndicator`, and `ActivityIndicator` with Android controls. Switches and checkboxes report their checked state; radio options select within the group your screen controls, and sliders report values on their configured step grid. Tapping outside an editor clears focus and dismisses the keyboard. The keyboard moves to the next enabled field, or submits and dismisses from the last field. System Back is not yet connected to the file router; use an in-app Back button.
 - [Rive](../guide/20-rive.md) uploads native vector frames to a reusable Android bitmap. The generated host schedules through Choreographer, stops when idle or offscreen, and treats disabled system animations as reduced motion. Native playback rejects text, image, layout, script, and audio assets.
 - In the backend crate, a `Custom` widget kind with no registered native implementation stops the app. Other platforms render an empty container instead.

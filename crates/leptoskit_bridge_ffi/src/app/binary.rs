@@ -30,11 +30,33 @@
 //!               13 opacity f32         14 font_size f32
 //!               15 font_weight u8 (0 regular, 1 medium, 2 semibold, 3 bold)
 //!               16 text_align u8 (0 start, 1 center, 2 end)
+//!               17 transform
+//!               18 animation
 //!               31 rest str: every other set property, as the JSON object
 //!                  the JSON transaction sends for props
 //! str8        = length:u8 utf8
 //! str         = length:u32 utf8
+//! transform   = translate_x:offset translate_y:offset scale_x:f32 scale_y:f32
+//!               rotate:f32 (clockwise degrees)
+//! offset      = points:f32 percent:f32 (of the widget's own size)
+//! animation   = parts:u8, then each present part in bit order:
+//!               0 transition = properties:u8 (1 opacity, 2 transform,
+//!                 4 colors) delay:f32 curve
+//!               1 keyframes  = duration:f32 delay:f32 iterations:f32
+//!                 (+inf plays forever) alternate:u8 easing count:u8
+//!                 keyframe{count}
+//!               2 entering   = presence
+//!               3 exiting    = presence
+//!               4 layout     = curve
+//! keyframe    = offset:f32 visual easing_set:u8 [easing]
+//! presence    = visual delay:f32 curve
+//! visual      = present:u8 (1 opacity, 2 transform) [opacity:f32] [transform]
+//! curve       = 0 duration:f32 easing | 1 mass:f32 stiffness:f32 damping:f32
+//! easing      = 0 (linear) | 1 x1:f32 y1:f32 x2:f32 y2:f32 (cubic Bézier)
 //! ```
+//!
+//! Durations and delays are milliseconds. Every animation value arrives
+//! already sanitized: finite, bounded, and at most sixteen keyframes.
 
 use std::io;
 
@@ -42,6 +64,13 @@ use leptoskit_native::FontWeight;
 use leptoskit_native::Mutation;
 use leptoskit_native::NativeProps;
 use leptoskit_native::TextAlign;
+use leptoskit_native::animation::Animation;
+use leptoskit_native::animation::Curve;
+use leptoskit_native::animation::Easing;
+use leptoskit_native::animation::Iterations;
+use leptoskit_native::animation::Presence;
+use leptoskit_native::animation::Transform;
+use leptoskit_native::animation::Visual;
 
 /// The first four bytes of every binary transaction.
 pub(super) const MAGIC: &[u8; 4] = b"LKB1";
@@ -71,6 +100,8 @@ const OPACITY: u32 = 1 << 13;
 const FONT_SIZE: u32 = 1 << 14;
 const FONT_WEIGHT: u32 = 1 << 15;
 const TEXT_ALIGN: u32 = 1 << 16;
+const TRANSFORM: u32 = 1 << 17;
+const ANIMATION: u32 = 1 << 18;
 const REST: u32 = 1 << 31;
 
 /// Encodes one commit's mutations, failing once the transaction would pass
@@ -203,6 +234,8 @@ impl Writer {
 		let font_size = rest.font_size.take();
 		let font_weight = rest.font_weight.take();
 		let text_align = rest.text_align.take();
+		let transform = rest.transform.take();
+		let animation = rest.animation.take();
 		let rest = (rest != NativeProps::default())
 			.then(|| serde_json::to_string(&rest))
 			.transpose()
@@ -227,6 +260,8 @@ impl Writer {
 			(FONT_SIZE, font_size.is_some()),
 			(FONT_WEIGHT, font_weight.is_some()),
 			(TEXT_ALIGN, text_align.is_some()),
+			(TRANSFORM, transform.is_some()),
+			(ANIMATION, animation.is_some()),
 			(REST, rest.is_some()),
 		] {
 			if set {
@@ -274,11 +309,145 @@ impl Writer {
 			}])?;
 		}
 
+		if let Some(transform) = transform {
+			self.transform(&transform)?;
+		}
+
+		if let Some(animation) = animation {
+			self.animation(&animation)?;
+		}
+
 		if let Some(rest) = rest {
 			self.string(&rest)?;
 		}
 
 		Ok(())
+	}
+
+	fn f32s(&mut self, values: &[f32]) -> io::Result<()> {
+		for value in values {
+			self.put(&value.to_le_bytes())?;
+		}
+
+		Ok(())
+	}
+
+	fn transform(&mut self, transform: &Transform) -> io::Result<()> {
+		self.f32s(&[
+			transform.translate_x.points,
+			transform.translate_x.percent,
+			transform.translate_y.points,
+			transform.translate_y.percent,
+			transform.scale_x,
+			transform.scale_y,
+			transform.rotate,
+		])
+	}
+
+	fn animation(&mut self, animation: &Animation) -> io::Result<()> {
+		let parts = [
+			animation.transition.is_some(),
+			animation.keyframes.is_some(),
+			animation.entering.is_some(),
+			animation.exiting.is_some(),
+			animation.layout.is_some(),
+		]
+		.into_iter()
+		.enumerate()
+		.fold(0_u8, |parts, (bit, set)| parts | (u8::from(set) << bit));
+		self.put(&[parts])?;
+
+		if let Some(transition) = animation.transition {
+			self.put(&[transition.properties.bits()])?;
+			self.f32s(&[transition.delay_ms])?;
+			self.curve(transition.curve)?;
+		}
+
+		if let Some(keyframes) = &animation.keyframes {
+			self.f32s(&[
+				keyframes.duration_ms,
+				keyframes.delay_ms,
+				match keyframes.iterations {
+					Iterations::Count(count) => count,
+					Iterations::Infinite => f32::INFINITY,
+				},
+			])?;
+			self.put(&[u8::from(keyframes.alternate)])?;
+			self.easing(keyframes.easing)?;
+			self.put(&[u8::try_from(keyframes.frames.len()).map_err(|_| too_large("keyframes"))?])?;
+
+			for frame in &keyframes.frames {
+				self.f32s(&[frame.offset])?;
+				self.visual(&frame.visual)?;
+				self.put(&[u8::from(frame.easing.is_some())])?;
+
+				if let Some(easing) = frame.easing {
+					self.easing(easing)?;
+				}
+			}
+		}
+
+		for presence in [animation.entering, animation.exiting]
+			.into_iter()
+			.flatten()
+		{
+			self.presence(&presence)?;
+		}
+
+		if let Some(curve) = animation.layout {
+			self.curve(curve)?;
+		}
+
+		Ok(())
+	}
+
+	fn presence(&mut self, presence: &Presence) -> io::Result<()> {
+		self.visual(&presence.visual)?;
+		self.f32s(&[presence.delay_ms])?;
+		self.curve(presence.curve)
+	}
+
+	fn visual(&mut self, visual: &Visual) -> io::Result<()> {
+		self.put(&[
+			u8::from(visual.opacity.is_some()) | (u8::from(visual.transform.is_some()) << 1)
+		])?;
+
+		if let Some(opacity) = visual.opacity {
+			self.f32s(&[opacity])?;
+		}
+
+		if let Some(transform) = &visual.transform {
+			self.transform(transform)?;
+		}
+
+		Ok(())
+	}
+
+	fn curve(&mut self, curve: Curve) -> io::Result<()> {
+		match curve {
+			Curve::Timing {
+				duration_ms,
+				easing,
+			} => {
+				self.put(&[0])?;
+				self.f32s(&[duration_ms])?;
+				self.easing(easing)
+			}
+			Curve::Spring(spring) => {
+				self.put(&[1])?;
+				self.f32s(&[spring.mass, spring.stiffness, spring.damping])
+			}
+		}
+	}
+
+	fn easing(&mut self, easing: Easing) -> io::Result<()> {
+		match easing {
+			Easing::Linear => self.put(&[0]),
+			Easing::CubicBezier(points) => {
+				self.put(&[1])?;
+				self.f32s(&points)
+			}
+		}
 	}
 }
 

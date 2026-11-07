@@ -275,6 +275,7 @@ fn render_node(
 			element.classes(),
 			element.kind,
 			styles_active,
+			&styles::motion_rules(&element.props),
 		)
 	});
 	// Motion has a scope of its own, so moving elements still share their
@@ -444,10 +445,11 @@ fn scoped_sheet(
 	classes: &crate::tailwind::Tailwind,
 	kind: NativeKind,
 	styles_active: bool,
+	motion: &str,
 ) -> String {
 	let selector = format!("[data-lk-style=\"{scope}\"]");
 	format!(
-		":where({selector}){{{base}}}{}{}",
+		":where({selector}){{{base}}}{}{}{motion}",
 		classes.css_scoped(&selector),
 		styles::control(&selector, kind, styles_active),
 	)

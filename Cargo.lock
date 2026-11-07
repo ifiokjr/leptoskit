@@ -4889,6 +4889,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_animation"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "leptoskit_app"
 version = "0.3.0"
 dependencies = [
@@ -5581,6 +5589,7 @@ dependencies = [
  "insta",
  "js-sys",
  "leptos",
+ "leptoskit_animation",
  "leptoskit_devtools_protocol",
  "leptoskit_rive",
  "leptoskit_yoga",

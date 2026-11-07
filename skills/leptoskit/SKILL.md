@@ -81,6 +81,7 @@ let row = SettingRow("Wi-Fi".into(), Fragment::new().with(Switch(true)));
 
 - `View`, `ScrollView`, `Row`, `Column`, `Card`, … take no arguments; `Text(content)`, `Button(label)`, `Image(source)`, `Switch(checked)`, `Status(text)`, and `Alert(text)` take their content.
 - Style with Tailwind through `.class("…")`; it compiles to native layout and styles on every platform.
+- Animate with Tailwind (`transition duration-300`, `translate-y-4`, `animate-spin`, `starting:opacity-0`) or with `.transition(…)`, `.entering(…)`, `.exiting(…)`, and `.layout_transition(…)` from `leptoskit::native::animation`. Change the value once; the platform animates it, so never step an animation from a timer in the guest.
 - Handlers: `.on_press(|| …)`, `.on_change(|text: &str| …)`, `.on_toggle(|checked| …)`, `.on_value_change(|value| …)`.
 - State that changes in place: hold it in a `RwSignal` and pass a closure, `Text(move || count.get().to_string())` or `.background(move || phase.get().colour())`. Writing the signal updates that node, including from an event handler. A list is `For(move || items.get(), |item| item.id, |item| row(item))` and a condition is `Show(move || open.get(), || panel())`; either one rebuilds its own children. `leptoskit::guest::spawn` runs a task, and the runtime polls it.
 - Accessibility: `.accessibility_label("…")`, `.role(Role::…)`. Give anything a test needs to find a stable `.test_id("…")`.

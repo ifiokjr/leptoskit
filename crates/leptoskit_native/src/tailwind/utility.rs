@@ -39,6 +39,10 @@ pub(super) fn parse(utility: &str) -> Parsed {
 		return Ok((rank, vec![declaration]));
 	}
 
+	if let Some(result) = super::motion::parse(utility) {
+		return result;
+	}
+
 	if let Some(result) = spacing(utility) {
 		return result;
 	}

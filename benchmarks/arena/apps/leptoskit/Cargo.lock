@@ -2721,6 +2721,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_animation"
+version = "0.3.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "leptoskit_appkit"
 version = "0.3.0"
 dependencies = [
@@ -2986,6 +2993,7 @@ version = "0.3.0"
 dependencies = [
  "futures",
  "leptos",
+ "leptoskit_animation",
  "leptoskit_devtools_protocol",
  "leptoskit_rive",
  "leptoskit_yoga",

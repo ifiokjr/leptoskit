@@ -2,25 +2,25 @@
 source: examples/gallery/tests/trees.rs
 expression: "lines.join(\"\\n\")"
 ---
-ScrollView [h-full w-full] #226a4c53af60
-  View [flex-col gap-6 min-h-full pb-safe-offset-4 pt-safe-offset-4 px-6] #a33395d8944e
-    View [flex-col gap-1] #daa910133fb3
-      Text "LEPTOSKIT" #6d2d609f767b
-      Text "Daily taps" #619863636a1b
-    View [flex-1] #cea51a21adc4
-    View [flex-col gap-2 items-center px-6 py-8 rounded-[28px]] #53bac31d3ce6
-      Text "TODAY" #1b99f1325ff6
-      Text "12" [font-bold text-[112px]] #124c1ad6854c
-      Text "8 taps to go" #8d6dfb70f085
-      View [flex-col gap-2 pt-4 self-stretch] #277cfa67f1ed
-        View [h-2 rounded-[4px]] #76c1061f7985
-          View [h-full rounded-[4px]] #c4349967b9f2
-        View [flex-row items-center justify-between] #d63eb4119e02
-          Text "12 of 20" #ea33738b1bc2
-          Text "60%" #92369380ad8d
-    View [flex-1] #cea51a21adc4
-    View [flex-row gap-3 items-center] #399cfb53dc85
-      Button "−" [font-medium h-16 rounded-[32px] text-[28px] w-16] #63d3d6cc9add
-      Button "Add one" [flex-1 font-semibold h-16 rounded-[32px] text-[#ffffff] text-[17px]] #6a26e90836df
-    Button "Reset" [h-11] #1690f55520c0
-    Text "One leptoskit screen, on every platform" [text-center] #5c29abe79e6d
+ScrollView [h-full w-full] #99f4b8d33ca8
+  View [flex-col gap-6 min-h-full pb-safe-offset-4 pt-safe-offset-4 px-6] #55f5c91ab21b
+    View [flex-col gap-1] #44d0db187520
+      Text "LEPTOSKIT" #846f06483599
+      Text "Daily taps" #f28a910299a1
+    View [flex-1] #9c9646b1aacf
+    View [flex-col gap-2 items-center px-6 py-8 rounded-[28px]] #40293c0a1058
+      Text "TODAY" #d010065ccefa
+      Text "12" [font-bold text-[112px]] #c960d7634ac4
+      Text "8 taps to go" #ef826f004e83
+      View [flex-col gap-2 pt-4 self-stretch] #38389bb4aa48
+        View [h-2 rounded-[4px]] #e5b25f9dde19
+          View [h-full rounded-[4px]] #0559bd4b0f1f
+        View [flex-row items-center justify-between] #808c4015ae6c
+          Text "12 of 20" #484ecb5d74e1
+          Text "60%" #50a5f580cd6f
+    View [flex-1] #9c9646b1aacf
+    View [flex-row gap-3 items-center] #551909187167
+      Button "−" [font-medium h-16 rounded-[32px] text-[28px] w-16] #c329261f8c9b
+      Button "Add one" [flex-1 font-semibold h-16 rounded-[32px] text-[#ffffff] text-[17px]] #cdd7ca6efdfc
+    Button "Reset" [h-11] #217c03448613
+    Text "One leptoskit screen, on every platform" [text-center] #5ba9d6f4f836

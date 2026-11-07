@@ -7,6 +7,20 @@ use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
 use leptoskit_native::ScrollOffset;
 use leptoskit_native::TextAlign;
+use leptoskit_native::animation::Animation;
+use leptoskit_native::animation::Curve;
+use leptoskit_native::animation::Easing;
+use leptoskit_native::animation::Edge;
+use leptoskit_native::animation::Iterations;
+use leptoskit_native::animation::Keyframe;
+use leptoskit_native::animation::Keyframes;
+use leptoskit_native::animation::Offset;
+use leptoskit_native::animation::Presence;
+use leptoskit_native::animation::Properties;
+use leptoskit_native::animation::Spring;
+use leptoskit_native::animation::Transform;
+use leptoskit_native::animation::Transition;
+use leptoskit_native::animation::Visual;
 use leptoskit_yoga::NodeId;
 use leptoskit_yoga::Yoga;
 use serde_json::Map;
@@ -15,99 +29,219 @@ use serde_json::json;
 
 use super::encode;
 
-/// Reads a binary transaction back into the JSON transaction's shape, the
-/// reference the Swift and Kotlin decoders are held to.
-fn decode(bytes: &[u8]) -> Value {
-	struct Reader<'a>(&'a [u8]);
+/// Reads the binary transaction's parts back into their typed forms.
+struct Reader<'a>(&'a [u8]);
 
-	impl Reader<'_> {
-		fn take(&mut self, len: usize) -> &[u8] {
-			let (head, tail) = self.0.split_at(len);
-			self.0 = tail;
-			head
-		}
+impl Reader<'_> {
+	fn take(&mut self, len: usize) -> &[u8] {
+		let (head, tail) = self.0.split_at(len);
+		self.0 = tail;
+		head
+	}
 
-		fn u8(&mut self) -> u8 {
-			self.take(1)[0]
-		}
+	fn u8(&mut self) -> u8 {
+		self.take(1)[0]
+	}
 
-		fn u32(&mut self) -> u32 {
-			u32::from_le_bytes(self.take(4).try_into().unwrap())
-		}
+	fn u32(&mut self) -> u32 {
+		u32::from_le_bytes(self.take(4).try_into().unwrap())
+	}
 
-		fn f32(&mut self) -> f32 {
-			f32::from_le_bytes(self.take(4).try_into().unwrap())
-		}
+	fn f32(&mut self) -> f32 {
+		f32::from_le_bytes(self.take(4).try_into().unwrap())
+	}
 
-		fn string(&mut self) -> String {
-			let len = self.u32() as usize;
-			String::from_utf8(self.take(len).to_vec()).unwrap()
-		}
+	fn string(&mut self) -> String {
+		let len = self.u32() as usize;
+		String::from_utf8(self.take(len).to_vec()).unwrap()
+	}
 
-		fn props(&mut self) -> Value {
-			let present = self.u32();
-			let has = |bit: u32| present & (1 << bit) != 0;
-			let mut props = Map::new();
-
-			for (bit, key) in [
-				(0, "text"),
-				(1, "source"),
-				(2, "placeholder"),
-				(3, "value"),
-				(4, "accessibility_label"),
-			] {
-				if has(bit) {
-					props.insert(key.into(), self.string().into());
-				}
-			}
-
-			for (bit, key) in [(5, "color"), (6, "background"), (7, "border_color")] {
-				if has(bit) {
-					props.insert(key.into(), self.u32().into());
-				}
-			}
-
-			for (bit, key) in [(8, "enabled"), (9, "hidden"), (10, "clip")] {
-				if has(bit) {
-					props.insert(key.into(), (self.u8() != 0).into());
-				}
-			}
-
-			for (bit, key) in [
-				(11, "corner_radius"),
-				(12, "border_width"),
-				(13, "opacity"),
-				(14, "font_size"),
-			] {
-				if has(bit) {
-					props.insert(key.into(), self.f32().into());
-				}
-			}
-
-			if has(15) {
-				let weight = ["regular", "medium", "semibold", "bold"][self.u8() as usize];
-				props.insert("font_weight".into(), weight.into());
-			}
-
-			if has(16) {
-				let align = ["start", "center", "end"][self.u8() as usize];
-				props.insert("text_align".into(), align.into());
-			}
-
-			if has(31) {
-				let Value::Object(rest) = serde_json::from_str(&self.string()).unwrap() else {
-					panic!("the rest of the props is an object");
-				};
-
-				for (key, value) in rest {
-					assert!(props.insert(key, value).is_none(), "a property sent twice");
-				}
-			}
-
-			Value::Object(props)
+	fn transform(&mut self) -> Transform {
+		Transform {
+			translate_x: Offset {
+				points: self.f32(),
+				percent: self.f32(),
+			},
+			translate_y: Offset {
+				points: self.f32(),
+				percent: self.f32(),
+			},
+			scale_x: self.f32(),
+			scale_y: self.f32(),
+			rotate: self.f32(),
 		}
 	}
 
+	fn easing(&mut self) -> Easing {
+		match self.u8() {
+			0 => Easing::Linear,
+			1 => Easing::CubicBezier([self.f32(), self.f32(), self.f32(), self.f32()]),
+			tag => panic!("unknown easing {tag}"),
+		}
+	}
+
+	fn curve(&mut self) -> Curve {
+		match self.u8() {
+			0 => {
+				Curve::Timing {
+					duration_ms: self.f32(),
+					easing: self.easing(),
+				}
+			}
+			1 => {
+				Curve::Spring(Spring {
+					mass: self.f32(),
+					stiffness: self.f32(),
+					damping: self.f32(),
+				})
+			}
+			tag => panic!("unknown curve {tag}"),
+		}
+	}
+
+	fn visual(&mut self) -> Visual {
+		let present = self.u8();
+		Visual {
+			opacity: (present & 1 != 0).then(|| self.f32()),
+			transform: (present & 2 != 0).then(|| self.transform()),
+		}
+	}
+
+	fn presence(&mut self) -> Presence {
+		Presence {
+			visual: self.visual(),
+			delay_ms: self.f32(),
+			curve: self.curve(),
+		}
+	}
+
+	fn animation(&mut self) -> Animation {
+		let parts = self.u8();
+		let has = |bit: u8| parts & (1 << bit) != 0;
+		Animation {
+			transition: has(0).then(|| {
+				let properties = Properties::from_bits(self.u8());
+				let delay_ms = self.f32();
+				Transition {
+					properties,
+					curve: self.curve(),
+					delay_ms,
+				}
+			}),
+			keyframes: has(1).then(|| {
+				let duration_ms = self.f32();
+				let delay_ms = self.f32();
+				let iterations = match self.f32() {
+					f32::INFINITY => Iterations::Infinite,
+					count => Iterations::Count(count),
+				};
+				let alternate = self.u8() != 0;
+				let easing = self.easing();
+				let frames = (0..self.u8())
+					.map(|_| {
+						Keyframe {
+							offset: self.f32(),
+							visual: self.visual(),
+							easing: (self.u8() != 0).then(|| self.easing()),
+						}
+					})
+					.collect();
+				Keyframes {
+					frames,
+					duration_ms,
+					delay_ms,
+					iterations,
+					alternate,
+					easing,
+				}
+			}),
+			entering: has(2).then(|| self.presence()),
+			exiting: has(3).then(|| self.presence()),
+			layout: has(4).then(|| self.curve()),
+		}
+	}
+
+	fn props(&mut self) -> Value {
+		let present = self.u32();
+		let has = |bit: u32| present & (1 << bit) != 0;
+		let mut props = Map::new();
+
+		for (bit, key) in [
+			(0, "text"),
+			(1, "source"),
+			(2, "placeholder"),
+			(3, "value"),
+			(4, "accessibility_label"),
+		] {
+			if has(bit) {
+				props.insert(key.into(), self.string().into());
+			}
+		}
+
+		for (bit, key) in [(5, "color"), (6, "background"), (7, "border_color")] {
+			if has(bit) {
+				props.insert(key.into(), self.u32().into());
+			}
+		}
+
+		for (bit, key) in [(8, "enabled"), (9, "hidden"), (10, "clip")] {
+			if has(bit) {
+				props.insert(key.into(), (self.u8() != 0).into());
+			}
+		}
+
+		for (bit, key) in [
+			(11, "corner_radius"),
+			(12, "border_width"),
+			(13, "opacity"),
+			(14, "font_size"),
+		] {
+			if has(bit) {
+				props.insert(key.into(), self.f32().into());
+			}
+		}
+
+		if has(15) {
+			let weight = ["regular", "medium", "semibold", "bold"][self.u8() as usize];
+			props.insert("font_weight".into(), weight.into());
+		}
+
+		if has(16) {
+			let align = ["start", "center", "end"][self.u8() as usize];
+			props.insert("text_align".into(), align.into());
+		}
+
+		if has(17) {
+			props.insert(
+				"transform".into(),
+				serde_json::to_value(self.transform()).unwrap(),
+			);
+		}
+
+		if has(18) {
+			props.insert(
+				"animation".into(),
+				serde_json::to_value(self.animation()).unwrap(),
+			);
+		}
+
+		if has(31) {
+			let Value::Object(rest) = serde_json::from_str(&self.string()).unwrap() else {
+				panic!("the rest of the props is an object");
+			};
+
+			for (key, value) in rest {
+				assert!(props.insert(key, value).is_none(), "a property sent twice");
+			}
+		}
+
+		Value::Object(props)
+	}
+}
+
+/// Reads a binary transaction back into the JSON transaction's shape, the
+/// reference the Swift and Kotlin decoders are held to.
+fn decode(bytes: &[u8]) -> Value {
 	let mut reader = Reader(bytes);
 	assert_eq!(reader.take(4), super::MAGIC);
 	let root = i64::from_le_bytes(reader.take(8).try_into().unwrap());
@@ -175,6 +309,20 @@ fn sample() -> (Option<usize>, Vec<Mutation>) {
 		id: Some("card-7".into()),
 		italic: Some(true),
 		scroll_offset: Some(ScrollOffset::new(0.0, 120.5).animated()),
+		transform: Some(
+			Transform::IDENTITY
+				.translated(Offset::percent(-50.0), Offset::points(4.5))
+				.rotated(15.0),
+		),
+		animation: Some(Box::new(Animation {
+			transition: Some(
+				Transition::new(Properties::OPACITY | Properties::TRANSFORM).delay(20.0),
+			),
+			keyframes: Some(Keyframes::bounce().alternate()),
+			entering: Some(Presence::fade().slide_by(0.0, 16.0)),
+			exiting: Some(Presence::slide(Edge::Left).spring(Spring::SNAPPY)),
+			layout: Some(Curve::spring(Spring::DEFAULT)),
+		})),
 		..NativeProps::default()
 	};
 	let mutations = vec![
@@ -244,6 +392,46 @@ fn the_binary_transaction_carries_exactly_what_the_json_one_does() {
 	let empty = encode(None, &[], usize::MAX).unwrap();
 	assert_eq!(empty.len(), 16, "the smallest transaction is its header");
 	assert_eq!(decode(&empty), json_transaction(None, &[]));
+}
+
+#[test]
+fn partial_animations_carry_only_their_parts() {
+	let mut yoga = Yoga::new();
+	let id = yoga.create_node();
+	// A counted sequence on a linear curve, a keyframe without its own
+	// easing, an opacity-only look, and neither a transition nor a layout
+	// curve.
+	let animation = Animation {
+		keyframes: Some(
+			Keyframes::new(
+				400.0,
+				[
+					Keyframe::at(0.5).opacity(0.2),
+					Keyframe::at(1.0)
+						.transform(Transform::rotate(90.0))
+						.easing(Easing::EASE_OUT),
+				],
+			)
+			.repeat(3.0)
+			.easing(Easing::Linear),
+		),
+		exiting: Some(Presence::fade().duration(120.0).easing(Easing::Linear)),
+		..Animation::default()
+	};
+	let mutations = vec![Mutation::Create {
+		id,
+		kind: NativeKind::View,
+		props: NativeProps {
+			animation: Some(Box::new(animation)),
+			..NativeProps::default()
+		},
+	}];
+	let bytes = encode(Some(id.index()), &mutations, usize::MAX).unwrap();
+
+	assert_eq!(
+		decode(&bytes),
+		json_transaction(Some(id.index()), &mutations)
+	);
 }
 
 #[test]

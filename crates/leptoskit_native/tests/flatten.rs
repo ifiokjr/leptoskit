@@ -293,3 +293,18 @@ fn a_scroll_views_content_keeps_its_view_and_size() {
 	assert_eq!(native.nodes[&content].kind, NativeKind::View);
 	assert!((native.nodes[&content].frame[3] - 10_000.0).abs() < f32::EPSILON);
 }
+
+#[test]
+fn transformed_and_animated_containers_keep_their_view() {
+	use leptoskit_native::Transform;
+	use leptoskit_native::animation::Presence;
+
+	assert!(is_layout_only(NativeKind::View, &View().props));
+
+	let moved = View().transform(Transform::translate(0.0, 8.0));
+	assert!(!is_layout_only(NativeKind::View, &moved.props));
+
+	// A container that animates in must exist to be animated.
+	let entering = View().entering(Presence::fade());
+	assert!(!is_layout_only(NativeKind::View, &entering.props));
+}

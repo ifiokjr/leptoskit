@@ -107,6 +107,17 @@ enum WidgetStyle {
         if widget.clipsToBounds != clips { widget.clipsToBounds = clips }
     }
 
+    /// Places a widget at its layout frame. A transformed view's `frame` is its transformed outline, so
+    /// one with a transform is placed by its untransformed box.
+    static func place(_ widget: UIView, _ frame: CGRect) {
+        if CATransform3DIsIdentity(widget.layer.transform) {
+            widget.frame = frame
+        } else {
+            widget.bounds.size = frame.size
+            widget.center = CGPoint(x: frame.midX, y: frame.midY)
+        }
+    }
+
     /// Scales a radius down to fit the view, as CSS does: `rounded-full`
     /// asks for 9999 points, and a layer whose radius exceeds half its size
     /// draws nothing once it clips.
@@ -204,4 +215,51 @@ final class ValueSlider: UISlider {
     var onStep: ((Bool) -> Void)?
     override func accessibilityIncrement() { onStep?(true) }
     override func accessibilityDecrement() { onStep?(false) }
+}
+
+/// Draws a `Vector` in shape layers, repainted only when its drawing, size or screen scale changes.
+final class VectorView: UIView {
+    private var shapes = VectorLayers()
+    var drawing: VectorDrawing? { didSet { paint() } }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        paint()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        paint()
+    }
+
+    /// A labelled drawing is an image to assistive technology; an unlabelled one is decorative.
+    func apply(_ props: WidgetProps) {
+        isAccessibilityElement = !(props.accessibilityLabel ?? "").isEmpty
+        accessibilityTraits = .image
+        drawing = props.drawing
+    }
+
+    private func paint() {
+        shapes.paint(drawing, in: layer)
+    }
+}
+
+/// Plain containers and labels waiting to be reused, by exact class so a
+/// subclass with its own behaviour is never handed out as a plain view.
+struct RecycledViews {
+    /// Enough for a screen of a few thousand views; beyond it, views go.
+    private static let limit = 4096
+    var views: [UIView] = []
+    var labels: [UILabel] = []
+
+    @MainActor
+    mutating func keep(_ widget: UIView) {
+        if type(of: widget) == UILabel.self, labels.count < Self.limit, let label = widget as? UILabel {
+            label.frame = .zero
+            labels.append(label)
+        } else if type(of: widget) == UIView.self, views.count < Self.limit {
+            widget.frame = .zero
+            views.append(widget)
+        }
+    }
 }
