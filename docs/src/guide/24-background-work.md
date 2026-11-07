@@ -235,6 +235,8 @@ leptoskit jobs cancel 0192f3c4-… --url "$DATABASE_URL"
 
 Failed jobs stay until someone retries them; finished and cancelled jobs are deleted after `retention_days`. A retried job starts again from its first step, with no deadline.
 
+A server runs only the jobs its own build declares. While a deploy rolls out, a job the new build added and enqueued waits for the new build's workers instead of failing on an old server. A job no running build declares any more, because you removed it, stays pending; `leptoskit jobs list --state pending` shows it, and `leptoskit jobs cancel` clears it.
+
 ## Testing jobs
 
 `rpc::testing::TestJobs` runs jobs in a test on a clock the test moves, one at a time, on the test's own task:

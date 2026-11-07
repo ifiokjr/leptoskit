@@ -443,6 +443,17 @@ impl Db {
 		}
 	}
 
+	/// On SQLite, starts watching the file for other processes' commits, so
+	/// live readers hear of them too.
+	#[cfg(feature = "sqlite")]
+	pub(crate) fn watch_other_processes(&self) {
+		match &*self.pool {
+			#[cfg(feature = "postgres")]
+			Pool::Postgres(_) => {}
+			Pool::Sqlite(pool) => pool.watch_other_processes(),
+		}
+	}
+
 	/// Runs SQL that may hold several statements, such as a migration, outside
 	/// any transaction.
 	#[doc(hidden)]

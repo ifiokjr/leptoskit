@@ -293,6 +293,31 @@ async fn every_write_path_publishes_what_it_changed() {
 	.await;
 }
 
+/// Two pools on one SQLite file stand for two processes: each pool wakes
+/// only its own readers as it commits, so a reader hears the other's
+/// commits from the file's watcher.
+#[tokio::test(flavor = "multi_thread")]
+async fn sqlite_readers_hear_another_processs_commits() {
+	let directory = tempfile::tempdir().unwrap();
+	let url = format!(
+		"sqlite://{}",
+		directory.path().join("live.sqlite3").display()
+	);
+	let reader = Db::connect(&url).await.unwrap();
+	create_schema(&reader).await;
+	let writer = Db::connect(&url).await.unwrap();
+
+	// The reader is waiting, past its first read, when the other commits.
+	let mut feed = reader.changes().await.unwrap();
+	let heard = tokio::spawn(async move { next(&mut feed).await });
+	tokio::time::sleep(Duration::from_millis(500)).await;
+	let written = note(&writer, 1, true).await;
+	assert_eq!(
+		heard.await.unwrap(),
+		changed(&[rows("live_notes", [written.id])])
+	);
+}
+
 #[tokio::test]
 async fn rolled_back_changes_are_never_published() {
 	on_both(async |db, _| {
