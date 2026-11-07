@@ -316,6 +316,12 @@ leptoskit rpc generate --target typescript --strict
 
 Strict runs the same diagnostics for every requested target first. If a diagnostic is found, no client files are written; fix the schema or generate that target without `--strict`. These checks cover known representation losses, not full JSON Schema validation or proof that every value round-trips. The OpenAPI target preserves schema nodes and does not run typed-client diagnostics.
 
+### Optional values in Go
+
+When an endpoint has a default, omitting its argument and sending a zero value can mean different things. Generated Go clients use pointers for optional arguments and fields: `nil` omits the value, while `&enabled` sends `false` when `enabled` is false. The same applies to zero numbers and empty strings. This works in Go clients on any platform, for HTTP and live calls. JSON and live calls also preserve empty collections; form and query encoding cannot express an empty collection.
+
+After regenerating an older client, pass addresses for optional arguments you previously supplied directly. Optional nullable fields can still collapse JSON null into absence; `--strict` reports this limitation.
+
 ### What regeneration overwrites
 
 Every generated file is either **code** — the typed client, the commands, the OpenAPI document — or **scaffolding** — manifests (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `pubspec.yaml`), `tsconfig.json`, `.gitignore`, READMEs. Code has to track the RPC and is always rewritten. Scaffolding is yours once it exists, so `--scaffold` (or `scaffold` on a `[[rpc.targets]]` entry) decides how much of a package is generated:

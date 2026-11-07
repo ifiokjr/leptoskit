@@ -29,8 +29,8 @@ type Todo struct {
 	Done bool   `json:"done"`
 	Id   uint64 `json:"id"`
 	// Free-form labels.
-	Tags  []string `json:"tags,omitempty"`
-	Title string   `json:"title"`
+	Tags  *[]string `json:"tags,omitempty"`
+	Title string    `json:"title"`
 }
 
 // Which todos to list.
@@ -339,11 +339,11 @@ func (c *Client) ListTodos(ctx context.Context, filter TodoFilter, limit *uint32
 // CreateTodo creates a todo.
 //
 // title is What needs doing.
-func (c *Client) CreateTodo(ctx context.Context, title string, tags []string) (Todo, error) {
+func (c *Client) CreateTodo(ctx context.Context, title string, tags *[]string) (Todo, error) {
 	var result Todo
 	if err := c.callInto(ctx, "POST", "/api/create_todo", "json", struct {
-		Title string   `json:"title"`
-		Tags  []string `json:"tags,omitempty"`
+		Title string    `json:"title"`
+		Tags  *[]string `json:"tags,omitempty"`
 	}{Title: title, Tags: tags}, &result); err != nil {
 		var zero Todo
 		return zero, err
@@ -2059,6 +2059,8 @@ if err != nil {
 ```
 
 `FnError.Kind` is one of `KindNetwork`, `KindInvalid`, `KindServer`, `KindDecode`, or `KindOther`, mirroring the server's classification; `Retryable` is true only for network failures. Shapes Go cannot model yet (tagged unions) appear as `any` holding the decoded JSON.
+
+Optional arguments and model fields use pointers: `nil` omits the value; a pointer to `false`, `0`, or an empty string sends that value. JSON and live calls also preserve empty collections; form and query encoding cannot express an empty collection. When regenerating an older client, pass the address of values you previously supplied directly. Optional nullable fields can still collapse JSON null into absence; strict schema diagnostics report that limitation.
 
 ## Live
 

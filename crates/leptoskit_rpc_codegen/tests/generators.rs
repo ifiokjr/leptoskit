@@ -1147,7 +1147,6 @@ fn dart_names_clear_the_runtime() {
 /// every digit in the query string and in JSON bodies, and absent optional
 /// fields leave JSON bodies.
 #[test]
-#[ignore = "needs the Go toolchain; run with --ignored"]
 fn go_clients_keep_numbers_exact() {
 	let dir = std::env::temp_dir().join(format!(
 		"leptoskit_rpc_codegen_go_{}_{}",

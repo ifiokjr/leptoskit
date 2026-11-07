@@ -186,14 +186,25 @@ pub(crate) fn integer_type(format: Option<&str>) -> String {
 	}
 }
 
-/// Whether an optional value of this type needs a pointer to express absence:
-/// slices, maps, `any`, and structs (via a null in JSON) are nilable or
-/// nullable already.
+/// Whether a nullable value needs a pointer to encode JSON null. Slices,
+/// maps, and interfaces already encode nil as null.
 fn needs_pointer(type_name: &str) -> bool {
 	!(type_name.starts_with("[]")
 		|| type_name.starts_with("map[")
 		|| type_name == "any"
 		|| type_name == "struct{}")
+}
+
+/// `omitempty` drops zero values and empty collections. A pointer distinguishes
+/// an omitted field from a supplied false, zero, empty string, slice, or map.
+/// Nullable scalar renderings already have a pointer; their null/absence
+/// limitation is reported by the schema diagnostics.
+fn optional_type(rendered: String, optional: bool) -> String {
+	if optional && !rendered.starts_with('*') {
+		format!("*{rendered}")
+	} else {
+		rendered
+	}
 }
 
 /// One field of a generated struct.
@@ -237,7 +248,7 @@ fn struct_declaration(
 		let optional = !object.is_required(wire) || has_default(schema);
 		fields.push(Field {
 			go_name: field_names.bind(&type_name(wire)),
-			type_name: field_type,
+			type_name: optional_type(field_type, optional),
 			tag: (*wire).to_owned(),
 			docs: description(schema)
 				.map(|docs| docs.lines().map(str::trim).map(str::to_owned).collect())
@@ -493,8 +504,9 @@ fn method(function: &ApiFunction, types: &mut GoTypes, spec: &ApiSpec) -> Method
 			&format!("{hint}{}", type_name(&param.name)),
 			spec,
 		);
-		parameters.push(format!("{identifier} {param_type}"));
 		let optional = !param.is_required();
+		let param_type = optional_type(param_type, optional);
+		parameters.push(format!("{identifier} {param_type}"));
 		fields.push(Field {
 			go_name: field_names.bind(&type_name(&param.name)),
 			type_name: param_type,
@@ -880,8 +892,14 @@ client := {package}.NewClient({server_url})
 
 `FnError.Kind` is one of `KindNetwork`, `KindInvalid`, `KindServer`, `KindDecode`, or `KindOther`, \
 		 mirroring the server's classification; `Retryable` is true only for network failures. \
-		 Shapes Go cannot model yet (tagged unions) appear as `any` holding the decoded \
-		 JSON.\n{live}{skipped}",
+		 Shapes Go cannot model yet (tagged unions) appear as `any` holding the decoded JSON.
+
+Optional arguments and model fields use pointers: `nil` omits the value; a pointer to `false`, \
+		 `0`, or an empty string sends that value. JSON and live calls also preserve empty \
+		 collections; form and query encoding cannot express an empty collection. When \
+		 regenerating an older client, pass the address of values you previously supplied \
+		 directly. Optional nullable fields can still collapse JSON null into absence; strict \
+		 schema diagnostics report that limitation.\n{live}{skipped}",
 		live = live_readme(context, names),
 		name = context.options.package_name,
 		title = context.spec.title,
