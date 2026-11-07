@@ -33,6 +33,11 @@ pub struct InfraConfig {
 	/// Optional shared cache and live relay.
 	#[serde(default)]
 	pub services: InfraServices,
+	/// The managed Postgres server's connection limit, and the pool size the
+	/// app's server opens, for the connection budget `lk infra plan` and
+	/// `lk doctor` check.
+	#[serde(default, skip_serializing_if = "InfraPostgres::is_default")]
+	pub postgres: InfraPostgres,
 	/// Versioned optional infrastructure capabilities. No plugin executes
 	/// arbitrary downloaded code or gets provider credentials at runtime.
 	#[serde(default)]
@@ -127,6 +132,58 @@ pub struct InfraServices {
 	/// Provision NATS `JetStream` and bind the app's configured relay variable.
 	/// Required for several application hosts to share live channels/presence.
 	pub relay: bool,
+}
+
+/// The managed Postgres server's connection budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct InfraPostgres {
+	/// Postgres's `max_connections`. The server starts with this limit, and
+	/// the app's and its services' pools must fit inside it.
+	#[cfg_attr(feature = "schema", schemars(range(min = 20, max = 10000)))]
+	pub max_connections: u32,
+	/// The most connections the app server's pool opens: `PoolOptions`'s
+	/// `max_connections` in its `main`. `leptoskit_db`'s default is 8.
+	#[cfg_attr(feature = "schema", schemars(range(min = 1)))]
+	pub app_pool: u32,
+}
+
+impl InfraPostgres {
+	/// Postgres's own default limit.
+	pub const DEFAULT_MAX_CONNECTIONS: u32 = 100;
+	/// `leptoskit_db`'s default pool size.
+	pub const DEFAULT_POOL: u32 = 8;
+
+	// Two `u32`s are a trivial copy only where pointers are 64 bits; on wasm32
+	// the lint doesn't fire.
+	#[cfg_attr(
+		target_pointer_width = "64",
+		expect(
+			clippy::trivially_copy_pass_by_ref,
+			reason = "serde's skip_serializing_if passes a reference"
+		)
+	)]
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
+
+	fn problem(self) -> Option<String> {
+		(!(20..=10_000).contains(&self.max_connections) || self.app_pool == 0).then(|| {
+			"infra.postgres.max_connections must be between 20 and 10000, and \
+			 infra.postgres.app_pool at least 1"
+				.to_owned()
+		})
+	}
+}
+
+impl Default for InfraPostgres {
+	fn default() -> Self {
+		Self {
+			max_connections: Self::DEFAULT_MAX_CONNECTIONS,
+			app_pool: Self::DEFAULT_POOL,
+		}
+	}
 }
 
 /// Built-in infrastructure plugins. Unknown plugin names fail parsing;
@@ -366,7 +423,7 @@ impl InfraConfig {
 		if self.hosted_state && self.state.is_some() {
 			return Some("choose hosted_state or infra.state, not both".into());
 		}
-		if let Some(problem) = self.plugins_problem() {
+		if let Some(problem) = self.plugins_problem().or_else(|| self.postgres.problem()) {
 			return Some(problem);
 		}
 		let safe = |text: &str| {

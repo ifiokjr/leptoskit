@@ -83,6 +83,7 @@ fn package(
 				}
 			})
 			.collect(),
+		metadata: serde_json::Value::Null,
 	}
 }
 

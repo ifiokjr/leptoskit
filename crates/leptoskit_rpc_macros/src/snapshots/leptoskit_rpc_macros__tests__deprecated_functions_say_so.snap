@@ -29,4 +29,5 @@ static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spe
     deprecated: true,
     tags: &[],
     scopes: &[],
+    service: ::core::option::Option::None,
 };

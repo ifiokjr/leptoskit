@@ -15,6 +15,7 @@ pub(super) fn kamal(
 ) -> Result<(String, String)> {
 	let database = project.database.as_ref().context("Postgres is required")?;
 	let primary = hosts.first().context("no application hosts")?;
+	super::services::check(c, project)?;
 	let mut names: BTreeSet<String> = project.secrets.iter().chain(&c.secrets).cloned().collect();
 	names.extend(project.urls.iter().cloned());
 	names.insert(database.url_env.clone());
@@ -113,6 +114,21 @@ pub(super) fn kamal(
 			"directories": [format!("/var/lib/leptoskit/{}/nats:/data", c.name)], "options": {"network": "kamal", "user": "1000:1000"}});
 		names.insert("NATS_TOKEN".into());
 	}
+	if c.postgres.max_connections != leptoskit_config::infra::InfraPostgres::DEFAULT_MAX_CONNECTIONS
+	{
+		config["accessories"]["db"]["cmd"] = json!(format!(
+			"postgres -c max_connections={}",
+			c.postgres.max_connections
+		));
+	}
+	let services = super::services::kamal(&mut config, c, project, primary);
+	super::services::keep_app_env_to_itself(&mut config, project);
+	names.extend(services.names);
+	let custom: BTreeSet<&str> = services
+		.lines
+		.iter()
+		.map(|(name, _)| name.as_str())
+		.collect();
 	names.extend([
 		"KAMAL_REGISTRY_PASSWORD".into(),
 		"POSTGRES_PASSWORD".into(),
@@ -120,8 +136,15 @@ pub(super) fn kamal(
 		"TUNNEL_TOKEN".into(),
 	]);
 	let mut secrets = String::new();
-	for name in names {
+	for name in names.iter().filter(|name| !custom.contains(name.as_str())) {
 		writeln!(secrets, "{name}=${name}")?;
+	}
+	for (name, value) in &services.lines {
+		ensure!(
+			leptoskit_config::infra::env_name(name),
+			"invalid secret name {name}"
+		);
+		writeln!(secrets, "{name}={value}")?;
 	}
 	// JSON is a YAML subset understood by Kamal, avoiding hand-escaped YAML.
 	Ok((serde_json::to_string_pretty(&config)? + "\n", secrets))

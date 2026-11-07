@@ -99,6 +99,12 @@ pub fn run(all: bool) -> Result<()> {
 		checks.push(check);
 	}
 
+	if let Some((config, root)) = &project
+		&& let Some(check) = connections_check(config, root)
+	{
+		checks.push(check);
+	}
+
 	let config = project.as_ref().map(|(config, _)| config);
 
 	for platform in selected_platforms(all, config) {
@@ -656,6 +662,54 @@ fn find_lockfile(root: &Path) -> Option<PathBuf> {
 		.find(|path| path.is_file())
 }
 
+/// Whether the app's and its services' database pools fit in Postgres's
+/// connection limit, for an app on Postgres with services or managed hosts.
+fn connections_check(config: &LeptoskitConfig, root: &Path) -> Option<Check> {
+	let postgres = config
+		.db
+		.as_ref()
+		.is_some_and(|db| db.dialect == leptoskit_config::DbDialect::Postgres);
+
+	if !postgres || (config.services.is_empty() && config.infra.is_none()) {
+		return None;
+	}
+
+	let settings = config
+		.infra
+		.as_ref()
+		.map(|infra| (infra.postgres, infra.instances))
+		.unwrap_or_default();
+	let (limits, hosts) = (settings.0, settings.1.max(1));
+	let outcome = crate::deploy::Project::read(root, config)
+		.map_err(|error| format!("could not read the services: {error:#}"))
+		.and_then(|project| {
+			let budget = crate::deploy::services::Budget::new(
+				limits.app_pool,
+				u32::from(hosts),
+				&project.services,
+				limits.max_connections,
+			);
+
+			if budget.fits() {
+				Ok(format!(
+					"{} of {} connections at most",
+					budget.total, budget.limit
+				))
+			} else {
+				Err(format!(
+					"the database pools need more connections than Postgres allows:{}\nraise \
+					 infra.postgres.max_connections, or lower infra.postgres.app_pool and the \
+					 services' `pool`",
+					budget.explain()
+				))
+			}
+		});
+	Some(Check {
+		name: "Postgres connections",
+		required: true,
+		outcome,
+	})
+}
 #[cfg(test)]
 mod tests {
 	use leptoskit_config::LeptoskitConfig;

@@ -34,6 +34,18 @@ psql("CREATE TABLE _leptoskit_migrations(name TEXT PRIMARY KEY, checksum TEXT NO
      "INSERT INTO _leptoskit_migrations VALUES ('first', 'fixture'); "
      "CREATE TABLE notes(body TEXT); INSERT INTO notes VALUES ('original'); "
      "ALTER TABLE notes OWNER TO leptoskit; ALTER TABLE _leptoskit_migrations OWNER TO leptoskit", "leptoskit")
+# Two services' databases, each owned by its own role: one with a migration
+# history, one that has applied none.
+psql("CREATE ROLE leptoskit_service_analytics LOGIN; CREATE ROLE leptoskit_service_cards LOGIN")
+psql("CREATE DATABASE leptoskit_service_analytics OWNER leptoskit_service_analytics")
+psql("CREATE DATABASE leptoskit_service_cards OWNER leptoskit_service_cards")
+psql("CREATE TABLE _leptoskit_migrations(name TEXT PRIMARY KEY, checksum TEXT NOT NULL); "
+     "INSERT INTO _leptoskit_migrations VALUES ('events', 'fixture'); "
+     "CREATE TABLE events(name TEXT); INSERT INTO events VALUES ('signup'); "
+     "ALTER TABLE events OWNER TO leptoskit_service_analytics; "
+     "ALTER TABLE _leptoskit_migrations OWNER TO leptoskit_service_analytics", "leptoskit_service_analytics")
+psql("CREATE TABLE cards(id INTEGER); INSERT INTO cards VALUES (1); "
+     "ALTER TABLE cards OWNER TO leptoskit_service_cards", "leptoskit_service_cards")
 
 adapter = bin_path / "docker"
 adapter.write_text(r'''#!/usr/bin/env python3
@@ -95,12 +107,24 @@ assert invoke("status")["healthy"] is True
 assert len(invoke("snapshots")) == 1
 invoke("verify", "--snapshot", snapshot)
 psql("UPDATE notes SET body = 'changed'", "leptoskit")
+psql("UPDATE events SET name = 'changed'", "leptoskit_service_analytics")
+psql("UPDATE cards SET id = 2", "leptoskit_service_cards")
 invoke("restore", "--snapshot", snapshot, success=False)
 assert psql("SELECT body FROM notes", "leptoskit") == "changed"
 restored = invoke("restore", "--snapshot", snapshot, "--yes")
 assert restored["application_stopped"]
 assert psql("SELECT body FROM notes", "leptoskit") == "original"
 assert psql("SELECT body FROM notes", restored["previous_database"]) == "changed"
+# The services' databases come back with the app's, owned by their roles.
+assert psql("SELECT name FROM events", "leptoskit_service_analytics") == "signup"
+assert psql("SELECT id FROM cards", "leptoskit_service_cards") == "1"
+assert psql("SELECT name FROM events", restored["previous_databases"]["leptoskit_service_analytics"]) == "changed"
+assert psql("SELECT id FROM cards", restored["previous_databases"]["leptoskit_service_cards"]) == "2"
+assert psql("SELECT tableowner FROM pg_tables WHERE tablename = 'events'", "leptoskit_service_analytics") == "leptoskit_service_analytics"
+assert psql("SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'leptoskit_service_cards'") == "leptoskit_service_cards"
+# A restored database is locked down again: only its owner connects.
+for name in ["leptoskit", "leptoskit_service_analytics", "leptoskit_service_cards"]:
+    assert psql("SELECT has_database_privilege('public', '" + name + "', 'CONNECT')") == "f", name
 assert json.loads((root / "releases.json").read_text()) == [{"version": "v1"}]
 assert not (root / "cache-stale").exists()
 assert not list((root.parent / "nats").iterdir())
@@ -128,4 +152,4 @@ assert (root / "operation.lock").read_text() == owner
 (root / "backup-secrets.json").write_text('{"RESTIC_PASSWORD":"wrong-password"}')
 invoke("verify", "--snapshot", snapshot, success=False)
 assert psql("SELECT body FROM notes", "leptoskit") == "original"
-print("Verified encrypted backup, restore, ownership, retention gating, and reservations")
+print("Verified encrypted backup, restore, services' databases, ownership, connect lockdown, retention gating, and reservations")

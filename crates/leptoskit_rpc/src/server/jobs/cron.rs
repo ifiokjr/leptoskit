@@ -107,6 +107,9 @@ pub struct CronRegistration {
 	/// Enqueues one tick.
 	#[doc(hidden)]
 	pub enqueue: CronEnqueue,
+	/// The service whose scheduler enqueues it: its job's
+	/// [`Job::SERVICE`]. `None` for the app's own.
+	pub service: Option<&'static str>,
 }
 
 inventory::collect!(CronRegistration);

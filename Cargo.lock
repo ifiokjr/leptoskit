@@ -104,6 +104,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b"
 
 [[package]]
+name = "analytics_app"
+version = "0.3.0"
+dependencies = [
+ "analytics_service",
+ "console_error_panic_hook",
+ "js-sys",
+ "leptos",
+ "leptos_router",
+ "leptoskit",
+ "leptoskit_db",
+ "leptoskit_query",
+ "leptoskit_rpc",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tokio",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "analytics_service"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "leptoskit_axum",
+ "leptoskit_db",
+ "leptoskit_rpc",
+ "reqwest 0.12.28",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
+]
+
+[[package]]
 name = "android_apk"
 version = "0.3.0"
 dependencies = [
@@ -5032,6 +5069,7 @@ dependencies = [
  "leptoskit_config",
  "semver",
  "serde_json",
+ "subtle",
  "thiserror 2.0.21",
  "tokio",
  "tower",
@@ -5142,6 +5180,9 @@ dependencies = [
  "futures",
  "getrandom 0.4.3",
  "hex",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "ignore",
  "image",
  "insta",
@@ -5184,6 +5225,7 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "tokio-tungstenite 0.30.0",
  "toml 0.9.12+spec-1.1.0",
  "toml_edit",
  "tower",
@@ -6453,6 +6495,7 @@ dependencies = [
  "leptoskit_rpc_macros",
  "parking_lot",
  "percent-encoding",
+ "reqwest 0.12.28",
  "schemars",
  "send_wrapper",
  "serde",

@@ -1,0 +1,1002 @@
+{
+  "format": 1,
+  "dialect": "sqlite",
+  "tables": [
+    {
+      "name": {
+        "name": "events"
+      },
+      "comment": "One thing that happened, as a browser or the app reported it.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "What happened, such as `signup` or `clicked_buy`."
+        },
+        {
+          "name": "distinct_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "Who it happened to: an id the browser keeps, not an account."
+        },
+        {
+          "name": "properties",
+          "type": {
+            "kind": "text",
+            "max_len": 8192
+          },
+          "nullable": false,
+          "comment": "The event's properties, as a JSON object of strings."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "checks": [
+        {
+          "name": "events_name_length",
+          "rule": {
+            "kind": "length",
+            "column": "name",
+            "min": 1,
+            "max": 64
+          }
+        },
+        {
+          "name": "events_distinct_id_length",
+          "rule": {
+            "kind": "length",
+            "column": "distinct_id",
+            "min": 1,
+            "max": 128
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "live",
+        "name": "changes"
+      },
+      "comment": "`live.changes`: one row per written row of a live table.",
+      "columns": [
+        {
+          "name": "seq",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "comment": "The change's place among the database's changes."
+        },
+        {
+          "name": "txid",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": true,
+          "comment": "The Postgres transaction that wrote it, which joins it to its commit."
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": true,
+          "comment": "SQLite: the commit's version, set just before the commit."
+        },
+        {
+          "name": "table_name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "The changed table, with its namespace: `messages` or `billing.invoices`."
+        },
+        {
+          "name": "op",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "What the write did."
+        },
+        {
+          "name": "key",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "comment": "The changed row's key, in key column order."
+        },
+        {
+          "name": "old",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": true,
+          "comment": "The row before an update or delete, without `secret` and\n`live = skip` columns."
+        },
+        {
+          "name": "new",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": true,
+          "comment": "The row after an insert or update, without those columns."
+        },
+        {
+          "name": "changed",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "comment": "For an update, every column whose value changed; empty otherwise."
+        }
+      ],
+      "primary_key": [
+        "seq"
+      ],
+      "indexes": [
+        {
+          "name": "live_changes_txid_idx",
+          "columns": [
+            "txid"
+          ]
+        },
+        {
+          "name": "live_changes_version_idx",
+          "columns": [
+            "version"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "live_changes_op_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "op",
+            "values": [
+              "I",
+              "U",
+              "D"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "live",
+        "name": "commits"
+      },
+      "comment": "`live.commits`: one row per committed transaction that wrote a live\ntable.",
+      "columns": [
+        {
+          "name": "version",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "comment": "The transaction's place in the version line. Gaps are transactions\nthat rolled back after taking a version, which never become visible."
+        },
+        {
+          "name": "txid",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": true,
+          "comment": "The Postgres transaction ID, which joins the commit to its changes.\n`None` on SQLite."
+        },
+        {
+          "name": "committed_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "When the transaction committed."
+        },
+        {
+          "name": "actor",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": true,
+          "comment": "Who made the change, when the transaction said."
+        },
+        {
+          "name": "origin",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "What made it: what the transaction said, such as an operation's\nname, or `sql`."
+        },
+        {
+          "name": "lsn",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": true,
+          "comment": "Replication capture: where the commit's record starts in Postgres's\nwrite-ahead log, which orders commits as the database committed them.\n`None` for commits captured by triggers."
+        }
+      ],
+      "primary_key": [
+        "version"
+      ],
+      "indexes": [
+        {
+          "name": "live_commits_txid_idx",
+          "columns": [
+            "txid"
+          ]
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "rpc",
+        "name": "inbox"
+      },
+      "comment": "One notice in someone's inbox, in the `rpc` pack's `inbox` table.\n\nIts policies let each account read and mark read only its own notices;\nonly server code writes them, through `cx.notify(...)`.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": false,
+          "comment": "Whose notice it is: their account's UUID."
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false
+        },
+        {
+          "name": "body",
+          "type": {
+            "kind": "text",
+            "max_len": 4000
+          },
+          "nullable": false
+        },
+        {
+          "name": "link",
+          "type": {
+            "kind": "text",
+            "max_len": 2000
+          },
+          "nullable": true
+        },
+        {
+          "name": "action",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": true,
+          "comment": "The button on it."
+        },
+        {
+          "name": "kind",
+          "type": {
+            "kind": "text",
+            "max_len": 32
+          },
+          "nullable": false,
+          "comment": "`info`, `success`, `warning`, or `error`."
+        },
+        {
+          "name": "read_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When its owner read it."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "rpc_inbox_account_created_at_idx",
+          "columns": [
+            "account",
+            "created_at"
+          ]
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "rpc",
+        "name": "jobs"
+      },
+      "comment": "One enqueued job, in the `rpc` pack's `jobs` table.\n\nIt's a live table: a client follows a job with\n[`use_job`](crate::client::use_job), and the hub sends each change. Its\npolicies show a job to the account that enqueued it, and to whoever\n`#[rpc::job(visible_to = ...)]` names, and let only the owner change it.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "key",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": true,
+          "comment": "The app's idempotency key, if it gave one: enqueuing it again returns\nthe same job, until the job is pruned."
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "The job's name."
+        },
+        {
+          "name": "queue",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "Its queue."
+        },
+        {
+          "name": "arguments",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "comment": "The arguments, as JSON."
+        },
+        {
+          "name": "owner",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": false,
+          "comment": "The account that enqueued it, as a UUID, or empty when nobody signed\nin did."
+        },
+        {
+          "name": "viewer",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": false,
+          "comment": "Another account that may read it, from `visible_to = argument`, or\nempty."
+        },
+        {
+          "name": "visibility",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "Who else may read it."
+        },
+        {
+          "name": "serial_key",
+          "type": {
+            "kind": "text",
+            "max_len": 512
+          },
+          "nullable": true,
+          "comment": "The job's name and its `serialize_by` argument: at most one job with\na key runs at a time."
+        },
+        {
+          "name": "state",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "attempts",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "comment": "How many times a worker has started it."
+        },
+        {
+          "name": "max_attempts",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "comment": "How many starts it gets before it fails."
+        },
+        {
+          "name": "priority",
+          "type": {
+            "kind": "int32"
+          },
+          "nullable": false,
+          "comment": "Higher runs first."
+        },
+        {
+          "name": "run_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "comment": "Not before this instant."
+        },
+        {
+          "name": "deadline_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "No attempt starts after this instant."
+        },
+        {
+          "name": "started_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When a worker last started it."
+        },
+        {
+          "name": "finished_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "When it reached `done`, `failed`, or `cancelled`."
+        },
+        {
+          "name": "locked_until",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true,
+          "comment": "Until when the running worker holds it; `None` when no one does."
+        },
+        {
+          "name": "result",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": true,
+          "comment": "What the body returned, as JSON."
+        },
+        {
+          "name": "error",
+          "type": {
+            "kind": "text",
+            "max_len": 2000
+          },
+          "nullable": true,
+          "comment": "Why the last attempt failed."
+        },
+        {
+          "name": "progress",
+          "type": {
+            "kind": "text",
+            "max_len": 500
+          },
+          "nullable": true,
+          "comment": "What it last said it was doing."
+        },
+        {
+          "name": "fraction",
+          "type": {
+            "kind": "float64"
+          },
+          "nullable": true,
+          "comment": "How far along it last said it was, from 0 to 1."
+        },
+        {
+          "name": "steps",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "comment": "The results of the steps it finished, by name."
+        },
+        {
+          "name": "cancel_requested",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "comment": "Someone asked it to stop."
+        },
+        {
+          "name": "failure_pending",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "comment": "It failed, and its `on_failure` mutation hasn't run yet."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "rpc_jobs_key_key",
+          "columns": [
+            "key"
+          ],
+          "unique": true
+        },
+        {
+          "name": "rpc_jobs_state_run_at_idx",
+          "columns": [
+            "state",
+            "run_at"
+          ]
+        },
+        {
+          "name": "rpc_jobs_locked_until_idx",
+          "columns": [
+            "locked_until"
+          ]
+        },
+        {
+          "name": "rpc_jobs_queue_state_idx",
+          "columns": [
+            "queue",
+            "state"
+          ]
+        },
+        {
+          "name": "rpc_jobs_serial_key_state_idx",
+          "columns": [
+            "serial_key",
+            "state"
+          ]
+        },
+        {
+          "name": "rpc_jobs_finished_at_idx",
+          "columns": [
+            "finished_at"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "rpc_jobs_visibility_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "visibility",
+            "values": [
+              "owner",
+              "signed_in",
+              "everyone"
+            ]
+          }
+        },
+        {
+          "name": "rpc_jobs_state_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "state",
+            "values": [
+              "pending",
+              "running",
+              "done",
+              "failed",
+              "cancelled"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "rpc",
+        "name": "receipts"
+      },
+      "comment": "One mutation call that ran with a request ID, and what it returned.\n\nEach caller sees only their own receipts: the policy compares\n[`owner`](Self::owner) with the [`ReceiptOwner`] the RPC adds to the\ncontext it runs a mutation in.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "owner",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "Who called: their [`Identity::caller`](super::Identity::caller), such\nas a session ID, or [`ANONYMOUS`] for anonymous callers."
+        },
+        {
+          "name": "request_id",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "The ID the call came with."
+        },
+        {
+          "name": "operation",
+          "type": {
+            "kind": "text",
+            "max_len": 255
+          },
+          "nullable": false,
+          "comment": "The operation's name."
+        },
+        {
+          "name": "arguments",
+          "type": {
+            "kind": "text",
+            "max_len": 64
+          },
+          "nullable": false,
+          "comment": "A SHA-256 of the operation's name and arguments, in hex: a repeat\nwith the same request ID and other arguments is refused rather than\nanswered with another call's result."
+        },
+        {
+          "name": "result",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "comment": "What the call returned, as JSON."
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "rpc_receipts_created_at_idx",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "name": "rpc_receipts_owner_request_id_key",
+          "columns": [
+            "owner",
+            "request_id"
+          ],
+          "unique": true
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    {
+      "name": "live_events_delete",
+      "table": {
+        "name": "events"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "name",
+        "distinct_id",
+        "properties",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'events', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'name', OLD.\"name\", 'distinct_id', OLD.\"distinct_id\", 'properties', OLD.\"properties\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_events_insert",
+      "table": {
+        "name": "events"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "name",
+        "distinct_id",
+        "properties",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'events', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'name', NEW.\"name\", 'distinct_id', NEW.\"distinct_id\", 'properties', NEW.\"properties\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_events_update",
+      "table": {
+        "name": "events"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "name",
+        "distinct_id",
+        "properties",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'events', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'name', OLD.\"name\", 'distinct_id', OLD.\"distinct_id\", 'properties', OLD.\"properties\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'name', NEW.\"name\", 'distinct_id', NEW.\"distinct_id\", 'properties', NEW.\"properties\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"distinct_id\" IS NOT NEW.\"distinct_id\" THEN 'distinct_id' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"name\" IS NOT NEW.\"name\" THEN 'name' END, CASE WHEN OLD.\"properties\" IS NOT NEW.\"properties\" THEN 'properties' END)) WHERE \"type\" <> 'null'));"
+      }
+    },
+    {
+      "name": "live_rpc_inbox_delete",
+      "table": {
+        "namespace": "rpc",
+        "name": "inbox"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "account",
+        "title",
+        "body",
+        "link",
+        "action",
+        "kind",
+        "read_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.inbox', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'account', OLD.\"account\", 'title', OLD.\"title\", 'body', OLD.\"body\", 'link', OLD.\"link\", 'action', json(OLD.\"action\"), 'kind', OLD.\"kind\", 'read_at', OLD.\"read_at\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_rpc_inbox_insert",
+      "table": {
+        "namespace": "rpc",
+        "name": "inbox"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "account",
+        "title",
+        "body",
+        "link",
+        "action",
+        "kind",
+        "read_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.inbox', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'account', NEW.\"account\", 'title', NEW.\"title\", 'body', NEW.\"body\", 'link', NEW.\"link\", 'action', json(NEW.\"action\"), 'kind', NEW.\"kind\", 'read_at', NEW.\"read_at\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_rpc_inbox_update",
+      "table": {
+        "namespace": "rpc",
+        "name": "inbox"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "account",
+        "title",
+        "body",
+        "link",
+        "action",
+        "kind",
+        "read_at",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.inbox', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'account', OLD.\"account\", 'title', OLD.\"title\", 'body', OLD.\"body\", 'link', OLD.\"link\", 'action', json(OLD.\"action\"), 'kind', OLD.\"kind\", 'read_at', OLD.\"read_at\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'account', NEW.\"account\", 'title', NEW.\"title\", 'body', NEW.\"body\", 'link', NEW.\"link\", 'action', json(NEW.\"action\"), 'kind', NEW.\"kind\", 'read_at', NEW.\"read_at\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"account\" IS NOT NEW.\"account\" THEN 'account' END, CASE WHEN OLD.\"action\" IS NOT NEW.\"action\" THEN 'action' END, CASE WHEN OLD.\"body\" IS NOT NEW.\"body\" THEN 'body' END, CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"kind\" IS NOT NEW.\"kind\" THEN 'kind' END, CASE WHEN OLD.\"link\" IS NOT NEW.\"link\" THEN 'link' END, CASE WHEN OLD.\"read_at\" IS NOT NEW.\"read_at\" THEN 'read_at' END, CASE WHEN OLD.\"title\" IS NOT NEW.\"title\" THEN 'title' END)) WHERE \"type\" <> 'null'));"
+      }
+    },
+    {
+      "name": "live_rpc_jobs_delete",
+      "table": {
+        "namespace": "rpc",
+        "name": "jobs"
+      },
+      "timing": "after",
+      "events": [
+        "delete"
+      ],
+      "columns": [
+        "id",
+        "key",
+        "name",
+        "queue",
+        "arguments",
+        "owner",
+        "viewer",
+        "visibility",
+        "serial_key",
+        "state",
+        "attempts",
+        "max_attempts",
+        "priority",
+        "run_at",
+        "deadline_at",
+        "started_at",
+        "finished_at",
+        "locked_until",
+        "result",
+        "error",
+        "progress",
+        "fraction",
+        "steps",
+        "cancel_requested",
+        "failure_pending",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.jobs', 'D', json_array(CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'key', OLD.\"key\", 'name', OLD.\"name\", 'queue', OLD.\"queue\", 'arguments', json(OLD.\"arguments\"), 'owner', OLD.\"owner\", 'viewer', OLD.\"viewer\", 'visibility', OLD.\"visibility\", 'serial_key', OLD.\"serial_key\", 'state', OLD.\"state\", 'attempts', OLD.\"attempts\", 'max_attempts', OLD.\"max_attempts\", 'priority', OLD.\"priority\", 'run_at', OLD.\"run_at\", 'deadline_at', OLD.\"deadline_at\", 'started_at', OLD.\"started_at\", 'finished_at', OLD.\"finished_at\", 'locked_until', OLD.\"locked_until\", 'result', json(OLD.\"result\"), 'error', OLD.\"error\", 'progress', OLD.\"progress\", 'fraction', OLD.\"fraction\", 'steps', json(OLD.\"steps\"), 'cancel_requested', OLD.\"cancel_requested\", 'failure_pending', OLD.\"failure_pending\", 'created_at', OLD.\"created_at\"), NULL, '[]');"
+      }
+    },
+    {
+      "name": "live_rpc_jobs_insert",
+      "table": {
+        "namespace": "rpc",
+        "name": "jobs"
+      },
+      "timing": "after",
+      "events": [
+        "insert"
+      ],
+      "columns": [
+        "id",
+        "key",
+        "name",
+        "queue",
+        "arguments",
+        "owner",
+        "viewer",
+        "visibility",
+        "serial_key",
+        "state",
+        "attempts",
+        "max_attempts",
+        "priority",
+        "run_at",
+        "deadline_at",
+        "started_at",
+        "finished_at",
+        "locked_until",
+        "result",
+        "error",
+        "progress",
+        "fraction",
+        "steps",
+        "cancel_requested",
+        "failure_pending",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.jobs', 'I', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), NULL, json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'key', NEW.\"key\", 'name', NEW.\"name\", 'queue', NEW.\"queue\", 'arguments', json(NEW.\"arguments\"), 'owner', NEW.\"owner\", 'viewer', NEW.\"viewer\", 'visibility', NEW.\"visibility\", 'serial_key', NEW.\"serial_key\", 'state', NEW.\"state\", 'attempts', NEW.\"attempts\", 'max_attempts', NEW.\"max_attempts\", 'priority', NEW.\"priority\", 'run_at', NEW.\"run_at\", 'deadline_at', NEW.\"deadline_at\", 'started_at', NEW.\"started_at\", 'finished_at', NEW.\"finished_at\", 'locked_until', NEW.\"locked_until\", 'result', json(NEW.\"result\"), 'error', NEW.\"error\", 'progress', NEW.\"progress\", 'fraction', NEW.\"fraction\", 'steps', json(NEW.\"steps\"), 'cancel_requested', NEW.\"cancel_requested\", 'failure_pending', NEW.\"failure_pending\", 'created_at', NEW.\"created_at\"), '[]');"
+      }
+    },
+    {
+      "name": "live_rpc_jobs_update",
+      "table": {
+        "namespace": "rpc",
+        "name": "jobs"
+      },
+      "timing": "after",
+      "events": [
+        "update"
+      ],
+      "columns": [
+        "id",
+        "key",
+        "name",
+        "queue",
+        "arguments",
+        "owner",
+        "viewer",
+        "visibility",
+        "serial_key",
+        "state",
+        "attempts",
+        "max_attempts",
+        "priority",
+        "run_at",
+        "deadline_at",
+        "started_at",
+        "finished_at",
+        "locked_until",
+        "result",
+        "error",
+        "progress",
+        "fraction",
+        "steps",
+        "cancel_requested",
+        "failure_pending",
+        "created_at"
+      ],
+      "action": {
+        "kind": "statements",
+        "sql": "INSERT INTO \"live_changes\" (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \"live_changes\"), NULL, NULL, 'rpc.jobs', 'U', json_array(CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END), json_object('id', CASE WHEN OLD.\"id\" IS NULL THEN NULL ELSE lower(hex(OLD.\"id\")) END, 'key', OLD.\"key\", 'name', OLD.\"name\", 'queue', OLD.\"queue\", 'arguments', json(OLD.\"arguments\"), 'owner', OLD.\"owner\", 'viewer', OLD.\"viewer\", 'visibility', OLD.\"visibility\", 'serial_key', OLD.\"serial_key\", 'state', OLD.\"state\", 'attempts', OLD.\"attempts\", 'max_attempts', OLD.\"max_attempts\", 'priority', OLD.\"priority\", 'run_at', OLD.\"run_at\", 'deadline_at', OLD.\"deadline_at\", 'started_at', OLD.\"started_at\", 'finished_at', OLD.\"finished_at\", 'locked_until', OLD.\"locked_until\", 'result', json(OLD.\"result\"), 'error', OLD.\"error\", 'progress', OLD.\"progress\", 'fraction', OLD.\"fraction\", 'steps', json(OLD.\"steps\"), 'cancel_requested', OLD.\"cancel_requested\", 'failure_pending', OLD.\"failure_pending\", 'created_at', OLD.\"created_at\"), json_object('id', CASE WHEN NEW.\"id\" IS NULL THEN NULL ELSE lower(hex(NEW.\"id\")) END, 'key', NEW.\"key\", 'name', NEW.\"name\", 'queue', NEW.\"queue\", 'arguments', json(NEW.\"arguments\"), 'owner', NEW.\"owner\", 'viewer', NEW.\"viewer\", 'visibility', NEW.\"visibility\", 'serial_key', NEW.\"serial_key\", 'state', NEW.\"state\", 'attempts', NEW.\"attempts\", 'max_attempts', NEW.\"max_attempts\", 'priority', NEW.\"priority\", 'run_at', NEW.\"run_at\", 'deadline_at', NEW.\"deadline_at\", 'started_at', NEW.\"started_at\", 'finished_at', NEW.\"finished_at\", 'locked_until', NEW.\"locked_until\", 'result', json(NEW.\"result\"), 'error', NEW.\"error\", 'progress', NEW.\"progress\", 'fraction', NEW.\"fraction\", 'steps', json(NEW.\"steps\"), 'cancel_requested', NEW.\"cancel_requested\", 'failure_pending', NEW.\"failure_pending\", 'created_at', NEW.\"created_at\"), (SELECT json_group_array(\"value\") FROM json_each(json_array(CASE WHEN OLD.\"arguments\" IS NOT NEW.\"arguments\" THEN 'arguments' END, CASE WHEN OLD.\"attempts\" IS NOT NEW.\"attempts\" THEN 'attempts' END, CASE WHEN OLD.\"cancel_requested\" IS NOT NEW.\"cancel_requested\" THEN 'cancel_requested' END, CASE WHEN OLD.\"created_at\" IS NOT NEW.\"created_at\" THEN 'created_at' END, CASE WHEN OLD.\"deadline_at\" IS NOT NEW.\"deadline_at\" THEN 'deadline_at' END, CASE WHEN OLD.\"error\" IS NOT NEW.\"error\" THEN 'error' END, CASE WHEN OLD.\"failure_pending\" IS NOT NEW.\"failure_pending\" THEN 'failure_pending' END, CASE WHEN OLD.\"finished_at\" IS NOT NEW.\"finished_at\" THEN 'finished_at' END, CASE WHEN OLD.\"fraction\" IS NOT NEW.\"fraction\" THEN 'fraction' END, CASE WHEN OLD.\"id\" IS NOT NEW.\"id\" THEN 'id' END, CASE WHEN OLD.\"key\" IS NOT NEW.\"key\" THEN 'key' END, CASE WHEN OLD.\"locked_until\" IS NOT NEW.\"locked_until\" THEN 'locked_until' END, CASE WHEN OLD.\"max_attempts\" IS NOT NEW.\"max_attempts\" THEN 'max_attempts' END, CASE WHEN OLD.\"name\" IS NOT NEW.\"name\" THEN 'name' END, CASE WHEN OLD.\"owner\" IS NOT NEW.\"owner\" THEN 'owner' END, CASE WHEN OLD.\"priority\" IS NOT NEW.\"priority\" THEN 'priority' END, CASE WHEN OLD.\"progress\" IS NOT NEW.\"progress\" THEN 'progress' END, CASE WHEN OLD.\"queue\" IS NOT NEW.\"queue\" THEN 'queue' END, CASE WHEN OLD.\"result\" IS NOT NEW.\"result\" THEN 'result' END, CASE WHEN OLD.\"run_at\" IS NOT NEW.\"run_at\" THEN 'run_at' END, CASE WHEN OLD.\"serial_key\" IS NOT NEW.\"serial_key\" THEN 'serial_key' END, CASE WHEN OLD.\"started_at\" IS NOT NEW.\"started_at\" THEN 'started_at' END, CASE WHEN OLD.\"state\" IS NOT NEW.\"state\" THEN 'state' END, CASE WHEN OLD.\"steps\" IS NOT NEW.\"steps\" THEN 'steps' END, CASE WHEN OLD.\"viewer\" IS NOT NEW.\"viewer\" THEN 'viewer' END, CASE WHEN OLD.\"visibility\" IS NOT NEW.\"visibility\" THEN 'visibility' END)) WHERE \"type\" <> 'null'));"
+      }
+    }
+  ]
+}

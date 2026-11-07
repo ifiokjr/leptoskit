@@ -1,0 +1,403 @@
+---
+source: crates/leptoskit_cli/src/deploy/tests.rs
+assertion_line: 483
+expression: pinned
+---
+$ leptoskit generate deploy --target kubernetes
+created Dockerfile
+created .dockerignore
+created kubernetes.yaml
+
+next:
+  1. Choose each service's token, a long random secret the app and the service share, and keep it the same across deploys: LEPTOSKIT_SERVICE_ANALYTICS_TOKEN, LEPTOSKIT_SERVICE_BILLING_TOKEN, LEPTOSKIT_SERVICE_CARDS_TOKEN, each from `openssl rand -hex 32`.
+  2. Build and push the image: `docker build -t notes .` then push it to your registry.
+  3. Set image to the pushed reference in kubernetes.yaml.
+  4. Create the Secret: `kubectl create secret generic notes --from-literal=NAME=...`.
+  5. Create services.analytics's Secret, with the same token the app's Secret holds: `kubectl create secret generic notes-analytics --from-literal=LEPTOSKIT_SERVICE_TOKEN="$LEPTOSKIT_SERVICE_ANALYTICS_TOKEN" --from-literal=LEPTOSKIT_PUBLIC_ORIGIN=https://app.example.com --from-literal=DATABASE_URL=postgres://… --from-literal=ANALYTICS_GEOIP_KEY=…`.
+  6. Create services.cards's Secret, with the same token the app's Secret holds: `kubectl create secret generic notes-cards --from-literal=LEPTOSKIT_SERVICE_TOKEN="$LEPTOSKIT_SERVICE_CARDS_TOKEN" --from-literal=LEPTOSKIT_PUBLIC_ORIGIN=https://app.example.com`.
+  7. Give each database-backed service a role and database of its own on your Postgres (`psql --set=<PASSWORD_SECRET>=…` for each password), then put its URL in its Secret as DATABASE_URL:
+REVOKE CONNECT ON DATABASE "<app>" FROM PUBLIC;
+SELECT format('CREATE ROLE %I LOGIN', '<app>_service_analytics') WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '<app>_service_analytics')\gexec
+ALTER ROLE "<app>_service_analytics" LOGIN PASSWORD :'LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_PASSWORD';
+SELECT format('CREATE DATABASE %I OWNER %I', '<app>_service_analytics', '<app>_service_analytics') WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '<app>_service_analytics')\gexec
+REVOKE CONNECT ON DATABASE "<app>_service_analytics" FROM PUBLIC;
+
+  8. Set ingressClassName and a host on the Ingress `notes` for your cluster.
+  9. Apply it: `kubectl apply -f kubernetes.yaml`
+
+===== Dockerfile =====
+# syntax=docker/dockerfile:1
+#
+# The container for notes, written by `leptoskit generate deploy`. It's yours
+# to edit: running the generator again keeps your changes unless you pass
+# --force. Build it from the project root:
+#
+#   docker build -t notes .
+#
+# The first stage runs `leptoskit build --release`, as you would on your
+# machine. The second runs the server as an unprivileged user that writes
+# nothing to the image's filesystem, so it works with a read-only root
+# filesystem.
+
+# The Rust release that builds the app. `1` is the latest stable; pin one,
+# such as 1.96, to build the same way every time.
+ARG RUST_VERSION=1
+# The leptoskit CLI that builds the app. Keep it in step with the `leptoskit`
+# version in Cargo.toml.
+ARG LEPTOSKIT_VERSION=[version]
+# binaryen's wasm-opt shrinks the release client.
+ARG BINARYEN_VERSION=132
+
+FROM rust:${RUST_VERSION}-bookworm AS build
+ARG LEPTOSKIT_VERSION
+ARG BINARYEN_VERSION
+RUN curl --fail --silent --show-error --location \
+      "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-$(uname -m)-linux.tar.gz" \
+    | tar -xz -C /opt \
+ && ln -s "/opt/binaryen-version_${BINARYEN_VERSION}/bin/wasm-opt" /usr/local/bin/wasm-opt
+RUN cargo install leptoskit_cli --version "${LEPTOSKIT_VERSION}" --locked
+WORKDIR /src
+RUN rustup target add wasm32-unknown-unknown
+COPY . .
+# The cache mounts keep downloaded crates and compiled dependencies between
+# builds. The server is copied out, since the target directory is a cache.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    --mount=type=cache,target=/src/.leptoskit \
+    leptoskit build --release --platform web \
+ && cp target/release/notes /usr/local/bin/notes \
+ && install -D target/release/analytics_service /usr/local/lib/leptoskit/services/analytics \
+ && install -D target/release/cards /usr/local/lib/leptoskit/services/cards
+
+FROM debian:bookworm-slim
+# curl answers the health check, and `app` is the unprivileged user the
+# server runs as.
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --user-group --uid 10001 --no-create-home app \
+ && mkdir -p /volumes/exports \
+ && chown app:app /volumes/exports
+WORKDIR /app
+COPY --from=build /usr/local/bin/notes /app/server
+COPY --from=build /src/dist /app/dist
+# The services: each runs this image with its own command, such as
+# /app/services/<name>.
+COPY --from=build /usr/local/lib/leptoskit/services /app/services
+# What `leptoskit serve` sets from leptoskit.toml, for a container: listen on
+# every interface, and serve the site from /app/dist.
+ENV LEPTOS_ENV=PROD \
+    LEPTOS_OUTPUT_NAME=notes_app \
+    LEPTOS_SITE_ROOT=/app/dist \
+    LEPTOS_SITE_PKG_DIR=pkg \
+    LEPTOS_SITE_ADDR=0.0.0.0:3000
+# These secrets come from the environment when the container starts, never
+# from this file:
+#   DATABASE_URL
+#   LEPTOSKIT_SERVICE_ANALYTICS_TOKEN
+#   LEPTOSKIT_SERVICE_BILLING_TOKEN
+#   LEPTOSKIT_SERVICE_CARDS_TOKEN
+USER app
+EXPOSE 3000
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+  CMD port="${LEPTOSKIT_SERVICE_ADDR##*:}"; curl --fail --silent --output /dev/null "http://127.0.0.1:${port:-3000}/healthz"
+CMD ["/app/server"]
+
+===== .dockerignore =====
+# Written by `leptoskit generate deploy`. Keeps the build context small, and
+# local builds, databases, and secrets out of the image.
+.git
+**/target
+/dist
+/.leptoskit
+/infra
+/.kamal
+/android/.gradle
+/android/**/build
+*.sqlite3*
+*.dump
+.env
+.env.*
+
+===== kubernetes.yaml =====
+# notes on Kubernetes, written by `leptoskit generate deploy`. It's
+# yours to edit: running the generator again keeps your changes unless you
+# pass --force.
+#
+#   kubectl apply -f kubernetes.yaml
+#
+# The Deployment runs 2 replicas. On SIGTERM the server fails
+# /readyz, waits 5 seconds for the load balancer to stop sending it traffic,
+# and gives requests in flight 20 more; the pod's grace period is 30 seconds.
+#
+# The container reads these from the Secret `notes`, which you create
+# with `kubectl create secret generic notes --from-literal=...`:
+#   DATABASE_URL
+#   LEPTOSKIT_SERVICE_ANALYTICS_TOKEN
+#   LEPTOSKIT_SERVICE_BILLING_TOKEN
+#   LEPTOSKIT_SERVICE_CARDS_TOKEN
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notes
+  template:
+    metadata:
+      labels:
+        app: notes
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notes
+          image: notes
+          ports:
+            - containerPort: 3000
+          env:
+            - name: LEPTOS_SITE_ADDR
+              value: "0.0.0.0:3000"
+            - name: LEPTOSKIT_SERVICE_ANALYTICS_URL
+              value: "http://notes-analytics:3100"
+            - name: ANALYTICS_AUTHORIZATION
+              value: "Bearer $(LEPTOSKIT_SERVICE_ANALYTICS_TOKEN)"
+            - name: ANALYTICS_PUBLIC_PATH
+              value: "/_leptoskit/services/analytics"
+            - name: LEPTOSKIT_SERVICE_BILLING_URL
+              value: "https://billing.internal.example"
+            - name: LEPTOSKIT_SERVICE_CARDS_URL
+              value: "http://notes-cards:3200"
+          envFrom:
+            - secretRef:
+                name: notes
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes
+spec:
+  selector:
+    app: notes
+  ports:
+    - port: 80
+      targetPort: 3000
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notes
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: notes
+---
+# services.analytics: the app's image running /app/services/analytics.
+# It reads LEPTOSKIT_SERVICE_TOKEN, LEPTOSKIT_PUBLIC_ORIGIN, DATABASE_URL, ANALYTICS_GEOIP_KEY from the Secret `notes-analytics`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes-analytics
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: notes-analytics
+  template:
+    metadata:
+      labels:
+        app: notes-analytics
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: analytics
+          image: notes
+          command: ["/app/services/analytics"]
+          ports:
+            - containerPort: 3100
+          env:
+            - name: LEPTOSKIT_SERVICE_NAME
+              value: analytics
+            - name: LEPTOSKIT_SERVICE_ADDR
+              value: "0.0.0.0:3100"
+            - name: LEPTOSKIT_APP_URL
+              value: "http://notes:80"
+            - name: LEPTOSKIT_SERVICE_DATABASE_POOL
+              value: "4"
+            - name: LEPTOSKIT_SERVICE_VOLUME_EXPORTS
+              value: "/volumes/exports"
+            - name: ANALYTICS_RETENTION_DAYS
+              value: "90"
+          envFrom:
+            - secretRef:
+                name: notes-analytics
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3100
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3100
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: exports
+              mountPath: /volumes/exports
+      volumes:
+        - name: exports
+          persistentVolumeClaim:
+            claimName: notes-analytics-exports
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notes-analytics-exports
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes-analytics
+spec:
+  selector:
+    app: notes-analytics
+  ports:
+    - port: 3100
+      targetPort: 3100
+---
+# services.cards: the app's image running /app/services/cards.
+# It reads LEPTOSKIT_SERVICE_TOKEN, LEPTOSKIT_PUBLIC_ORIGIN from the Secret `notes-cards`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes-cards
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notes-cards
+  template:
+    metadata:
+      labels:
+        app: notes-cards
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: cards
+          image: notes
+          command: ["/app/services/cards"]
+          ports:
+            - containerPort: 3200
+          env:
+            - name: LEPTOSKIT_SERVICE_NAME
+              value: cards
+            - name: LEPTOSKIT_SERVICE_ADDR
+              value: "0.0.0.0:3200"
+            - name: LEPTOSKIT_APP_URL
+              value: "http://notes:80"
+          envFrom:
+            - secretRef:
+                name: notes-cards
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3200
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3200
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes-cards
+spec:
+  selector:
+    app: notes-cards
+  ports:
+    - port: 3200
+      targetPort: 3200
+---
+# The way in: each service's public paths go to it, and everything else to
+# the app. Set ingressClassName and a host for your cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notes
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /_leptoskit/services/analytics
+            pathType: Prefix
+            backend:
+              service:
+                name: notes-analytics
+                port:
+                  number: 3100
+          - path: /_analytics
+            pathType: Prefix
+            backend:
+              service:
+                name: notes-analytics
+                port:
+                  number: 3100
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: notes
+                port:
+                  number: 80

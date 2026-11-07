@@ -29,9 +29,13 @@ impl Api for InProcess {
 						.to_owned(),
 				)
 			})?;
-			let registration = crate::server::registration(name).ok_or_else(|| {
-				FnError::Other(format!("no operation is named `{name}` in this server"))
-			})?;
+			// Only this server's own operations run here: a service's
+			// operation is sent to that service, even when its body is
+			// linked into this build.
+			let registration = crate::server::registration_in(server.service_name(), name)
+				.ok_or_else(|| {
+					FnError::Other(format!("no operation is named `{name}` in this server"))
+				})?;
 			let parts = match parts {
 				Some(parts) => parts,
 				// Outside a request, such as in a test: an empty request,

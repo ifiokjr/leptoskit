@@ -296,3 +296,150 @@ async fn keys_are_long_random_and_fresh() {
 	assert!(first.chars().all(|character| character.is_ascii_hexdigit()));
 	assert_ne!(first, second);
 }
+
+/// A server's client for a service: where it sends, and how it signs.
+#[tokio::test]
+async fn a_server_calls_a_service_at_its_url_anonymously_unless_as_the_app() {
+	use super::services::FromEnvironment;
+
+	let lookup = |name: &str| {
+		match name {
+			"LEPTOSKIT_SERVICE_EVENT_STORE_URL" => Some("http://127.0.0.1:3100/".to_owned()),
+			"LEPTOSKIT_SERVICE_EVENT_STORE_TOKEN" => Some("t0k3n".to_owned()),
+			_ => None,
+		}
+	};
+
+	// What `call`, the query scopes and the server's rendering send: no
+	// token, though the server has one, so a page only ever renders what
+	// the browser could fetch itself.
+	let script = Script::default().answer(200, r#""pong""#);
+	let client = FromEnvironment::new("event-store", script.clone(), lookup);
+	let value = client
+		.call("ping", json!({ "word": "hi" }), Key::None)
+		.await
+		.unwrap();
+	assert_eq!(value, json!("pong"));
+	let sent = script.sent();
+	assert_eq!(
+		sent[0].url,
+		"http://127.0.0.1:3100/_leptoskit/services/event-store/api/ping"
+	);
+	assert_eq!(sent[0].authorization, None, "anonymous by default");
+
+	// `call_as_app`: signed with the service's token.
+	let script = Script::default().answer(200, r#""pong""#);
+	let as_app = FromEnvironment::new("event-store", script.clone(), lookup).signed_as_app();
+	as_app.call("ping", json!({}), Key::None).await.unwrap();
+	assert_eq!(
+		script.sent()[0].authorization.as_deref(),
+		Some("Bearer t0k3n")
+	);
+
+	// As the app without a token: refused before anything is sent.
+	let script = Script::default();
+	let tokenless = FromEnvironment::new("cards", script.clone(), |name| {
+		(name == "LEPTOSKIT_SERVICE_CARDS_URL").then(|| "http://cards:1".to_owned())
+	})
+	.signed_as_app();
+	let error = tokenless
+		.call("count", json!({}), Key::None)
+		.await
+		.unwrap_err();
+	assert!(
+		error
+			.message()
+			.contains("LEPTOSKIT_SERVICE_CARDS_TOKEN isn't set"),
+		"{error}"
+	);
+	assert_eq!(script.sent().len(), 0);
+
+	let script = Script::default();
+	let missing = FromEnvironment::new("cards", script.clone(), |_| Some("  ".to_owned()));
+	let error = missing
+		.call("count", json!({}), Key::None)
+		.await
+		.unwrap_err();
+	assert!(
+		error
+			.message()
+			.contains("LEPTOSKIT_SERVICE_CARDS_URL isn't set"),
+		"{error}"
+	);
+	assert_eq!(script.sent().len(), 0, "nothing is sent without a URL");
+}
+
+#[tokio::test]
+async fn a_browser_or_native_app_calls_a_service_on_the_apps_origin() {
+	use super::services::at_service;
+	use super::services::service_origin;
+
+	// In the browser: the page's own origin, with the cookie and no token.
+	let script = Script::default().answer(200, "1");
+	let browser = remote(&script, at_service(&ClientConfig::new(), "analytics"));
+	browser.call("capture", json!({}), Key::None).await.unwrap();
+	assert_eq!(
+		script.sent()[0].url,
+		"/_leptoskit/services/analytics/api/capture"
+	);
+
+	// In a native app: the configured origin, and none of the app's own
+	// credentials: the person's access token stays with the app.
+	let token = Arc::new(Token {
+		current: Mutex::new("person".to_owned()),
+		renewals: Mutex::new(0),
+	});
+	let app = ClientConfig {
+		credentials: Some(Arc::clone(&token) as Arc<dyn Credentials>),
+		..ClientConfig::new()
+			.origin("https://app.example")
+			.offline_store(super::MemoryQueue::default())
+	};
+	let service = at_service(&app, "analytics");
+	assert!(service.credentials.is_none());
+	// The queue, where it's kept, and its status are the app's: a service's
+	// live client never restores or saves them, and sends its mutations
+	// over HTTP while its socket is down.
+	assert!(!service.offline_queue, "the offline queue is the app's own");
+	assert!(service.offline_store.is_none());
+	let script = Script::default().answer(401, "\"who are you?\"");
+	let native = remote(&script, service);
+	let _ = native.call("capture", json!({}), Key::None).await;
+	assert_eq!(
+		script.sent()[0].url,
+		"https://app.example/_leptoskit/services/analytics/api/capture"
+	);
+	assert_eq!(script.sent()[0].authorization, None);
+	assert_eq!(script.sent().len(), 1, "a service's 401 renews nothing");
+	assert_eq!(
+		*token.renewals.lock().unwrap(),
+		0,
+		"the app's credentials are never asked to renew for a service"
+	);
+
+	// Credentials the app names for the service go to that service only.
+	let mut app = app;
+	app.service_credentials.insert(
+		"analytics".to_owned(),
+		Arc::clone(&token) as Arc<dyn Credentials>,
+	);
+	let script = Script::default().answer(200, "1");
+	remote(&script, at_service(&app, "analytics"))
+		.call("capture", json!({}), Key::None)
+		.await
+		.unwrap();
+	assert_eq!(
+		script.sent()[0].authorization.as_deref(),
+		Some("Bearer person")
+	);
+	assert!(at_service(&app, "search").credentials.is_none());
+
+	assert_eq!(
+		service_origin(None, "analytics"),
+		"/_leptoskit/services/analytics"
+	);
+	assert_eq!(
+		service_origin(Some("https://app.example/"), "analytics"),
+		"https://app.example/_leptoskit/services/analytics"
+	);
+}

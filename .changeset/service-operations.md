@@ -1,0 +1,13 @@
+---
+"release": minor
+---
+
+# Operations that run in a service
+
+A query, mutation, or action can belong to a service: a separate process the app runs beside its server. Declare it with `#[rpc::query(service = "analytics")]`, in a library both the service and the app depend on, and call it the way you call the app's own operations. From the browser, `rpc::client::call` and `use_live` send it to `/_leptoskit/services/analytics/` on the app's origin. From a native app, it goes to the same path on the configured origin. From the app's server while it renders, it goes over HTTP to `LEPTOSKIT_SERVICE_ANALYTICS_URL` as an anonymous caller, so a page renders only what the browser could fetch itself. `rpc::client::call_as_app`, on the server only, signs a call with `LEPTOSKIT_SERVICE_ANALYTICS_TOKEN` so the service treats it as the app. Live queries the service owns run on the service's own live connection, over its own database. The app's own credentials, such as a native app's access token, never go to a service unless `ClientConfig::service_credentials` names it, and a service's connection doesn't share the app's offline queue.
+
+The body is compiled only where the declaring crate's `service` feature is on, so the app builds without the service's dependencies. `Server::new(db).service("analytics")` serves only that service's operations, and the app's server never serves them, even when a workspace-wide build links their bodies into it. An app operation and a service operation may share a name. `rpc::server::ServiceCallers` tells the app and its services apart by their tokens: in a service the app is the caller `"app"`, and in the app a service is `"service:<name>"`. The app's live connection refuses a service, whether it connects with the service's token or signs in with it later, because a service reads the app's data by calling its operations.
+
+Jobs, cron schedules, streams, and channels can belong to a service too: `#[rpc::job(service = "analytics")]`, `#[rpc::stream(service = "analytics")]`, `#[rpc::channel(..., service = "analytics")]`. Only the service's workers run and schedule its jobs (`Jobs::service`, defaulting to the installed server's service), enqueueing one from another process is an error, and only the service's live socket serves its streams and channels. A service's operation can't take a toolkit `rpc.*` name, and an app operation named `rpc.…` is no longer served by every service as if it were built in.
+
+`SpecOptions::service` (or `LEPTOSKIT_RPC_SPEC_SERVICE`) exports a service's spec, and the app's spec leaves service operations out. The facade's `rpc-services` feature lets a server that doesn't serve operations itself call a service.

@@ -1,7 +1,8 @@
 //! The live client against a real server in this process: subscriptions and
 //! unsubscribing, reconnecting after a drain, a resumable stream reopened
-//! in place, credits, a dropped stream, channel refusals, and the globals a
-//! build with no connection has.
+//! in place, credits, a dropped stream, and channel refusals. The globals a
+//! build with no connection has are in `live_offline.rs`, since a test here
+//! installs the process's live client for good.
 
 #![cfg(all(feature = "live", feature = "sqlite"))]
 
@@ -14,7 +15,6 @@ use std::time::Duration;
 
 use futures::Stream;
 use futures::StreamExt;
-use leptos::prelude::Get as _;
 use leptos::prelude::Owner;
 use leptoskit_db::Db;
 use leptoskit_db::Id;
@@ -259,22 +259,6 @@ async fn next_tick(ticks: &mut rpc::client::LiveStream) -> u32 {
 
 fn live(db: Db) -> Live {
 	Live::new(db).identify(Caller)
-}
-
-/// A build with no installed client reports no connection, and the globals
-/// do nothing.
-#[test]
-fn without_an_installed_client_the_globals_are_offline() {
-	rpc::client::configure(ClientConfig::new());
-	assert!(!rpc::client::live::available());
-	rpc::client::live::reauthenticate();
-	// Signal hooks run inside a component owner, including builds using
-	// sandboxed arenas. Nextest runs this test without another test having
-	// initialized an arena on its thread.
-	Owner::new().with(|| {
-		let status = rpc::client::live::use_live_status();
-		assert_eq!(status.get(), rpc::client::LiveStatus::OFFLINE);
-	});
 }
 
 /// A subscription takes its value, stops when unsubscribed, and status

@@ -130,6 +130,8 @@ pub(crate) struct OperationArgs {
 	pub(crate) name: Option<LitStr>,
 	pub(crate) krate: Option<Path>,
 	retries: Option<LitInt>,
+	/// `service = "..."`: the service that runs it.
+	pub(crate) service: Option<LitStr>,
 	/// `#[rpc::stream(resumable)]`.
 	resumable: bool,
 	job: JobArgs,
@@ -150,9 +152,13 @@ struct JobArgs {
 /// The options each kind takes, for the error about one it doesn't.
 fn expected_options(kind: OperationKind) -> &'static str {
 	match kind {
-		OperationKind::Query | OperationKind::Action => "`name = \"...\"` or `crate = \"...\"`",
+		OperationKind::Query | OperationKind::Action => {
+			"`name = \"...\"`, `service = \"...\"`, or `crate = \"...\"`"
+		}
 		OperationKind::Stream => "`name = \"...\"`, `resumable`, or `crate = \"...\"`",
-		OperationKind::Mutation => "`name = \"...\"`, `retries = N`, or `crate = \"...\"`",
+		OperationKind::Mutation => {
+			"`name = \"...\"`, `retries = N`, `service = \"...\"`, or `crate = \"...\"`"
+		}
 		OperationKind::Job => {
 			"`name`, `crate`, `queue`, `retries`, `backoff`, `deadline`, `timeout`, \
 			 `serialize_by`, `visible_to`, or `on_failure`"
@@ -302,6 +308,21 @@ impl OperationArgs {
 				}
 
 				self.name = Some(name);
+			}
+
+			"service" => {
+				Self::once(self.service.is_some(), pair)?;
+				let service = crate::string_value(&pair.value, "service")?;
+				if !is_service_name(&service.value()) {
+					return Err(syn::Error::new_spanned(
+						&service,
+						"`service` names a service from `[services]` in leptoskit.toml: a \
+						 lowercase letter, then lowercase letters, digits, and `-`, as in \
+						 `service = \"analytics\"`",
+					));
+				}
+
+				self.service = Some(service);
 			}
 
 			"crate" => {
@@ -919,10 +940,7 @@ pub(crate) fn expand(
 		.krate
 		.clone()
 		.unwrap_or_else(|| syn::parse_quote!(::leptoskit_rpc));
-	let name = args
-		.name
-		.clone()
-		.unwrap_or_else(|| LitStr::new(&fn_name, function.sig.ident.span()));
+	let name = operation_name(&args, &fn_name, &function)?;
 	let struct_ident = struct_ident(&function);
 	let vis = &function.vis;
 	let field_vis = vis;
@@ -1023,12 +1041,14 @@ pub(crate) fn expand(
 			&struct_ident,
 			&name,
 			server,
-		));
+		)?);
 		return Ok(out);
 	}
 
+	let service = service_const(args.service.as_ref());
+
 	if server {
-		out.extend(server_items(
+		let items = server_items(
 			kind,
 			&args,
 			function,
@@ -1037,30 +1057,69 @@ pub(crate) fn expand(
 			&struct_ident,
 			&name,
 			&options,
-		));
-	} else {
-		out.extend(quote! {
-			#[allow(deprecated)]
-			impl #krate::Operation for #struct_ident {
-				const NAME: &'static str = #name;
-				const KIND: #krate::Kind = #krate::Kind::#variant;
-				type Output = #output;
-			}
-		});
+		);
 
-		if kind == OperationKind::Job {
-			out.extend(quote! {
-				#[allow(deprecated)]
-				impl #krate::Job for #struct_ident {
-					const NAME: &'static str = #name;
-					#options
-					type Output = #output;
-				}
-			});
-		}
+		out.extend(gate_for_service(&args, items, || {
+			let mut stub = remote_stub(&krate, &struct_ident, &name, &variant, output, &service);
+			let job = remote_job_stub(&krate, &struct_ident, &name, output, &service, &options);
+			stub.extend((kind == OperationKind::Job).then_some(job));
+			stub
+		})?);
+	} else {
+		out.extend(client_items(
+			kind,
+			&krate,
+			&struct_ident,
+			&name,
+			&variant,
+			output,
+			&service,
+			&options,
+		));
 	}
 
 	Ok(out)
+}
+
+/// What a client build keeps of an operation: its name, kind, and output,
+/// and a job's options, with no body.
+#[expect(
+	clippy::too_many_arguments,
+	reason = "the pieces `expand` has already worked out, passed on as they are"
+)]
+fn client_items(
+	kind: OperationKind,
+	krate: &Path,
+	struct_ident: &Ident,
+	name: &LitStr,
+	variant: &Ident,
+	output: &Type,
+	service: &TokenStream,
+	options: &TokenStream,
+) -> TokenStream {
+	let job = (kind == OperationKind::Job).then(|| {
+		quote! {
+			#[allow(deprecated)]
+			impl #krate::Job for #struct_ident {
+				const NAME: &'static str = #name;
+				#options
+				type Output = #output;
+				#service
+			}
+		}
+	});
+
+	quote! {
+		#[allow(deprecated)]
+		impl #krate::Operation for #struct_ident {
+			const NAME: &'static str = #name;
+			const KIND: #krate::Kind = #krate::Kind::#variant;
+			type Output = #output;
+			#service
+		}
+
+		#job
+	}
 }
 
 /// `From<rpc::Failed<J>>` for a mutation that takes only that: a job's
@@ -1256,7 +1315,9 @@ fn paginated(signature: &Signature, krate: &Path, struct_ident: &Ident) -> Token
 }
 
 /// A stream's impls: on every target, `StreamOperation` with its name and
-/// item; in a server build, the body, `pump`, and its registration.
+/// item; in a server build, the body, `pump`, and its registration, which
+/// for a service's stream are kept only where the declaring crate's own
+/// `service` feature is on.
 #[expect(
 	clippy::too_many_arguments,
 	reason = "what `expand` already worked out, handed on rather than worked out again"
@@ -1270,19 +1331,21 @@ fn stream_items(
 	struct_ident: &Ident,
 	name: &LitStr,
 	server: bool,
-) -> TokenStream {
+) -> syn::Result<TokenStream> {
 	let item = &stream.item;
 	let resumable = args.resumable;
+	let service = service_const(args.service.as_ref());
 
 	if !server {
-		return quote! {
+		return Ok(quote! {
 			#[allow(deprecated)]
 			impl #krate::StreamOperation for #struct_ident {
 				const NAME: &'static str = #name;
 				const RESUMABLE: bool = #resumable;
 				type Item = #item;
+				#service
 			}
-		};
+		});
 	}
 
 	let bindings: Vec<&Ident> = signature
@@ -1310,7 +1373,7 @@ fn stream_items(
 		}
 	}
 
-	quote! {
+	let items = quote! {
 		#function
 
 		#[allow(deprecated)]
@@ -1318,6 +1381,7 @@ fn stream_items(
 			const NAME: &'static str = #name;
 			const RESUMABLE: bool = #resumable;
 			type Item = #item;
+			#service
 
 			fn pump(
 				self,
@@ -1343,9 +1407,155 @@ fn stream_items(
 					name: <#struct_ident as #krate::StreamOperation>::NAME,
 					resumable: <#struct_ident as #krate::StreamOperation>::RESUMABLE,
 					open: #krate::__private::open_stream::<#struct_ident>,
+					service: <#struct_ident as #krate::StreamOperation>::SERVICE,
 				}
 			}
 		};
+	};
+
+	gate_for_service(args, items, || {
+		quote! {
+			#[allow(deprecated)]
+			impl #krate::StreamOperation for #struct_ident {
+				const NAME: &'static str = #name;
+				const RESUMABLE: bool = #resumable;
+				type Item = #item;
+				#service
+				#krate::__remote_stream_pump!();
+			}
+		}
+	})
+}
+
+/// [`is_service_name`], for the other attributes that take `service`.
+pub(crate) fn service_name_ok(name: &str) -> bool {
+	is_service_name(name)
+}
+
+/// Whether `name` can name a service, as `leptoskit_rpc::is_service_name`
+/// decides: a lowercase ASCII letter, then lowercase letters, digits, and
+/// `-`.
+fn is_service_name(name: &str) -> bool {
+	let mut characters = name.chars();
+	characters
+		.next()
+		.is_some_and(|first| first.is_ascii_lowercase())
+		&& characters.all(|character| {
+			character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+		})
+}
+
+/// `const SERVICE`, for an operation another service runs.
+fn service_const(service: Option<&LitStr>) -> TokenStream {
+	service.map_or_else(TokenStream::new, |service| {
+		quote!(const SERVICE: ::core::option::Option<&'static str> = ::core::option::Option::Some(#service);)
+	})
+}
+
+/// A server build's items for an operation: as they are for the app's own,
+/// and for a service's, each kept only where the declaring crate's own
+/// `service` feature is on, with the `stub` for every other build, such as
+/// the app's server. The client sends a service's operation to the service
+/// either way, and the app's server never serves it.
+fn gate_for_service(
+	args: &OperationArgs,
+	items: TokenStream,
+	stub: impl FnOnce() -> TokenStream,
+) -> syn::Result<TokenStream> {
+	if args.service.is_none() {
+		return Ok(items);
+	}
+
+	let mut gated = cfg_each(items, &quote!(feature = "service"))?;
+	gated.extend(cfg_each(stub(), &quote!(not(feature = "service")))?);
+	Ok(gated)
+}
+
+/// Puts `#[cfg(#predicate)]` on each item in `items`.
+fn cfg_each(items: TokenStream, predicate: &TokenStream) -> syn::Result<TokenStream> {
+	let file: syn::File = syn::parse2(items)?;
+	let items = file.items.into_iter().map(|item| {
+		quote! {
+			#[cfg(#predicate)]
+			#item
+		}
+	});
+	Ok(quote!(#(#items)*))
+}
+
+/// A service's operation outside that service: its name and types, and a
+/// body that only says where it runs. The client sends it to the service,
+/// so the body never runs.
+fn remote_stub(
+	krate: &Path,
+	struct_ident: &Ident,
+	name: &LitStr,
+	variant: &Ident,
+	output: &Type,
+	service: &TokenStream,
+) -> TokenStream {
+	quote! {
+		#[allow(deprecated)]
+		impl #krate::Operation for #struct_ident {
+			const NAME: &'static str = #name;
+			const KIND: #krate::Kind = #krate::Kind::#variant;
+			type Output = #output;
+			type Context = #krate::server::RemoteCx;
+			#service
+
+			fn run(
+				self,
+				_cx: &#krate::server::RemoteCx,
+			) -> impl ::core::future::Future<Output = #krate::Result<Self::Output>>
+			+ ::core::marker::Send {
+				::core::future::ready(::core::result::Result::Err(
+					#krate::server::remote_error::<Self>(),
+				))
+			}
+		}
+	}
+}
+
+/// The operation's wire name: `name = "..."`, or the function's. A
+/// service's operation can't take a toolkit `rpc.*` name, which every
+/// service serves for itself.
+fn operation_name(args: &OperationArgs, fn_name: &str, function: &ItemFn) -> syn::Result<LitStr> {
+	let name = args
+		.name
+		.clone()
+		.unwrap_or_else(|| LitStr::new(fn_name, function.sig.ident.span()));
+
+	if args.service.is_some() && name.value().starts_with("rpc.") {
+		return Err(syn::Error::new_spanned(
+			&name,
+			"names starting `rpc.` belong to the toolkit's own operations, which every service \
+			 serves for itself; give the service's operation another name",
+		));
+	}
+
+	Ok(name)
+}
+
+/// A service's job outside that service: `Job` with its name, options and
+/// output, and a `run` that only says where it runs. Only the service's own
+/// workers run it.
+fn remote_job_stub(
+	krate: &Path,
+	struct_ident: &Ident,
+	name: &LitStr,
+	output: &Type,
+	service: &TokenStream,
+	options: &TokenStream,
+) -> TokenStream {
+	quote! {
+		#[allow(deprecated)]
+		impl #krate::Job for #struct_ident {
+			const NAME: &'static str = #name;
+			#options
+			type Output = #output;
+			#service
+			#krate::__remote_job_run!();
+		}
 	}
 }
 
@@ -1381,6 +1591,7 @@ fn server_items(
 	};
 
 	let handler = quote!(#krate::__private::handle::<#struct_ident>);
+	let service = service_const(args.service.as_ref());
 	let call = quote_spanned! {signature.output_span=>
 		#fn_ident(cx, #(#bindings),*)
 	};
@@ -1401,6 +1612,7 @@ fn server_items(
 			name: <#struct_ident as #krate::Operation>::NAME,
 			kind: <#struct_ident as #krate::Operation>::KIND,
 			module_path: ::core::module_path!(),
+			service: <#struct_ident as #krate::Operation>::SERVICE,
 			handler: #handler,
 		}
 	} };
@@ -1411,6 +1623,7 @@ fn server_items(
 				const NAME: &'static str = #name;
 				#options
 				type Output = #output;
+				#service
 
 				fn run(
 					self,
@@ -1444,6 +1657,7 @@ fn server_items(
 					options: <#struct_ident as #krate::Job>::OPTIONS,
 					handler: #krate::__private::run_job::<#struct_ident>,
 					on_failure: #on_failure,
+					service: <#struct_ident as #krate::Job>::SERVICE,
 				}
 			}
 		}
@@ -1461,6 +1675,7 @@ fn server_items(
 				type Output = #output;
 				type Context = #krate::#context;
 				#retries
+				#service
 
 				fn run(
 					self,

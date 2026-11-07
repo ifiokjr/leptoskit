@@ -16,6 +16,9 @@ use anyhow::Result;
 use leptoskit_config::DbDialect;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Platform;
+use leptoskit_config::ServiceTrust;
+use services::DeployService;
+use services::SERVICES_DIR;
 
 /// Where the server is deployed. Each target writes the container recipe
 /// and, except `docker`, the platform's own file beside it.
@@ -128,6 +131,8 @@ pub struct Project {
 	pub urls: Vec<String>,
 	/// Whether to run each role as its own Deployment (`--split-roles`).
 	pub split_roles: bool,
+	/// The app's services, from `[services]`.
+	pub services: Vec<DeployService>,
 }
 
 /// The database a project uses.
@@ -233,6 +238,7 @@ impl Project {
 			has_probes,
 			urls,
 			split_roles: false,
+			services: services::read(root, config)?,
 		})
 	}
 
@@ -253,6 +259,7 @@ impl Project {
 		}
 		secrets.extend(self.urls.iter().cloned());
 		secrets.extend(self.secrets.iter().cloned());
+		secrets.extend(self.services.iter().map(DeployService::token_env));
 		secrets
 	}
 
@@ -271,6 +278,28 @@ impl Project {
 	/// The SQLite URL inside the container.
 	fn sqlite_url(&self) -> String {
 		format!("sqlite://{DATA_DIR}/{}.sqlite3", self.app)
+	}
+
+	/// The services the deployment runs as processes.
+	fn processes(&self) -> impl Iterator<Item = &DeployService> {
+		self.services.iter().filter(|service| service.is_process())
+	}
+
+	/// The process services browsers reach on the app's origin.
+	fn public_processes(&self) -> impl Iterator<Item = &DeployService> {
+		self.processes()
+			.filter(|service| !service.public_prefixes.is_empty())
+	}
+
+	/// The Postgres user and database Compose gives the app.
+	fn postgres_user(&self) -> String {
+		self.app.replace('-', "_")
+	}
+
+	/// What a service's database URL is inside a container: on SQLite, a
+	/// file on its own volume.
+	fn service_sqlite_url(service: &DeployService) -> String {
+		format!("sqlite://{DATA_DIR}/{}.sqlite3", service.name)
 	}
 }
 
@@ -372,6 +401,34 @@ pub fn generate_with(
 		project.split_roles = true;
 	}
 
+	if matches!(target, Target::Fly | Target::Systemd)
+		&& let Some(service) = project.processes().next()
+	{
+		anyhow::bail!(
+			"services.{}: the {target} files run only the app's server; use --target compose or \
+			 --target kubernetes, or `lk infra`, which run each service beside it",
+			service.name
+		);
+	}
+
+	// An Ingress can't drop the app's cookies on its own, so an isolated
+	// service there would receive every visitor's session.
+	if target == Target::Kubernetes
+		&& let Some(service) = project
+			.public_processes()
+			.find(|service| service.trust == ServiceTrust::Isolated)
+	{
+		anyhow::bail!(
+			"services.{} is isolated and public, but the Kubernetes Ingress can't remove the \
+			 app's Cookie header from requests to {} or Set-Cookie from its answers, so it would \
+			 receive every visitor's session. Make it private (`public = false`), set `trust = \
+			 \"first-party\"` if you trust it with the app's cookies, or use --target compose, \
+			 whose edge strips them",
+			service.name,
+			service.public_prefixes.join(", ")
+		);
+	}
+
 	let mut report = Report {
 		target: Some(target),
 		..Report::default()
@@ -393,8 +450,47 @@ pub fn generate_with(
 		);
 	}
 
+	report.next.extend(services_next(&project));
 	report.next.extend(target.next(&project));
 	Ok(report)
+}
+
+/// What's left for the services on any target: their tokens, and installed
+/// services' lock file.
+fn services_next(project: &Project) -> Vec<String> {
+	let mut steps = Vec::new();
+
+	if project.services.is_empty() {
+		return steps;
+	}
+
+	let tokens: Vec<String> = project
+		.services
+		.iter()
+		.map(DeployService::token_env)
+		.collect();
+	steps.push(format!(
+		"Choose each service's token, a long random secret the app and the service share, and \
+		 keep it the same across deploys: {}, each from `openssl rand -hex 32`.",
+		tokens.join(", ")
+	));
+
+	let installed = project.processes().any(|service| {
+		service
+			.build_path
+			.as_deref()
+			.is_some_and(|path| path.starts_with("target/leptoskit/services/"))
+	});
+
+	if installed {
+		steps.push(format!(
+			"Commit {}: it pins the installed services, and the release build uses it with \
+			 --locked.",
+			crate::services::LOCK_FILE
+		));
+	}
+
+	steps
 }
 
 /// Writes a file the app owns once it exists: creates it when missing, and
@@ -684,6 +780,26 @@ WORKDIR /src
 		out.push_str("RUN rustup target add wasm32-unknown-unknown\n");
 	}
 
+	// `leptoskit build` builds the services too; each is copied out under
+	// its own name.
+	let services = project.processes().fold(String::new(), |mut out, service| {
+		let _ = write!(
+			out,
+			" \\\n && install -D {} /usr/local/lib/leptoskit/services/{}",
+			service.build_path.as_deref().unwrap_or_default(),
+			service.name
+		);
+		out
+	});
+	let copy_services = if services.is_empty() {
+		String::new()
+	} else {
+		format!(
+			"# The services: each runs this image with its own command, such as\n# \
+			 {SERVICES_DIR}/<name>.\nCOPY --from=build /usr/local/lib/leptoskit/services \
+			 {SERVICES_DIR}\n"
+		)
+	};
 	let _ = write!(
 		out,
 		"COPY . .
@@ -693,7 +809,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \\
     --mount=type=cache,target=/src/target \\
     --mount=type=cache,target=/src/.leptoskit \\
     leptoskit build --release --platform {platform} \\
- && cp target/release/{binary} /usr/local/bin/{binary}
+ && cp target/release/{binary} /usr/local/bin/{binary}{services}
 
 FROM debian:bookworm-slim
 # curl answers the health check, and `app` is the unprivileged user the
@@ -704,10 +820,37 @@ RUN apt-get update \\
  && useradd --system --user-group --uid 10001 --no-create-home app",
 	);
 
-	if project.sqlite().is_some() {
+	// The directories volumes mount at, made in the image and owned by
+	// `app`, so a fresh volume is writable: the app's SQLite directory, a
+	// service's when its database is SQLite, and each service volume.
+	let mut writable = Vec::new();
+
+	if project.sqlite().is_some()
+		|| (project.postgres().is_none() && project.processes().any(|service| service.database))
+	{
+		writable.push(DATA_DIR.to_owned());
+	}
+
+	for service in project.processes() {
+		for (_, path) in service.volume_env() {
+			if !writable.contains(&path) {
+				writable.push(path);
+			}
+		}
+	}
+
+	if !writable.is_empty() {
+		let directories = writable.join(" ");
+		// `-p` for the nested volume directories; a lone `/data` keeps the
+		// line it always had.
+		let make = if writable == [DATA_DIR] {
+			"mkdir"
+		} else {
+			"mkdir -p"
+		};
 		let _ = write!(
 			out,
-			" \\\n && mkdir {DATA_DIR} \\\n && chown app:app {DATA_DIR}"
+			" \\\n && {make} {directories} \\\n && chown app:app {directories}"
 		);
 	}
 
@@ -717,7 +860,7 @@ RUN apt-get update \\
 WORKDIR /app
 COPY --from=build /usr/local/bin/{binary} /app/server
 COPY --from=build /src/{DIST_DIR} /app/{DIST_DIR}
-# What `leptoskit serve` sets from leptoskit.toml, for a container: listen on
+{copy_services}# What `leptoskit serve` sets from leptoskit.toml, for a container: listen on
 # every interface, and serve the site from /app/{DIST_DIR}.
 ENV LEPTOS_ENV=PROD \\
     LEPTOS_OUTPUT_NAME={output_name} \\
@@ -752,12 +895,26 @@ VOLUME {DATA_DIR}
 		}
 	}
 
+	// A service runs this image on its own port, so with services the check
+	// asks whichever port the container serves: the service's, from
+	// LEPTOSKIT_SERVICE_ADDR, or the app's.
+	let health = if project.processes().next().is_some() {
+		format!(
+			"  CMD port=\"${{LEPTOSKIT_SERVICE_ADDR##*:}}\"; curl --fail --silent --output \
+			 /dev/null \"http://127.0.0.1:${{port:-{port}}}/healthz\""
+		)
+	} else {
+		format!(
+			"  CMD [\"curl\", \"--fail\", \"--silent\", \"--output\", \"/dev/null\", \
+			 \"http://127.0.0.1:{port}/healthz\"]"
+		)
+	};
 	let _ = write!(
 		out,
 		"USER app
 EXPOSE {port}
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \\
-  CMD [\"curl\", \"--fail\", \"--silent\", \"--output\", \"/dev/null\", \"http://127.0.0.1:{port}/healthz\"]
+{health}
 CMD [\"/app/server\"]
 "
 	);
@@ -765,11 +922,18 @@ CMD [\"/app/server\"]
 	out
 }
 
-/// `compose.yaml`: the app, read-only, with Postgres or a SQLite volume.
+/// `compose.yaml`: the app, read-only, with Postgres or a SQLite volume, and
+/// each of its services beside it.
+#[expect(
+	clippy::too_many_lines,
+	clippy::cognitive_complexity,
+	reason = "the file reads top to bottom, as it is written"
+)]
 fn compose(project: &Project) -> String {
 	let image = project.image();
 	let port = project.port;
-	let user = project.app.replace('-', "_");
+	let user = project.postgres_user();
+	let edge = project.public_processes().next().is_some();
 	let mut required = Vec::new();
 
 	if project.postgres().is_some() {
@@ -777,6 +941,7 @@ fn compose(project: &Project) -> String {
 	}
 
 	required.extend(project.secrets.iter().cloned());
+	required.extend(compose_service_secrets(project));
 	let mut out = format!(
 		"# {app} with Docker Compose, written by `leptoskit generate deploy`. It's
 # yours to edit: running the generator again keeps your changes unless you
@@ -787,6 +952,13 @@ fn compose(project: &Project) -> String {
 ",
 		app = project.app
 	);
+
+	if !project.services.is_empty() {
+		out.push_str(
+			"# Its services run the same image with their own command. The inline\n# `configs` \
+			 below need Docker Compose 2.23.1 or newer.\n#\n",
+		);
+	}
 
 	if required.is_empty() {
 		out.push_str(
@@ -814,12 +986,25 @@ services:
   app:
     build: .
     image: {image}
-    # Only this machine reaches the server: put a proxy that terminates TLS
+"
+	);
+
+	if edge {
+		out.push_str(
+			"    # The edge below is the way in: it sends the services' public paths to\n    # \
+			 them, and everything else here.\n",
+		);
+	} else {
+		let _ = write!(
+			out,
+			"    # Only this machine reaches the server: put a proxy that terminates TLS
     # in front of it.
     ports:
       - \"127.0.0.1:{port}:{port}\"
 "
-	);
+		);
+	}
+
 	let mut environment = Vec::new();
 
 	if let Some(database) = project.postgres() {
@@ -831,6 +1016,23 @@ services:
 
 	for secret in &project.secrets {
 		environment.push(format!("{secret}: ${{{secret}:?set {secret}}}"));
+	}
+
+	for service in &project.services {
+		let url = match (&service.url, service.port) {
+			(Some(url), _) => url.clone(),
+			(None, Some(port)) => format!("http://{}:{port}", service.name),
+			(None, None) => continue,
+		};
+		let token = service.token_env();
+		environment.push(format!("{token}: ${{{token}:?set {token}}}"));
+
+		// Compose reads `$$` as a `$`, and `${…}` as the token's value.
+		let escape = |text: &str| text.replace('$', "$$");
+
+		for (name, value) in service.app_env(&url, &format!("${{{token}}}"), escape) {
+			environment.push(format!("{name}: {}", compose_value(&value, true)));
+		}
 	}
 
 	if !environment.is_empty() {
@@ -859,13 +1061,25 @@ services:
 		let _ = write!(out, "    volumes:\n      - data:{DATA_DIR}\n");
 	}
 
-	if project.postgres().is_some() {
-		out.push_str(
-			"    depends_on:
-      db:
-        condition: service_healthy
-",
-		);
+	let processes: Vec<&DeployService> = project.processes().collect();
+
+	if project.postgres().is_some() || !processes.is_empty() {
+		out.push_str("    depends_on:\n");
+
+		if project.postgres().is_some() {
+			out.push_str("      db:\n        condition: service_healthy\n");
+		}
+
+		// Started, not healthy: the services start first, but one that never
+		// becomes ready doesn't hold the app back. Each becomes ready on its
+		// own, and a page that needs a service handles it being away.
+		for service in &processes {
+			let _ = write!(
+				out,
+				"      {}:\n        condition: service_started\n",
+				service.name
+			);
+		}
 	}
 
 	let _ = write!(
@@ -877,6 +1091,17 @@ services:
 "
 	);
 
+	for service in &processes {
+		compose_service(&mut out, project, service);
+	}
+
+	if edge {
+		compose_edge(&mut out, project);
+	}
+
+	let service_databases =
+		project.postgres().is_some() && processes.iter().any(|service| service.database);
+
 	if project.postgres().is_some() {
 		let _ = write!(
 			out,
@@ -887,7 +1112,25 @@ services:
       POSTGRES_USER: {user}
       POSTGRES_DB: {user}
       POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}}
-    volumes:
+"
+		);
+
+		if service_databases {
+			for service in processes.iter().filter(|service| service.database) {
+				let password = service.database_password_env();
+				let _ = writeln!(out, "      {password}: ${{{password}:?set {password}}}");
+			}
+
+			out.push_str(
+				"    # On its first start, with an empty volume, it gives each service a\n    # \
+				 database and role of its own.\n    configs:\n      - source: db-services\n        \
+				 target: /docker-entrypoint-initdb.d/10-services.sh\n",
+			);
+		}
+
+		let _ = write!(
+			out,
+			"    volumes:
       - postgres:/var/lib/postgresql/data
     healthcheck:
       test: [\"CMD\", \"pg_isready\", \"--username={user}\", \"--dbname={user}\"]
@@ -895,15 +1138,298 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
-
-volumes:
-  postgres:
 "
 		);
-	} else if project.sqlite().is_some() {
-		out.push_str("\nvolumes:\n  data:\n");
 	}
 
+	let mut volumes = Vec::new();
+
+	if project.postgres().is_some() {
+		volumes.push("postgres".to_owned());
+	} else if project.sqlite().is_some() {
+		volumes.push("data".to_owned());
+	}
+
+	for service in &processes {
+		if service.database && project.sqlite().is_some() {
+			volumes.push(format!("{}-data", service.name));
+		}
+
+		for volume in &service.volumes {
+			volumes.push(format!("{}-{volume}", service.name));
+		}
+	}
+
+	if !volumes.is_empty() {
+		out.push_str("\nvolumes:\n");
+
+		for volume in volumes {
+			let _ = writeln!(out, "  {volume}:");
+		}
+	}
+
+	if edge || service_databases {
+		out.push_str("\nconfigs:\n");
+
+		if edge {
+			out.push_str("  edge:\n    content: |\n");
+
+			for line in caddyfile(project).lines() {
+				if line.is_empty() {
+					out.push('\n');
+				} else {
+					let _ = writeln!(out, "      {line}");
+				}
+			}
+		}
+
+		if service_databases {
+			out.push_str("  db-services:\n    content: |\n");
+
+			for line in postgres_services_script(project, true).lines() {
+				if line.is_empty() {
+					out.push('\n');
+				} else {
+					let _ = writeln!(out, "      {line}");
+				}
+			}
+		}
+	}
+
+	out
+}
+
+/// The secrets the Compose file reads for the services: each one's token,
+/// its database password on Postgres, and the secrets it passes through.
+fn compose_service_secrets(project: &Project) -> Vec<String> {
+	let mut secrets = Vec::new();
+
+	for service in &project.services {
+		secrets.push(service.token_env());
+
+		if service.is_process() && service.database && project.postgres().is_some() {
+			secrets.push(service.database_password_env());
+		}
+
+		if service.is_process() {
+			secrets.extend(service.secrets.iter().cloned());
+		}
+	}
+
+	secrets.sort();
+	secrets.dedup();
+	secrets
+}
+
+/// A value in the Compose file: quoted, with a literal `$` doubled so
+/// Compose doesn't read it as a variable, unless `interpolate`.
+fn compose_value(value: &str, interpolate: bool) -> String {
+	let value = if interpolate {
+		value.to_owned()
+	} else {
+		value.replace('$', "$$")
+	};
+	serde_json::to_string(&value).unwrap_or_default()
+}
+
+/// One service's entry: the app's image with the service's command, its
+/// environment, its volumes, and a health check on its own port.
+fn compose_service(out: &mut String, project: &Project, service: &DeployService) {
+	let image = project.image();
+	let name = &service.name;
+	let port = service.port.unwrap_or_default();
+	let token = service.token_env();
+	let command = service.command();
+	let app_port = project.port;
+	// One line per call: a literal spanning several YAML lines would be
+	// rewrapped by the formatter with `\` continuations, which swallow the
+	// newlines between them.
+	let lines = [
+		String::new(),
+		format!("  {name}:"),
+		"    build: .".to_owned(),
+		format!("    image: {image}"),
+		format!("    command: [\"{command}\"]"),
+		"    environment:".to_owned(),
+		format!("      LEPTOSKIT_SERVICE_NAME: {name}"),
+		format!("      LEPTOSKIT_SERVICE_ADDR: 0.0.0.0:{port}"),
+		format!("      LEPTOSKIT_SERVICE_TOKEN: ${{{token}:?set {token}}}"),
+		format!(
+			"      LEPTOSKIT_PUBLIC_ORIGIN: ${{LEPTOSKIT_PUBLIC_ORIGIN:-http://localhost:{app_port}}}"
+		),
+		format!("      LEPTOSKIT_APP_URL: http://app:{app_port}"),
+	];
+
+	for line in lines {
+		let _ = writeln!(out, "{line}");
+	}
+
+	if service.database {
+		if project.postgres().is_some() {
+			let role = service.postgres_name(&project.postgres_user());
+			let password = service.database_password_env();
+			let _ = writeln!(
+				out,
+				"      DATABASE_URL: \
+				 postgres://{role}:${{{password}}}@db:5432/{role}?sslmode=disable"
+			);
+		} else {
+			let _ = writeln!(
+				out,
+				"      DATABASE_URL: {}",
+				Project::service_sqlite_url(service)
+			);
+		}
+
+		if let Some(pool) = service.pool {
+			let _ = writeln!(
+				out,
+				"      {}: \"{pool}\"",
+				crate::services::env::DATABASE_POOL
+			);
+		}
+	}
+
+	for (variable, path) in service.volume_env() {
+		let _ = writeln!(out, "      {variable}: {path}");
+	}
+
+	for (variable, value) in &service.env {
+		let _ = writeln!(out, "      {variable}: {}", compose_value(value, false));
+	}
+
+	for secret in &service.secrets {
+		let _ = writeln!(out, "      {secret}: ${{{secret}:?set {secret}}}");
+	}
+
+	let _ = write!(
+		out,
+		"    read_only: true
+    tmpfs:
+      - /tmp
+"
+	);
+
+	let sqlite_database = service.database && project.sqlite().is_some();
+
+	if sqlite_database || !service.volumes.is_empty() {
+		out.push_str("    volumes:\n");
+
+		if sqlite_database {
+			let _ = writeln!(out, "      - {name}-data:{DATA_DIR}");
+		}
+
+		for volume in &service.volumes {
+			let _ = writeln!(
+				out,
+				"      - {name}-{volume}:{}/{volume}",
+				services::VOLUMES_DIR
+			);
+		}
+	}
+
+	if service.database && project.postgres().is_some() {
+		out.push_str("    depends_on:\n      db:\n        condition: service_healthy\n");
+	}
+
+	let _ = write!(
+		out,
+		"    healthcheck:
+      test: [\"CMD\", \"curl\", \"--fail\", \"--silent\", \"--output\", \"/dev/null\", \
+		 \"http://127.0.0.1:{port}/readyz\"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    stop_grace_period: {STOP_TIMEOUT_SECONDS}s
+    restart: unless-stopped
+"
+	);
+}
+
+/// The edge: Caddy on the app's port, sending each public service's paths
+/// to it unchanged and everything else to the app.
+fn compose_edge(out: &mut String, project: &Project) {
+	let port = project.port;
+	let _ = write!(
+		out,
+		"
+  edge:
+    image: caddy:2
+    # Only this machine reaches it: put a proxy that terminates TLS in front
+    # of it.
+    ports:
+      - \"127.0.0.1:{port}:8080\"
+    configs:
+      - source: edge
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - app
+"
+	);
+
+	for service in project.public_processes() {
+		let _ = writeln!(out, "      - {}", service.name);
+	}
+
+	out.push_str("    restart: unless-stopped\n");
+}
+
+/// The edge's `Caddyfile`. Paths go through unchanged, responses stream,
+/// and an isolated service never sees the app's cookies or sets its own.
+fn caddyfile(project: &Project) -> String {
+	let mut out = String::from("{\n  admin off\n  auto_https off\n}\n\n:8080 {\n");
+
+	for service in project.public_processes() {
+		let paths: Vec<String> = service
+			.public_prefixes
+			.iter()
+			.flat_map(|prefix| [prefix.clone(), format!("{prefix}/*")])
+			.collect();
+		let _ = write!(
+			out,
+			"  @{name} path {paths}\n  handle @{name} {{\n    reverse_proxy {name}:{port} {{\n      \
+			 flush_interval -1\n",
+			name = service.name,
+			paths = paths.join(" "),
+			port = service.port.unwrap_or_default(),
+		);
+
+		if service.trust == ServiceTrust::Isolated {
+			out.push_str("      header_up -Cookie\n      header_down -Set-Cookie\n");
+		}
+
+		out.push_str("    }\n  }\n");
+	}
+
+	let _ = write!(
+		out,
+		"  handle {{\n    reverse_proxy app:{} {{\n      flush_interval -1\n    }}\n  }}\n}}\n",
+		project.port
+	);
+	out
+}
+
+/// The script that gives each database-backed service a database and role
+/// of its own on Postgres, as the Postgres image runs it from
+/// `/docker-entrypoint-initdb.d`. `compose` doubles each `$`, as Compose
+/// files need.
+pub(crate) fn postgres_services_script(project: &Project, compose: bool) -> String {
+	let dollar = if compose { "$$" } else { "$" };
+	let mut out = format!(
+		"#!/bin/sh\nset -eu\npsql --username \"{dollar}POSTGRES_USER\" --dbname \
+		 \"{dollar}POSTGRES_DB\" --set=ON_ERROR_STOP=1"
+	);
+
+	for service in project.processes().filter(|service| service.database) {
+		let password = service.database_password_env();
+		let _ = write!(out, " \\\n  --set={password}=\"{dollar}{password}\"");
+	}
+
+	let _ = write!(
+		out,
+		" <<'SQL'\n{}SQL\n",
+		services::postgres_setup_sql(&project.services, &project.postgres_user())
+	);
 	out
 }
 
@@ -979,7 +1505,14 @@ kill_timeout = \"{STOP_TIMEOUT_SECONDS}s\"
 fn docker_next(project: &Project) -> Vec<String> {
 	let image = project.image();
 	let port = project.port;
+	let services = project.processes().next().is_some();
 	let mut run = format!("docker run --rm --read-only --tmpfs /tmp -p 127.0.0.1:{port}:{port}");
+
+	// The app and its services find each other by container name on a
+	// network of their own.
+	if services {
+		let _ = write!(run, " --network {image} --name {image}-app");
+	}
 
 	if project.sqlite().is_some() {
 		let _ = write!(run, " -v {image}-data:{DATA_DIR}");
@@ -989,10 +1522,36 @@ fn docker_next(project: &Project) -> Vec<String> {
 		let _ = write!(run, " -e {secret}");
 	}
 
+	for service in &project.services {
+		let url = service.url.clone().unwrap_or_else(|| {
+			format!(
+				"http://{image}-{}:{}",
+				service.name,
+				service.port.unwrap_or_default()
+			)
+		});
+		let token = format!("${{{}}}", service.token_env());
+
+		for (variable, value) in service.app_env(&url, &token, shell_escape) {
+			let _ = write!(run, " -e \"{variable}={value}\"");
+		}
+	}
+
 	let _ = write!(run, " {image}");
 
 	let mut steps = vec![format!("Build the image: `docker build -t {image} .`")];
-	let secrets = project.runtime_secrets();
+	let mut secrets = project.runtime_secrets();
+
+	for service in project.processes() {
+		let database =
+			(service.database && project.postgres().is_some()).then(|| service.database_url_env());
+
+		for secret in service.secrets.iter().cloned().chain(database) {
+			if !secrets.contains(&secret) {
+				secrets.push(secret);
+			}
+		}
+	}
 
 	if !secrets.is_empty() {
 		steps.push(format!(
@@ -1001,8 +1560,112 @@ fn docker_next(project: &Project) -> Vec<String> {
 		));
 	}
 
+	if services {
+		if project.postgres().is_some() && project.processes().any(|service| service.database) {
+			steps.push(
+				"Give each database-backed service a Postgres database and role of its own, and \
+				 set its LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL to it."
+					.to_owned(),
+			);
+		}
+
+		steps.push(format!(
+			"Create their network: `docker network create {image}`"
+		));
+
+		for service in project.processes() {
+			steps.push(format!(
+				"Start services.{} first: `{}`",
+				service.name,
+				docker_service_run(project, service)
+			));
+		}
+	}
+
 	steps.push(format!("Run it: `{run}`"));
+
+	if project.public_processes().next().is_some() {
+		steps.push(
+			"Browsers reach a public service at /_leptoskit/services/<name>/ on the app's origin, \
+			 and nothing here forwards those paths to it: put a proxy in front that does, or use \
+			 --target compose, which generates one."
+				.to_owned(),
+		);
+	}
+
 	steps
+}
+
+/// The `docker run` that starts `service` from the app's image, beside the
+/// app on their network, with the runtime contract's environment.
+fn docker_service_run(project: &Project, service: &DeployService) -> String {
+	let image = project.image();
+	let name = &service.name;
+	let port = service.port.unwrap_or_default();
+	let app_port = project.port;
+	let mut run = format!(
+		"docker run -d --rm --read-only --tmpfs /tmp --network {image} --name {image}-{name} -e \
+		 LEPTOSKIT_SERVICE_NAME={name} -e LEPTOSKIT_SERVICE_ADDR=0.0.0.0:{port} -e \
+		 \"LEPTOSKIT_SERVICE_TOKEN=${{{token}}}\" -e \
+		 LEPTOSKIT_PUBLIC_ORIGIN=http://localhost:{app_port} -e \
+		 LEPTOSKIT_APP_URL=http://{image}-app:{app_port}",
+		token = service.token_env(),
+	);
+
+	if service.database {
+		if project.postgres().is_some() {
+			let _ = write!(
+				run,
+				" -e \"DATABASE_URL=${{{}}}\"",
+				service.database_url_env()
+			);
+		} else {
+			let _ = write!(
+				run,
+				" -v {image}-{name}-data:{DATA_DIR} -e DATABASE_URL={}",
+				Project::service_sqlite_url(service)
+			);
+		}
+
+		if let Some(pool) = service.pool {
+			let _ = write!(run, " -e {}={pool}", crate::services::env::DATABASE_POOL);
+		}
+	}
+
+	for (variable, path) in service.volume_env() {
+		let volume = path.rsplit('/').next().unwrap_or_default();
+		let _ = write!(
+			run,
+			" -v {image}-{name}-{volume}:{path} -e {variable}={path}"
+		);
+	}
+
+	for (variable, value) in &service.env {
+		let _ = write!(run, " -e \"{variable}={}\"", shell_escape(value));
+	}
+
+	for secret in &service.secrets {
+		let _ = write!(run, " -e {secret}");
+	}
+
+	let _ = write!(run, " {image} {}", service.command());
+	run
+}
+
+/// `value` inside a shell's double quotes: every character the shell would
+/// read as an expansion or the closing quote, escaped.
+fn shell_escape(value: &str) -> String {
+	let mut escaped = String::with_capacity(value.len());
+
+	for character in value.chars() {
+		if matches!(character, '\\' | '"' | '$' | '`') {
+			escaped.push('\\');
+		}
+
+		escaped.push(character);
+	}
+
+	escaped
 }
 
 fn compose_next(project: &Project) -> Vec<String> {
@@ -1018,6 +1681,29 @@ fn compose_next(project: &Project) -> Vec<String> {
 
 	for secret in &project.secrets {
 		steps.push(format!("Set {secret}, in your shell or in .env."));
+	}
+
+	let databases: Vec<String> = project
+		.processes()
+		.filter(|service| service.database && project.postgres().is_some())
+		.map(DeployService::database_password_env)
+		.collect();
+
+	if !databases.is_empty() {
+		steps.push(format!(
+			"Choose each service's database password: {}. Postgres creates their roles and \
+			 databases on its first start; on a volume that already exists, run the db-services \
+			 script from compose.yaml with `docker compose exec db sh`.",
+			databases.join(", ")
+		));
+	}
+
+	if project.processes().next().is_some() {
+		steps.push(format!(
+			"Set LEPTOSKIT_PUBLIC_ORIGIN to the address people use, such as \
+			 https://app.example.com; it defaults to http://localhost:{}.",
+			project.port
+		));
 	}
 
 	steps.push("Start it: `docker compose up --build`".to_owned());
@@ -1150,6 +1836,7 @@ spec:
               value: \"0.0.0.0:{port}\"
 "
 	);
+	out.push_str(&kubernetes_app_env(project));
 
 	if !project.runtime_secrets().is_empty() {
 		let _ = write!(
@@ -1235,6 +1922,7 @@ spec:
       app: {image}
 "
 	);
+	out.push_str(&kubernetes_services(project));
 	out
 }
 
@@ -1350,6 +2038,7 @@ spec:
               value: {role}
 "
 		);
+		out.push_str(&kubernetes_app_env(project));
 
 		if !project.runtime_secrets().is_empty() {
 			let _ = write!(
@@ -1413,6 +2102,295 @@ spec:
       app: {image}-{role}
 "
 		);
+	}
+
+	out.push_str(&kubernetes_services(project));
+	out
+}
+/// The app's variables for its services: each one's URL inside the
+/// cluster, and its `bind` entries. A token arrives from the app's Secret,
+/// and a `bind` entry that holds it refers to it with `$(…)`.
+fn kubernetes_app_env(project: &Project) -> String {
+	let image = project.image();
+	let mut out = String::new();
+
+	for service in &project.services {
+		let url = match (&service.url, service.port) {
+			(Some(url), _) => url.clone(),
+			(None, Some(port)) => format!("http://{image}-{}:{port}", service.name),
+			(None, None) => continue,
+		};
+
+		// Kubernetes reads `$$(` as a `$(`, and `$(…)` as the token's value.
+		let escape = |text: &str| text.replace("$(", "$$(");
+
+		for (variable, value) in
+			service.app_env(&url, &format!("$({})", service.token_env()), escape)
+		{
+			let _ = write!(
+				out,
+				"            - name: {variable}\n              value: {}\n",
+				serde_json::to_string(&value).unwrap_or_default()
+			);
+		}
+	}
+
+	out
+}
+
+/// Each process service as its own Deployment and Service, with a Secret of
+/// its own, and an Ingress when any of them has public paths.
+#[expect(
+	clippy::too_many_lines,
+	reason = "one manifest per resource reads best beside the others"
+)]
+fn kubernetes_services(project: &Project) -> String {
+	let image = project.image();
+	let mut out = String::new();
+
+	for service in project.processes() {
+		let name = format!("{image}-{}", service.name);
+		let port = service.port.unwrap_or_default();
+		let sqlite_database = service.database && project.sqlite().is_some();
+		let stateful = sqlite_database || !service.volumes.is_empty();
+		let replicas = if stateful { 1 } else { 2 };
+		let _ = write!(
+			out,
+			"---
+# services.{service_name}: the app's image running {command}.
+# It reads {secrets} from the Secret `{name}`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {name}
+spec:
+  replicas: {replicas}
+",
+			service_name = service.name,
+			command = service.command(),
+			secrets = {
+				let mut names = vec![
+					"LEPTOSKIT_SERVICE_TOKEN".to_owned(),
+					"LEPTOSKIT_PUBLIC_ORIGIN".to_owned(),
+				];
+
+				if service.database && project.postgres().is_some() {
+					names.push("DATABASE_URL".to_owned());
+				}
+
+				names.extend(service.secrets.iter().cloned());
+				names.join(", ")
+			},
+		);
+
+		if stateful {
+			out.push_str("  strategy:\n    type: Recreate\n");
+		}
+
+		let service_name = &service.name;
+		let command = service.command();
+		// One line per call, as in `compose_service`.
+		let lines = [
+			"  selector:".to_owned(),
+			"    matchLabels:".to_owned(),
+			format!("      app: {name}"),
+			"  template:".to_owned(),
+			"    metadata:".to_owned(),
+			"      labels:".to_owned(),
+			format!("        app: {name}"),
+			"    spec:".to_owned(),
+			format!("      terminationGracePeriodSeconds: {STOP_TIMEOUT_SECONDS}"),
+			"      containers:".to_owned(),
+			format!("        - name: {service_name}"),
+			format!("          image: {image}"),
+			format!("          command: [\"{command}\"]"),
+			"          ports:".to_owned(),
+			format!("            - containerPort: {port}"),
+			"          env:".to_owned(),
+			"            - name: LEPTOSKIT_SERVICE_NAME".to_owned(),
+			format!("              value: {service_name}"),
+			"            - name: LEPTOSKIT_SERVICE_ADDR".to_owned(),
+			format!("              value: \"0.0.0.0:{port}\""),
+			"            - name: LEPTOSKIT_APP_URL".to_owned(),
+			format!("              value: \"http://{image}:80\""),
+		];
+
+		for line in lines {
+			let _ = writeln!(out, "{line}");
+		}
+
+		let mut variables = Vec::new();
+
+		if sqlite_database {
+			variables.push((
+				"DATABASE_URL".to_owned(),
+				Project::service_sqlite_url(service),
+			));
+		}
+
+		if service.database
+			&& let Some(pool) = service.pool
+		{
+			variables.push((
+				crate::services::env::DATABASE_POOL.to_owned(),
+				pool.to_string(),
+			));
+		}
+
+		variables.extend(service.volume_env());
+		variables.extend(service.env.clone());
+
+		for (variable, value) in variables {
+			let _ = write!(
+				out,
+				"            - name: {variable}\n              value: {}\n",
+				serde_json::to_string(&value).unwrap_or_default()
+			);
+		}
+
+		let _ = write!(
+			out,
+			"          envFrom:
+            - secretRef:
+                name: {name}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {port}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {port}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: [\"sh\", \"-c\", \"sleep 5\"]
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+"
+		);
+
+		let mut claims = Vec::new();
+
+		if sqlite_database {
+			claims.push(("data".to_owned(), DATA_DIR.to_owned()));
+		}
+
+		for volume in &service.volumes {
+			claims.push((
+				volume.clone(),
+				format!("{}/{volume}", services::VOLUMES_DIR),
+			));
+		}
+
+		if !claims.is_empty() {
+			out.push_str("          volumeMounts:\n");
+
+			for (volume, path) in &claims {
+				let _ = write!(
+					out,
+					"            - name: {volume}\n              mountPath: {path}\n"
+				);
+			}
+
+			out.push_str("      volumes:\n");
+
+			for (volume, _) in &claims {
+				let _ = write!(
+					out,
+					"        - name: {volume}\n          persistentVolumeClaim:\n            \
+					 claimName: {name}-{volume}\n"
+				);
+			}
+
+			for (volume, _) in &claims {
+				let _ = write!(
+					out,
+					"---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {name}-{volume}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+"
+				);
+			}
+		}
+
+		let _ = write!(
+			out,
+			"---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {name}
+spec:
+  selector:
+    app: {name}
+  ports:
+    - port: {port}
+      targetPort: {port}
+"
+		);
+	}
+
+	if project.public_processes().next().is_some() {
+		let _ = write!(
+			out,
+			"---
+# The way in: each service's public paths go to it, and everything else to
+# the app. Set ingressClassName and a host for your cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {image}
+spec:
+  rules:
+    - http:
+        paths:
+"
+		);
+		let mut routes = Vec::new();
+
+		for service in project.public_processes() {
+			for prefix in &service.public_prefixes {
+				routes.push((
+					prefix.clone(),
+					format!("{image}-{}", service.name),
+					service.port.unwrap_or_default(),
+				));
+			}
+		}
+
+		if project.split_roles {
+			routes.push(("/live".to_owned(), format!("{image}-live"), 80));
+		}
+
+		routes.push(("/".to_owned(), image.clone(), 80));
+
+		for (path, backend, port) in routes {
+			let _ = write!(
+				out,
+				"          - path: {path}
+            pathType: Prefix
+            backend:
+              service:
+                name: {backend}
+                port:
+                  number: {port}
+"
+			);
+		}
 	}
 
 	out
@@ -1518,11 +2496,53 @@ fn kubernetes_next(project: &Project) -> Vec<String> {
 		));
 	}
 
-	if project.split_roles {
+	if project.split_roles && project.public_processes().next().is_none() {
 		steps.push(format!(
 			"Route /live, /live/events and /live/frames to the Service `{image}-live` in your \
 			 ingress, and everything else to `{image}`."
 		));
+	}
+
+	for service in project.processes() {
+		let mut literals = format!(
+			"--from-literal=LEPTOSKIT_SERVICE_TOKEN=\"${}\" \
+			 --from-literal=LEPTOSKIT_PUBLIC_ORIGIN=https://app.example.com",
+			service.token_env()
+		);
+
+		if service.database && project.postgres().is_some() {
+			literals.push_str(" --from-literal=DATABASE_URL=postgres://…");
+		}
+
+		for secret in &service.secrets {
+			let _ = write!(literals, " --from-literal={secret}=…");
+		}
+
+		steps.push(format!(
+			"Create services.{}'s Secret, with the same token the app's Secret holds: `kubectl \
+			 create secret generic {image}-{} {literals}`.",
+			service.name, service.name
+		));
+	}
+
+	let sql = services::postgres_setup_sql(&project.services, "<app>");
+
+	if project.postgres().is_some() && !sql.is_empty() {
+		steps.push(
+			"Give each database-backed service a role and database of its own on your Postgres \
+			 (`psql --set=<PASSWORD_SECRET>=…` for each password), then put its URL in its Secret \
+			 as DATABASE_URL:\n"
+				.to_owned()
+				+ &sql,
+		);
+	}
+
+	if project.public_processes().next().is_some() {
+		steps.push(
+			"Set ingressClassName and a host on the Ingress `".to_owned()
+				+ &image
+				+ "` for your cluster.",
+		);
 	}
 
 	steps.push("Apply it: `kubectl apply -f kubernetes.yaml`".to_owned());
@@ -1543,5 +2563,6 @@ fn systemd_next(project: &Project) -> Vec<String> {
 	steps
 }
 
+pub mod services;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

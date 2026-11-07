@@ -18,6 +18,8 @@
 //! - the native apps' association files, [`app_associations`], which let the
 //!   iOS, macOS, and Android apps use the site's passkeys and sign-in return
 //!   address;
+//! - [`service`]: the runtime of a service, a separate process the app runs
+//!   beside its server, and the app's way to find one;
 //! - `/healthz` and `/readyz` probes from a [`Readiness`], and a
 //!   [`GracefulShutdown`] that fails readiness before it stops, through
 //!   [`serve_listener_with`];
@@ -77,6 +79,7 @@ use tower_http::set_header::SetResponseHeader;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 mod health;
+pub mod service;
 
 pub use health::Check;
 pub use health::GracefulShutdown;

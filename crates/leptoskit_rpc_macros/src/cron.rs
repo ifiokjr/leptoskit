@@ -273,6 +273,7 @@ pub(crate) fn expand(
 					enqueue: |db, key, tick| {
 						#krate::__private::enqueue_tick(#struct_ident {}, db, key, tick)
 					},
+					service: <#struct_ident as #krate::Job>::SERVICE,
 				}
 			}
 		};

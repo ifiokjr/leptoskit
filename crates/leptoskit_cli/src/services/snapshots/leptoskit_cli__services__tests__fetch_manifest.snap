@@ -1,0 +1,19 @@
+---
+source: crates/leptoskit_cli/src/services/tests.rs
+expression: manifest
+---
+# Written by leptoskit to fetch the installed services; don't edit.
+[package]
+name = "leptoskit-services-fetch"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[workspace]
+
+[dependencies]
+service-search = { package = "acme-search", version = "0.4" }
+service-billing = { package = "billing", git = "https://example.com/billing", tag = "v1" }

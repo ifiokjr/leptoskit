@@ -1,0 +1,131 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: server
+---
+/// Rolls up a day of events.
+#[derive(
+    ::core::clone::Clone,
+    ::leptoskit_rpc::__private::serde::Serialize,
+    ::leptoskit_rpc::__private::serde::Deserialize,
+    ::leptoskit_rpc::__private::schemars::JsonSchema,
+)]
+#[serde(crate = ":: leptoskit_rpc :: __private :: serde")]
+#[schemars(crate = ":: leptoskit_rpc :: __private :: schemars")]
+pub struct RollUp {
+    pub day: String,
+}
+const _: () = {
+    #[allow(dead_code)]
+    fn __check() {
+        ::leptoskit_rpc::__private::assert_argument::<String>();
+        ::leptoskit_rpc::__private::assert_output::<u32>();
+    }
+};
+#[cfg(feature = "service")]
+/// Rolls up a day of events.
+#[allow(clippy::unused_async)]
+pub async fn roll_up(cx: &rpc::JobCx, day: String) -> rpc::Result<u32> {
+    Ok(0)
+}
+#[cfg(feature = "service")]
+#[allow(deprecated)]
+impl ::leptoskit_rpc::Operation for RollUp {
+    const NAME: &'static str = "roll_up";
+    const KIND: ::leptoskit_rpc::Kind = ::leptoskit_rpc::Kind::Job;
+    type Output = u32;
+    type Context = ::leptoskit_rpc::JobCx;
+    const SERVICE: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "analytics",
+    );
+    fn run(
+        self,
+        cx: &::leptoskit_rpc::JobCx,
+    ) -> impl ::core::future::Future<
+        Output = ::leptoskit_rpc::Result<Self::Output>,
+    > + ::core::marker::Send {
+        let Self { day } = self;
+        roll_up(cx, day)
+    }
+}
+#[cfg(feature = "service")]
+#[allow(deprecated)]
+impl ::leptoskit_rpc::Job for RollUp {
+    const NAME: &'static str = "roll_up";
+    const OPTIONS: ::leptoskit_rpc::JobOptions = ::leptoskit_rpc::JobOptions {
+        queue: "default",
+        retries: ::leptoskit_rpc::JobOptions::DEFAULT.retries,
+        backoff: ::leptoskit_rpc::Backoff::DEFAULT,
+        deadline: ::core::option::Option::None,
+        timeout: ::core::option::Option::None,
+        serialize_by: ::core::option::Option::None,
+        visible_to: ::leptoskit_rpc::Visibility::Owner,
+        on_failure: false,
+    };
+    type Output = u32;
+    const SERVICE: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "analytics",
+    );
+    fn run(
+        self,
+        cx: &::leptoskit_rpc::JobCx,
+    ) -> impl ::core::future::Future<
+        Output = ::leptoskit_rpc::Result<Self::Output>,
+    > + ::core::marker::Send {
+        let Self { day } = self;
+        roll_up(cx, day)
+    }
+}
+#[cfg(feature = "service")]
+::leptoskit_rpc::__require_db!();
+#[cfg(feature = "service")]
+#[allow(deprecated)]
+const _: () = {
+    ::leptoskit_rpc::__private::inventory::submit! {
+        ::leptoskit_rpc::server::jobs::JobRegistration { name : < RollUp as
+        ::leptoskit_rpc::Job > ::NAME, options : < RollUp as ::leptoskit_rpc::Job >
+        ::OPTIONS, handler : ::leptoskit_rpc::__private::run_job:: < RollUp >, on_failure
+        : ::core::option::Option::None, service : < RollUp as ::leptoskit_rpc::Job >
+        ::SERVICE, }
+    }
+};
+#[cfg(not(feature = "service"))]
+#[allow(deprecated)]
+impl ::leptoskit_rpc::Operation for RollUp {
+    const NAME: &'static str = "roll_up";
+    const KIND: ::leptoskit_rpc::Kind = ::leptoskit_rpc::Kind::Job;
+    type Output = u32;
+    type Context = ::leptoskit_rpc::server::RemoteCx;
+    const SERVICE: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "analytics",
+    );
+    fn run(
+        self,
+        _cx: &::leptoskit_rpc::server::RemoteCx,
+    ) -> impl ::core::future::Future<
+        Output = ::leptoskit_rpc::Result<Self::Output>,
+    > + ::core::marker::Send {
+        ::core::future::ready(
+            ::core::result::Result::Err(::leptoskit_rpc::server::remote_error::<Self>()),
+        )
+    }
+}
+#[cfg(not(feature = "service"))]
+#[allow(deprecated)]
+impl ::leptoskit_rpc::Job for RollUp {
+    const NAME: &'static str = "roll_up";
+    const OPTIONS: ::leptoskit_rpc::JobOptions = ::leptoskit_rpc::JobOptions {
+        queue: "default",
+        retries: ::leptoskit_rpc::JobOptions::DEFAULT.retries,
+        backoff: ::leptoskit_rpc::Backoff::DEFAULT,
+        deadline: ::core::option::Option::None,
+        timeout: ::core::option::Option::None,
+        serialize_by: ::core::option::Option::None,
+        visible_to: ::leptoskit_rpc::Visibility::Owner,
+        on_failure: false,
+    };
+    type Output = u32;
+    const SERVICE: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "analytics",
+    );
+    ::leptoskit_rpc::__remote_job_run!();
+}

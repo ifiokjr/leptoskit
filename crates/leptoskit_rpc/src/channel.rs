@@ -36,6 +36,10 @@ use serde::de::DeserializeOwned;
 pub trait Channel: Serialize + DeserializeOwned + Clone + Send + Sync + 'static {
 	/// The channel's name, used when joining.
 	const NAME: &'static str;
+	/// The service whose live socket hosts it, for
+	/// `#[rpc::channel(service = "...")]`; `None` for the app's own. The
+	/// client joins it over that service's live connection.
+	const SERVICE: Option<&'static str> = None;
 	/// What members send each other. Reaches every other member, at most
 	/// once, and is never stored.
 	type Message: Serialize + DeserializeOwned + Clone + Send + Sync + 'static;

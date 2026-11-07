@@ -1,0 +1,73 @@
+[package]
+name = "analytics_service"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "A leptoskit service plugin: product analytics in a process of its own, with operations the app calls and watches like its own."
+
+# The library is the operations and the table, which both the service and
+# the app compile: the app gets typed calls that go to the service, and only
+# the service gets their bodies. The binary is the service itself.
+[[bin]]
+name = "analytics_service"
+path = "src/main.rs"
+required-features = ["service"]
+
+# The service's own tests: they need its bodies.
+[[test]]
+name = "service"
+required-features = ["service"]
+
+[dependencies]
+# Day boundaries for the summary.
+chrono = { workspace = true }
+# The service's runtime: `service::main!`, axum, and tokio.
+leptoskit_axum = { workspace = true, optional = true }
+leptoskit_db = { workspace = true }
+leptoskit_rpc = { workspace = true, features = ["client"] }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }
+leptoskit_axum = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }
+
+[features]
+default = []
+# Building the service: the operations' bodies, their registrations, the
+# SQLite driver, and live queries. Only `lk` turns this on, when it builds
+# the service; the app never does.
+service = [
+	"dep:leptoskit_axum",
+	"leptoskit_db/sqlite",
+	"leptoskit_rpc/server",
+	"leptoskit_rpc/sqlite",
+	"leptoskit_rpc/live",
+]
+# The same service on Postgres, for an app whose `[db]` is Postgres: `lk`
+# gives the service a database of its own on the app's server.
+postgres = ["service", "leptoskit_db/postgres", "leptoskit_rpc/postgres"]
+
+# What `lk` reads to run this crate as a service: no code runs to learn it.
+[package.metadata.leptoskit.service]
+# The `service = "analytics"` its operations are declared with: the app's
+# `[services.analytics]` table must use the same name.
+name = "analytics"
+port = 3100
+public = true
+# An app on Postgres adds `postgres`: `features = ["service", "postgres"]` in
+# its `[services.analytics]` table.
+features = ["service"]
+database = true
+
+[lints]
+workspace = true

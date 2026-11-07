@@ -62,6 +62,8 @@ pub struct BuildOutput {
 	/// The server executable, when cargo reported exactly one for the server
 	/// package (or one named after it).
 	pub server_binary: Option<PathBuf>,
+	/// The app's services, with their binaries; empty without `[services]`.
+	pub services: Vec<crate::services::BuiltService>,
 }
 
 /// Runs `leptoskit build`: a native project with generated hosts is built by
@@ -212,26 +214,16 @@ pub fn run(
 	)?;
 
 	// An extension is only a client: its server, if the app has one, is
-	// built and deployed as the website's.
-	let server_binary = match server_package {
-		Some(_) if platform != Platform::Extension => {
-			Some(
-				compile_server(&root, &config.app.name, &server_options)?.context(
-					"backend build produced no unambiguous executable; name its binary after \
-					 app.name",
-				)?,
-			)
-		}
-
-		_ => None,
-	};
-
-	if let Some(binary) = &server_binary {
-		BuiltServer {
-			binary: binary.clone(),
-		}
-		.save(&metadata.target_directory, root.as_std_path())?;
-	}
+	// built and deployed as the website's, and so are its services.
+	let (server_binary, services) = compile_server_and_services(
+		&config,
+		&root,
+		&metadata,
+		platform,
+		server_package.is_some(),
+		&server_options,
+		release,
+	)?;
 
 	let mut wasm_bound = false;
 	let mut wasm_bundle = None;
@@ -299,6 +291,7 @@ pub fn run(
 		out_dir,
 		client,
 		server_binary,
+		services,
 	})
 }
 
@@ -773,6 +766,77 @@ pub(crate) fn plugin_context(
 	Ok((registry, context))
 }
 
+/// Builds the app's server and its services: with `[services]`, in one
+/// cargo invocation (see [`crate::services::build`]), and records both for
+/// `leptoskit serve`. An extension build makes neither.
+fn compile_server_and_services(
+	config: &LeptoskitConfig,
+	root: &Utf8PathBuf,
+	metadata: &wasm::CargoMetadata,
+	platform: Platform,
+	has_server: bool,
+	server_options: &CargoOptions,
+	release: bool,
+) -> Result<(Option<PathBuf>, Vec<crate::services::BuiltService>)> {
+	if platform == Platform::Extension {
+		return Ok((None, Vec::new()));
+	}
+
+	let services = crate::services::resolve(config, root.as_std_path(), metadata, release)?;
+	let save = |binary: &Option<PathBuf>| -> Result<()> {
+		if let Some(binary) = binary {
+			BuiltServer {
+				binary: binary.clone(),
+			}
+			.save(&metadata.target_directory, root.as_std_path())?;
+		}
+		Ok(())
+	};
+
+	let required = |binary: Option<PathBuf>| -> Result<Option<PathBuf>> {
+		if has_server {
+			binary
+				.context(
+					"backend build produced no unambiguous executable; name its binary after \
+					 app.name",
+				)
+				.map(Some)
+		} else {
+			Ok(None)
+		}
+	};
+
+	if services.is_empty() {
+		let binary = if has_server {
+			required(compile_server(root, &config.app.name, server_options)?)?
+		} else {
+			None
+		};
+		save(&binary)?;
+		return Ok((binary, Vec::new()));
+	}
+
+	let built = crate::services::build(
+		root.as_std_path(),
+		metadata,
+		has_server
+			.then_some(crate::services::AppBuild {
+				package: &config.app.name,
+				options: server_options,
+			})
+			.as_ref(),
+		&services,
+		release,
+	)?;
+	crate::services::BuiltServices {
+		services: built.services.clone(),
+	}
+	.save(&metadata.target_directory, root.as_std_path())?;
+	let app = required(built.app)?;
+	save(&app)?;
+	Ok((app, built.services))
+}
+
 /// Runs cargo build for the server package and returns its server
 /// executable, read from cargo's JSON artifact messages so renamed binaries
 /// and custom target directories resolve exactly. Diagnostics still render
@@ -893,6 +957,7 @@ mod tests {
 				.map(|feature| ((*feature).to_owned(), Vec::new()))
 				.collect(),
 			dependencies: Vec::new(),
+			metadata: serde_json::Value::Null,
 		}
 	}
 

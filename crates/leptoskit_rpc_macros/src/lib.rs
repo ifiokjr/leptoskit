@@ -862,7 +862,7 @@ fn expand_server(args: &ApiArgs, mut function: ItemFn, register: bool) -> syn::R
 					internal: #internal,
 					deprecated: #deprecated,
 					tags: &[#(#tags),*],
-					scopes: &[#(#scopes),*],
+					scopes: &[#(#scopes),*], service: ::core::option::Option::None,
 				}
 			}
 		}
@@ -909,7 +909,15 @@ fn expand_operation(
 	function.attrs[index] = syn::parse_quote!(#[#path(#forwarded)]);
 
 	let registration = if register {
-		registration(args, &function, &signature, kind, &name, &krate)?
+		registration(
+			args,
+			&function,
+			&signature,
+			kind,
+			&name,
+			&krate,
+			operation_args.service.as_ref(),
+		)?
 	} else {
 		TokenStream::new()
 	};
@@ -994,10 +1002,26 @@ fn registration(
 	kind: OperationKind,
 	name: &LitStr,
 	krate: &Path,
+	service: Option<&LitStr>,
 ) -> syn::Result<TokenStream> {
 	let struct_ident = operation::struct_ident(function);
 	let struct_name = LitStr::new(&struct_ident.to_string(), struct_ident.span());
-	let path = LitStr::new(&format!("/api/{}", name.value()), name.span());
+	// A service's operation is reached under its prefix on the app's origin.
+	let path = service.map_or_else(
+		|| format!("/api/{}", name.value()),
+		|service| {
+			format!(
+				"/_leptoskit/services/{}/api/{}",
+				service.value(),
+				name.value()
+			)
+		},
+	);
+	let path = LitStr::new(&path, name.span());
+	let service = service.map_or_else(
+		|| quote!(::core::option::Option::None),
+		|service| quote!(::core::option::Option::Some(#service)),
+	);
 	let docs = LitStr::new(
 		&strip_arguments_section(&docs_of(&function.attrs)),
 		Span::call_site(),
@@ -1040,6 +1064,7 @@ fn registration(
 					deprecated: #deprecated,
 					tags: &[#(#tags),*],
 					scopes: &[],
+					service: #service,
 				}
 			}
 		};
