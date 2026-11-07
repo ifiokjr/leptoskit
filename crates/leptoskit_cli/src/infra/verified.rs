@@ -35,6 +35,9 @@ pub struct Args {
 	/// Inspect an existing local tag instead of packaging a new image.
 	#[arg(long)]
 	reuse_existing: bool,
+	/// Explicit operator declaration that this backend exposes no RPC API.
+	#[arg(long)]
+	no_rpc: bool,
 	/// New descriptor file, written only after image extraction succeeds.
 	#[arg(long)]
 	out: PathBuf,
@@ -67,9 +70,102 @@ pub(super) struct Descriptor {
 	platform: String,
 	assets: CheckState,
 	services: CheckState,
-	rpc_contract: CheckState,
+	rpc_contract: RpcContract,
 	native_guest_compatibility: CheckState,
 	runtime_attestation: CheckState,
+}
+
+/// Export proves only which contract these bytes emit, not compatibility or
+/// that arbitrary application code obeys the early-export startup convention.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+enum RpcContract {
+	Exported {
+		sha256: String,
+		compatibility: CheckState,
+	},
+	NotApplicable {
+		declaration: String,
+	},
+}
+
+fn rpc_contract(engine: Engine, image: &str, no_rpc: bool) -> Result<RpcContract> {
+	if no_rpc {
+		return Ok(RpcContract::NotApplicable {
+			declaration: "operator_declares_no_rpc".into(),
+		});
+	}
+	let dir = tempfile::tempdir()?;
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt as _;
+		fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o777))?;
+	}
+	let mount = format!("type=bind,source={},target=/spec", dir.path().display());
+	ensure!(
+		!dir.path().to_string_lossy().contains(','),
+		"invalid export mount"
+	);
+	let container = String::from_utf8(output(
+		engine,
+		&[
+			"create",
+			"--network=none",
+			"--read-only",
+			"--cap-drop=ALL",
+			"--security-opt=no-new-privileges",
+			"--pids-limit=32",
+			"--memory=128m",
+			"--user=65532:65532",
+			"--mount",
+			&mount,
+			"--env",
+			"LEPTOSKIT_RPC_SPEC_OUT=/spec/rpc.json",
+			"--entrypoint=/app/backend",
+			image,
+		],
+	)?)?
+	.trim()
+	.to_owned();
+	let checked = (|| -> Result<RpcContract> {
+		output(engine, &["start", &container])?;
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+		loop {
+			let states: Vec<Value> =
+				serde_json::from_slice(&output(engine, &["inspect", &container])?)?;
+			let state = &states.first().context("missing export container")?["State"];
+			if state["Running"] == false {
+				ensure!(
+					state["ExitCode"] == 0,
+					"RPC export failed before successful exit"
+				);
+				break;
+			}
+			ensure!(
+				std::time::Instant::now() < deadline,
+				"RPC export timed out; call export_if_requested before database/auth startup"
+			);
+			std::thread::sleep(std::time::Duration::from_millis(100));
+		}
+		let path = dir.path().join("rpc.json");
+		let metadata = fs::symlink_metadata(&path).context(
+			"executable did not export RPC spec; call export_if_requested first in main",
+		)?;
+		ensure!(
+			metadata.is_file() && metadata.len() <= 16 * 1024 * 1024,
+			"invalid RPC export file"
+		);
+		let bytes = fs::read(path)?;
+		leptoskit_rpc_codegen::ApiSpec::from_json(std::str::from_utf8(&bytes)?)?;
+		Ok(RpcContract::Exported {
+			sha256: super::digest(&bytes),
+			compatibility: CheckState::NotChecked,
+		})
+	})();
+	let removed = output(engine, &["rm", "--force", &container]);
+	let contract = checked?;
+	removed?;
+	Ok(contract)
 }
 
 fn hash_json(value: &Value) -> Result<String> {
@@ -321,6 +417,7 @@ pub(super) fn run(args: &Args) -> Result<()> {
 	let removed = output(engine, &["rm", &container]);
 	checked?;
 	removed?;
+	let rpc_contract = rpc_contract(engine, id, args.no_rpc)?;
 	let descriptor = Descriptor {
 		format_version: 1,
 		kind: "leptoskit-verified-backend-image".into(),
@@ -336,7 +433,7 @@ pub(super) fn run(args: &Args) -> Result<()> {
 		platform: platform.into(),
 		assets: CheckState::NotApplicable,
 		services: CheckState::Unsupported,
-		rpc_contract: CheckState::NotChecked,
+		rpc_contract,
 		native_guest_compatibility: CheckState::NotApplicable,
 		runtime_attestation: CheckState::Absent,
 	};
@@ -368,11 +465,24 @@ pub(super) fn read(path: &Path, pin: &str) -> Result<Descriptor> {
 impl Descriptor {
 	fn validate(&self) -> Result<()> {
 		ensure!(
+			match &self.rpc_contract {
+				RpcContract::Exported {
+					sha256,
+					compatibility,
+				} =>
+					sha256.len() == 64
+						&& sha256.bytes().all(|b| b.is_ascii_hexdigit())
+						&& *compatibility == CheckState::NotChecked,
+				RpcContract::NotApplicable { declaration } =>
+					declaration == "operator_declares_no_rpc",
+			},
+			"unsupported RPC evidence"
+		);
+		ensure!(
 			self.format_version == 1
 				&& self.kind == "leptoskit-verified-backend-image"
 				&& self.assets == CheckState::NotApplicable
 				&& self.services == CheckState::Unsupported
-				&& self.rpc_contract == CheckState::NotChecked
 				&& self.native_guest_compatibility == CheckState::NotApplicable
 				&& self.runtime_attestation == CheckState::Absent
 				&& self.executable_mode == 0o755,
