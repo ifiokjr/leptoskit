@@ -1,8 +1,9 @@
-// The packaged public website's live example, in headless Chrome: the Wasm
-// client must mount over the static preview, its button must update the
-// count, and the page must log no errors. A client bundle without the app's
-// start function still loads cleanly, so only a real browser notices that the
-// example never became interactive.
+// The packaged website's Wasm client, in headless Chrome. On the landing
+// page, the client must mount the live example over the static preview, its
+// button must update the count, the page must log no errors, and the page
+// must not download the management console, which loads as a chunk of its
+// own. A client bundle without the app's start function still loads cleanly,
+// so only a real browser notices that the example never became interactive.
 //
 // Package the site first, then point the test at the artifact (the test fails
 // without one):
@@ -10,382 +11,212 @@
 //   LEPTOSKIT_SITE=docs/dist deno test --allow-env --allow-read --allow-net \
 //     --allow-run --allow-write crates/leptoskit_app/tests/live_example.mjs
 //
+// The complete hosted artifact (packaged without `--public-only`) also has
+// the console at `/console/`; for it, the console tests check that the
+// console loads its chunk and mounts, and that a chunk that fails to load
+// leaves a message instead of an empty page. The public artifact has no
+// console, so they are skipped there.
+//
 // `CHROME` names the browser executable; otherwise the usual install
-// locations are tried. The test talks to Chrome over the DevTools protocol
-// directly, so it needs no browser automation package.
+// locations are tried. See `browser.mjs` for how the test drives Chrome.
 
-const site = Deno.env.get("LEPTOSKIT_SITE");
+import { assert, launch, Page, removeProfile, serve } from "./browser.mjs";
 
-// The broker's policy, so the client is also checked under the hosted
-// artifact's restrictions.
-const CONTENT_SECURITY_POLICY =
-	"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
-	"style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'";
+const site = Deno.env.get("LEPTOSKIT_SITE")?.replace(/\/$/, "");
 
-const CONTENT_TYPES = {
-	css: "text/css; charset=utf-8",
-	html: "text/html; charset=utf-8",
-	ico: "image/x-icon",
-	js: "text/javascript; charset=utf-8",
-	json: "application/json",
-	mjs: "text/javascript; charset=utf-8",
-	png: "image/png",
-	riv: "application/octet-stream",
-	svg: "image/svg+xml",
-	txt: "text/plain; charset=utf-8",
-	wasm: "application/wasm",
-	woff2: "font/woff2",
-	xml: "application/xml",
-};
-
-function assert(value, message) {
-	if (!value) throw new Error(message);
-}
-
-// Serves `root` as static files, the way the public host does: a directory
-// resolves to its `index.html`.
-function serve(root) {
-	return Deno.serve(
-		{ hostname: "127.0.0.1", port: 0, onListen() {} },
-		async (request) => {
-			const path = decodeURIComponent(new URL(request.url).pathname);
-			if (path.split("/").includes("..")) {
-				return new Response("Bad request", { status: 400 });
-			}
-			let file = `${root}${path}`;
-			if (path.endsWith("/")) file += "index.html";
-			try {
-				const body = await Deno.readFile(file);
-				const extension = file.slice(file.lastIndexOf(".") + 1);
-				return new Response(body, {
-					headers: {
-						"content-type": CONTENT_TYPES[extension] ??
-							"application/octet-stream",
-						"content-security-policy": CONTENT_SECURITY_POLICY,
-					},
-				});
-			} catch (error) {
-				if (error instanceof Deno.errors.NotFound) {
-					return new Response("Not found", { status: 404 });
-				}
-				throw error;
-			}
-		},
-	);
-}
-
-function chromeExecutable() {
-	const configured = Deno.env.get("CHROME");
-	if (configured) return configured;
-	const candidates = Deno.build.os === "darwin"
-		? [
-			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-			"/Applications/Chromium.app/Contents/MacOS/Chromium",
-		]
-		: [
-			"/usr/bin/google-chrome",
-			"/usr/bin/google-chrome-stable",
-			"/usr/bin/chromium",
-			"/usr/bin/chromium-browser",
-		];
-	const found = candidates.find((candidate) => {
-		try {
-			return Deno.statSync(candidate).isFile;
-		} catch {
-			return false;
-		}
-	});
-	assert(found, "Chrome was not found; set CHROME to its executable");
-	return found;
-}
-
-// Starts headless Chrome and returns it with its DevTools endpoint.
-async function launch(profile) {
-	const args = [
-		"--headless=new",
-		"--remote-debugging-port=0",
-		`--user-data-dir=${profile}`,
-		"--no-first-run",
-		"--no-default-browser-check",
-		"--window-size=1280,900",
-		"about:blank",
-	];
-	// CI runners do not give Chrome the user namespaces its sandbox needs.
-	if (Deno.build.os === "linux") args.unshift("--no-sandbox");
-	const process = new Deno.Command(chromeExecutable(), {
-		args,
-		stdin: "null",
-		stdout: "null",
-		stderr: "piped",
-	}).spawn();
-	const reader = process.stderr.pipeThrough(new TextDecoderStream())
-		.getReader();
-	let output = "";
+function hasConsole() {
 	try {
-		for (;;) {
-			const { value, done } = await reader.read();
-			if (done) {
-				throw new Error(`Chrome exited before DevTools started:\n${output}`);
-			}
-			output += value;
-			const endpoint = output.match(/DevTools listening on (ws:\/\/\S+)/)?.[1];
-			if (endpoint) return { process, endpoint };
-		}
-	} finally {
-		await reader.cancel();
+		return Deno.statSync(`${site}/console/index.html`).isFile;
+	} catch {
+		return false;
 	}
 }
 
-// One DevTools protocol connection to a page.
-class Page {
-	#socket;
-	#next = 0;
-	#pending = new Map();
-	#listeners = new Map();
-
-	static async connect(browserEndpoint) {
-		const { host } = new URL(browserEndpoint);
-		const targets = await (await fetch(`http://${host}/json/list`)).json();
-		const page = targets.find((target) => target.type === "page");
-		assert(page, "Chrome opened no page");
-		const socket = new WebSocket(page.webSocketDebuggerUrl);
-		await new Promise((resolve, reject) => {
-			socket.onopen = resolve;
-			socket.onerror = () => reject(new Error("could not connect to Chrome"));
-		});
-		return new Page(socket);
-	}
-
-	constructor(socket) {
-		this.#socket = socket;
-		socket.onmessage = ({ data }) => {
-			const message = JSON.parse(data);
-			if (message.id === undefined) {
-				for (const listener of this.#listeners.get(message.method) ?? []) {
-					listener(message.params);
-				}
-				return;
-			}
-			const pending = this.#pending.get(message.id);
-			this.#pending.delete(message.id);
-			if (message.error) pending.reject(new Error(message.error.message));
-			else pending.resolve(message.result);
-		};
-	}
-
-	send(method, params = {}) {
-		const id = ++this.#next;
-		this.#socket.send(JSON.stringify({ id, method, params }));
-		return new Promise((resolve, reject) =>
-			this.#pending.set(id, { resolve, reject })
-		);
-	}
-
-	on(method, listener) {
-		const listeners = this.#listeners.get(method) ?? [];
-		listeners.push(listener);
-		this.#listeners.set(method, listeners);
-	}
-
-	once(method) {
-		return new Promise((resolve) => this.on(method, resolve));
-	}
-
-	// Evaluates `expression` in the page and returns its value.
-	async evaluate(expression) {
-		const { result, exceptionDetails } = await this.send("Runtime.evaluate", {
-			expression,
-			awaitPromise: true,
-			returnByValue: true,
-		});
-		if (exceptionDetails) {
-			throw new Error(
-				exceptionDetails.exception?.description ?? exceptionDetails.text,
-			);
-		}
-		return result.value;
-	}
-
-	// Waits, inside the page, until `predicate` returns a truthy value.
-	until(predicate, description, timeout = 20_000) {
-		return this.evaluate(`new Promise((resolve, reject) => {
-			const deadline = performance.now() + ${timeout};
-			const check = () => {
-				const value = (${predicate})();
-				if (value) resolve(value);
-				else if (performance.now() > deadline) reject(new Error(${
-			JSON.stringify(`timed out: ${description}`)
-		}));
-				else setTimeout(check, 50);
-			};
-			check();
-		})`);
-	}
-
-	// Presses the element `selector` names with the mouse, as a reader would:
-	// once its entrance motion has settled and nothing covers its centre.
-	async click(selector) {
-		const { x, y } = await this.until(
-			`() => {
-				const element = document.querySelector(${JSON.stringify(selector)});
-				const box = element?.getBoundingClientRect();
-				const key = box && [box.x, box.y, box.width, box.height].join();
-				const settled = key === globalThis.__lastBox;
-				globalThis.__lastBox = key;
-				if (!settled) return null;
-				const x = box.x + box.width / 2;
-				const y = box.y + box.height / 2;
-				return element.contains(document.elementFromPoint(x, y)) && { x, y };
-			}`,
-			`${selector} settling where it can be pressed`,
-		);
-		await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-		await this.send("Input.dispatchMouseEvent", {
-			type: "mousePressed",
-			x,
-			y,
-			button: "left",
-			buttons: 1,
-			clickCount: 1,
-		});
-		await this.send("Input.dispatchMouseEvent", {
-			type: "mouseReleased",
-			x,
-			y,
-			button: "left",
-			buttons: 0,
-			clickCount: 1,
-		});
-	}
-
-	async close() {
-		const closed = new Promise((resolve) => this.#socket.onclose = resolve);
-		this.#socket.close();
-		await closed;
-	}
-}
+// The client's Wasm modules the page requested, by path. The Rive runtime's
+// own module, under `/rive/`, is not the client's.
+const REQUESTED_WASM = `performance.getEntriesByType("resource")
+	.map(({ name }) => new URL(name).pathname)
+	.filter((path) => path.startsWith("/pkg/") && path.endsWith(".wasm"))`;
 
 /**
- * Removes Chrome's temporary profile. Chrome's helper processes can outlive
- * the browser process for a moment and keep writing into the profile, so on
- * Linux the first removal can fail with "Directory not empty". Retry briefly
- * rather than let cleanup replace the test's own result.
+ * Opens `path` of the packaged site in a fresh headless Chrome and runs
+ * `check` with the page and the errors it has logged so far. `blocked` lists
+ * URL patterns the browser must fail to fetch. Fails when `check` does, with
+ * the page's errors and `shown` (an expression for what the page displays)
+ * to explain it.
  */
-async function removeProfile(profile) {
-	for (let attempt = 1;; attempt++) {
-		try {
-			await Deno.remove(profile, { recursive: true });
-			return;
-		} catch (error) {
-			if (error instanceof Deno.errors.NotFound) return;
-			if (attempt === 20) throw error;
-			await new Promise((resolve) => setTimeout(resolve, 100));
+async function browse({ path, blocked = [], shown, check }) {
+	// Fail rather than skip, so a CI run that lost the artifact cannot pass.
+	assert(site, "set LEPTOSKIT_SITE to a packaged site, such as docs/dist");
+	const server = serve(site);
+	const profile = await Deno.makeTempDir({
+		prefix: "leptoskit-live-example-",
+	});
+	const chrome = await launch(profile);
+	const errors = [];
+	let page;
+	try {
+		page = await Page.connect(chrome.endpoint);
+		page.on("Runtime.exceptionThrown", ({ exceptionDetails }) => {
+			errors.push(
+				exceptionDetails.exception?.description ?? exceptionDetails.text,
+			);
+		});
+		page.on("Runtime.consoleAPICalled", ({ type, args }) => {
+			if (type === "error" || type === "assert") {
+				errors.push(
+					args.map((arg) => arg.value ?? arg.description).join(" "),
+				);
+			}
+		});
+		page.on("Log.entryAdded", ({ entry }) => {
+			if (entry.level === "error") {
+				errors.push(`${entry.text} ${entry.url ?? ""}`);
+			}
+		});
+		await Promise.all(
+			["Page.enable", "Runtime.enable", "Log.enable", "Network.enable"].map(
+				(m) => page.send(m),
+			),
+		);
+		if (blocked.length > 0) {
+			await page.send("Network.setBlockedURLs", { urls: blocked });
 		}
+
+		const loaded = page.once("Page.loadEventFired");
+		await page.send("Page.navigate", {
+			url: `http://127.0.0.1:${server.addr.port}${path}`,
+		});
+		await loaded;
+		await check(page, errors);
+	} catch (error) {
+		// The page's own errors usually explain a stalled client.
+		const display = page ? await page.evaluate(shown) : "";
+		throw new Error(
+			`${error.message}\nthe page shows: ${display}\npage errors:\n${
+				errors.join("\n")
+			}`,
+			{ cause: error },
+		);
+	} finally {
+		await page?.close();
+		chrome.process.kill();
+		await chrome.process.status;
+		await server.shutdown();
+		await removeProfile(profile);
 	}
 }
 
 Deno.test({
 	name: "the packaged live example mounts and counts presses",
 	async fn() {
-		// Fail rather than skip, so a CI run that lost the artifact cannot pass.
-		assert(site, "set LEPTOSKIT_SITE to a packaged site, such as docs/dist");
-		const server = serve(site.replace(/\/$/, ""));
-		const profile = await Deno.makeTempDir({
-			prefix: "leptoskit-live-example-",
-		});
-		const chrome = await launch(profile);
-		const errors = [];
-		let page;
-		try {
-			page = await Page.connect(chrome.endpoint);
-			page.on("Runtime.exceptionThrown", ({ exceptionDetails }) => {
-				errors.push(
-					exceptionDetails.exception?.description ?? exceptionDetails.text,
+		await browse({
+			path: "/",
+			shown: `document.querySelector("#live-demo")?.textContent`,
+			async check(page, errors) {
+				// The server-rendered preview is inert until the client mounts.
+				assert(
+					await page.evaluate(
+						`document.querySelector("#live-demo [aria-disabled='true']") !== null`,
+					),
+					"the static preview should wait for the Wasm client",
 				);
-			});
-			page.on("Runtime.consoleAPICalled", ({ type, args }) => {
-				if (type === "error" || type === "assert") {
-					errors.push(
-						args.map((arg) => arg.value ?? arg.description).join(" "),
+
+				// The client loads lazily, as the example nears the viewport.
+				// The page scrolls smoothly; jump instead, so the example
+				// settles at once.
+				await page.evaluate(
+					`document.getElementById("live-demo").scrollIntoView({ block: "center", behavior: "instant" })`,
+				);
+				await page.until(
+					`() => document.querySelector("#live-demo #demo-increment") &&
+						!document.querySelector("#live-demo [aria-disabled='true']")`,
+					"the Wasm client mounting the live example",
+				);
+				const count = () =>
+					page.evaluate(
+						`document.querySelector("#live-demo #demo-count")?.textContent`,
+					);
+				assert(
+					(await count()) === "0 ideas shipped",
+					`unexpected count: ${await count()}`,
+				);
+
+				for (const shipped of [1, 2]) {
+					await page.click("#live-demo #demo-increment");
+					await page.until(
+						`() => document.querySelector("#live-demo #demo-count")?.textContent === "${shipped} ideas shipped"`,
+						`the count reaching ${shipped}`,
 					);
 				}
-			});
-			page.on("Log.entryAdded", ({ entry }) => {
-				if (entry.level === "error") {
-					errors.push(`${entry.text} ${entry.url ?? ""}`);
-				}
-			});
-			await Promise.all(
-				["Page.enable", "Runtime.enable", "Log.enable"].map((m) =>
-					page.send(m)
-				),
-			);
 
-			const loaded = page.once("Page.loadEventFired");
-			await page.send("Page.navigate", {
-				url: `http://127.0.0.1:${server.addr.port}/`,
-			});
-			await loaded;
-
-			// The server-rendered preview is inert until the client mounts.
-			assert(
-				await page.evaluate(
-					`document.querySelector("#live-demo [aria-disabled='true']") !== null`,
-				),
-				"the static preview should wait for the Wasm client",
-			);
-
-			// The client loads lazily, as the example nears the viewport. The
-			// page scrolls smoothly; jump instead, so the example settles at once.
-			await page.evaluate(
-				`document.getElementById("live-demo").scrollIntoView({ block: "center", behavior: "instant" })`,
-			);
-			await page.until(
-				`() => document.querySelector("#live-demo #demo-increment") &&
-					!document.querySelector("#live-demo [aria-disabled='true']")`,
-				"the Wasm client mounting the live example",
-			);
-			const count = () =>
-				page.evaluate(
-					`document.querySelector("#live-demo #demo-count")?.textContent`,
+				// The console's chunk is for the console alone.
+				const wasm = await page.evaluate(REQUESTED_WASM);
+				assert(
+					wasm.length === 1 && wasm[0] === "/pkg/leptoskit_app_bg.wasm",
+					`the landing page should load only the client's main module, not ${
+						wasm.join(", ")
+					}`,
 				);
-			assert(
-				(await count()) === "0 ideas shipped",
-				`unexpected count: ${await count()}`,
-			);
+				assert(
+					errors.length === 0,
+					`the page logged errors:\n${errors.join("\n")}`,
+				);
+			},
+		});
+	},
+});
 
-			for (const shipped of [1, 2]) {
-				await page.click("#live-demo #demo-increment");
+Deno.test({
+	name: "the packaged console loads its chunk and mounts",
+	ignore: !site || !hasConsole(),
+	async fn() {
+		await browse({
+			path: "/console/",
+			shown: "document.body.textContent",
+			async check(page, errors) {
 				await page.until(
-					`() => document.querySelector("#live-demo #demo-count")?.textContent === "${shipped} ideas shipped"`,
-					`the count reaching ${shipped}`,
+					`() => document.querySelector("[data-testid='account-key']")`,
+					"the console mounting its sign-in form",
 				);
-			}
-		} catch (error) {
-			// The page's own errors usually explain a stalled example.
-			const shown = page
-				? await page.evaluate(
-					`document.querySelector("#live-demo")?.textContent`,
-				)
-				: "";
-			throw new Error(
-				`${error.message}\nlive example: ${shown}\npage errors:\n${
-					errors.join("\n")
-				}`,
-				{
-					cause: error,
-				},
-			);
-		} finally {
-			await page?.close();
-			chrome.process.kill();
-			await chrome.process.status;
-			await server.shutdown();
-			await removeProfile(profile);
-		}
-		assert(
-			errors.length === 0,
-			`the page logged errors:\n${errors.join("\n")}`,
-		);
+				const wasm = await page.evaluate(REQUESTED_WASM);
+				assert(
+					wasm.includes("/pkg/leptoskit_app_bg.wasm") &&
+						wasm.some((path) => path.startsWith("/pkg/split_")),
+					`the console should load the main module and its chunk, not ${
+						wasm.join(", ")
+					}`,
+				);
+				assert(
+					errors.length === 0,
+					`the page logged errors:\n${errors.join("\n")}`,
+				);
+			},
+		});
+	},
+});
+
+Deno.test({
+	name: "a console chunk that fails to load leaves a message",
+	ignore: !site || !hasConsole(),
+	async fn() {
+		await browse({
+			path: "/console/",
+			blocked: ["*/pkg/split_*"],
+			shown: "document.body.textContent",
+			async check(page, errors) {
+				await page.until(
+					`() => document.body.textContent.includes("LeptosKit could not load.")`,
+					"the console reporting that it could not load",
+				);
+				// `bootstrap.js` shows the same message when the main module
+				// fails, so make sure the client started and its chunk loader
+				// reported the failed fetch: the message is then the client's.
+				assert(
+					errors.some((error) => error.includes("/pkg/__wasm_split.")),
+					"the client should have tried to load the console's chunk",
+				);
+			},
+		});
 	},
 });

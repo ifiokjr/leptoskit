@@ -178,20 +178,49 @@ pub fn DemoApp() -> impl leptos::prelude::IntoView {
 	let count = RwSignal::new(0);
 	move || leptoskit::web::render(landing::demo(count))
 }
+/// Mounts the landing page's live example where the page has one, and the
+/// management console everywhere else.
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn start() {
 	use wasm_bindgen::JsCast as _;
-	let target = web_sys::window()
-		.and_then(|window| window.document())
+	let document = web_sys::window().and_then(|window| window.document());
+	let target = document
+		.as_ref()
 		.and_then(|document| document.get_element_by_id("live-demo"))
 		.and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok());
 	if let Some(target) = target {
 		target.set_text_content(None);
 		leptos::mount::mount_to(target, DemoApp).forget();
 	} else {
-		leptos::mount::mount_to_body(App);
+		// Mounting starts the executor; the console's chunk loads before it
+		// mounts, so start the executor here. `Err` means it already runs.
+		let _ = any_spawner::Executor::init_wasm_bindgen();
+		any_spawner::Executor::spawn_local(async move {
+			if mount_console().await.is_err()
+				&& let Some(body) = document.and_then(|document| document.body())
+			{
+				body.set_text_content(Some(
+					"LeptosKit could not load. Refresh or contact your service operator.",
+				));
+			}
+		});
 	}
+}
+
+/// The management console loads as a chunk of its own, the first time a page
+/// without the live example starts the client. The public landing page
+/// downloads only the example and the renderer they share, never the
+/// console's screens, HTTP client and account protocol.
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+#[leptos::lazy(fallible)]
+#[allow(
+	clippy::unnecessary_wraps,
+	reason = "`fallible` returns the chunk's load failure through this `Result`"
+)]
+fn mount_console() -> Result<(), leptos::wasm_split::SplitLoaderError> {
+	leptos::mount::mount_to_body(App);
+	Ok(())
 }
 #[cfg(all(target_arch = "wasm32", feature = "native"))]
 mod guest;
