@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_l10n"
-version = "0.3.0"
+version = "0.3.1"
 authors.workspace = true
 categories = ["internationalization", "localization", "gui", "web-programming"]
 edition.workspace = true

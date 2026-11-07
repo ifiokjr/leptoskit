@@ -4,6 +4,40 @@ All notable changes to this project are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1](https://github.com/leptoskit/leptoskit/releases/tag/v0.3.1) (2026-11-07)
+
+Grouped release for `release`.
+
+### Features
+
+#### Interfaces from agents
+
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #550](https://github.com/leptoskit/leptoskit/pull/550)
+
+`leptoskit_agent_ui`, also `leptoskit`'s `agent-ui` feature, renders interfaces an AI agent writes as text while your app runs. The agent answers in Markdown with components in it — `<Stat>`, `<Chart>`, `<Slider>`, `<Button>`, and more — declares variables with `<Var>` and formulas with `<Let>`, and writes `{formulas}` in text that follow the user's input without a new message. `<View>`, `<Text>`, and `<Pressable>` let it build layouts the other components don't cover. `AgentUi::view` follows a streaming answer and shows a component that is still open. Button presses reach `on_action` with the user's state, and the app decides what they do.
+
+Documents style with Tailwind classes and colour roles such as `bg-surface` and `text-muted`, never colours. Each role reads your `[theme.colors]` entry of the same name, and its `-dark` twin in dark appearance, so documents and the built-in components match your app in light and dark without the agent knowing either; `agent_ui::Theme` renames roles and adds your own.
+
+Sliders, switches, checkboxes, radios, and spinners are the platform's own controls, updated in place so a slider keeps its drag. `Widgets::WithoutControls` draws them from buttons for macOS, iOS, and Android shells generated before 0.3, and `Widgets::Basic` also leaves out vector paths for HarmonyOS.
+
+Documents are data, never code: formulas run on a fixed budget, classes that would lay content over the app or scroll are refused, images load only from allowed addresses, and `Limits` bound every document. `AgentUi::reference` writes the language reference for the agent from the components and colour roles registered right now, and `AgentUi::check` lists a document's problems by line and column.
+
+#### Motion for the shared component tree
+
+_Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #554](https://github.com/leptoskit/leptoskit/pull/554)
+
+Elements can move. `motion(Motion)` describes the poses an element moves between, as opacity, offset, scale, rotation, clipping, and blur, and what drives the movement: appearing (`Motion::enter`), scrolling into view (`in_view`), or a named container scrolling past (`timeline` on the container and `follow` on the elements inside it). `stagger` on a container starts its children's motions one after another. Timing comes from a duration and an `Easing`, or from a `Spring`, and a new `key` plays an enter motion again.
+
+The web renders motion as CSS animations and scroll-driven animations, with springs as `linear()` easing, so nothing runs in script. People who ask for less motion, and browsers without scroll timelines, see every element at rest at once. Native platforms show the resting pose too: motion is web-only for now, and native apps never receive it, so adding it changes nothing they build.
+
+The leptoskit.dev landing page is redesigned around it: one component tree becomes each platform's own widgets as you scroll, with every movement written as `Motion` and the hand-written animation script removed.
+
+### Fixes
+
+- **The live example on leptoskit.dev answers sooner.** The landing page's live example loaded the whole hosted app's Wasm client, management console included, before its button worked. The console now loads as a lazy chunk of its own, the client builds with `optimize = "smallest"`, and the page starts the client, its glue, and the Rive runtime downloading together instead of one after another. The example's module drops from 370 KiB to 188 KiB gzip-compressed, and on a phone emulated with Lighthouse's slow 4G and 4x CPU slowdown its first press updates the count about half as long after the example scrolls into view. The hosted console loads the same module and then its chunk, and says the app could not load if the chunk never arrives. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #557](https://github.com/leptoskit/leptoskit/pull/557)
+- **Web builds ship the app's own Wasm client.** `leptoskit build` bound the first Wasm module cargo reported. When the client crate depended on another crate that also declares a `cdylib`, cargo compiled that dependency to Wasm first, and the build shipped the dependency's module under the app's name: the page loaded without an error, but the app's start function never ran. Web builds and native guest builds now take the module of the client package itself. This is what kept the live example on leptoskit.dev from responding to presses. _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #556](https://github.com/leptoskit/leptoskit/pull/556)
+- **Over the air updates get their own section.** The home page and README now lead with one component tree and real native widgets. Over-the-air updates have their own section, describing code push for installed native apps and which generated hosts install releases. _Packages:_ 🟢 _leptoskit_ _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #552](https://github.com/leptoskit/leptoskit/pull/552)
+
 ## [0.3.0](https://github.com/leptoskit/leptoskit/releases/tag/v0.3.0) (2026-11-06)
 
 Grouped release for `release`.

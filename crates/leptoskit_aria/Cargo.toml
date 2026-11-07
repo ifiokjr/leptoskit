@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_aria"
-version = "0.3.0"
+version = "0.3.1"
 authors.workspace = true
 categories = ["gui", "web-programming", "accessibility"]
 edition.workspace = true

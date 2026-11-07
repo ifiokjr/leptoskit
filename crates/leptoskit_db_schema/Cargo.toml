@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_db_schema"
-version = "0.3.0"
+version = "0.3.1"
 authors.workspace = true
 categories = ["database", "development-tools"]
 edition.workspace = true

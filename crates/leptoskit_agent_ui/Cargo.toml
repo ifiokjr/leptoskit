@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_agent_ui"
-version.workspace = true
+version = "0.3.1"
 authors.workspace = true
 categories = ["gui", "parser-implementations"]
 edition.workspace = true
