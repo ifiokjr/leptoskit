@@ -34,23 +34,12 @@ Only projects whose sole platform is server are accepted. Schema fingerprints co
 
 RPC export runs the checked image executable with no network, a read-only root, no capabilities, a non-root user, bounded resources, and a 30-second deadline. The executable must export before database/auth startup; arbitrary executable behavior is not attested. The descriptor hashes the exact exported spec bytes after parsing. Compatibility is explicitly not_checked. Only an explicit `--no-rpc` operator declaration records RPC as not_applicable. Native/guest compatibility and assets are not_applicable; services are unsupported; runtime attestation is absent. No online schema compatibility claim is made.
 
-The real-engine fixture acceptance remains pending: a tiny committed locked backend, independently pinned builder/runtime, build twice, full reproduce, package without push, extract/hash, then reject tampering. Do not mark this acceptance complete from fake-engine or unit tests. The local engine was unavailable on Mini02 and no machine was provisioned alongside compilation.
-
-## Mini02 implementation evidence
-
-- Base revalidated against remote main: f198f496.
-- CLI library suite: initial run 547 passed, 5 ignored. After adding connected deployment and scope checks, 548 passed and one new fixture failed due to malformed test TOML. The fixture was fixed; all six verified-packaging tests then passed. No production logic was changed to accommodate the fixture.
-- CLI clippy with tests and warnings denied passed. Monostyle passed.
-- CLI help snapshots regenerated and reviewed: infra command list, verified packaging help, deploy evidence flags. Help snapshot test passed.
-- No configuration schema types changed; schema regeneration is inapplicable.
-- Podman 6.1.4 reported no socket and no machines. No real image build, extraction, runtime pull, registry push, production deployment, or container fixture ran.
-- Only this clone's build outputs were reclaimed after local validation. Other agents' processes, sessions, caches, and the dirty main checkout were untouched.
-- Still missing: real-engine committed fixture/pins and execution, exported RPC contract binding, and comprehensive fake-engine release/reuse/rollback/recovery fault injection. These remain acceptance gaps, not successful verification.
-
-- Publication is blocked: the pre-push hook requires full-workspace clippy and other checks, beyond the authorized single heavy build. Free disk fell to 1.3 GiB amid other work; reclaiming this clone's target directory restored 7.4 GiB. The hook was not bypassed and no PR was created. Parent handoff is the signed local feature-branch commit; full pre-push checks and publication remain pending.
+The real-engine fixture is `crates/leptoskit_cli/tests/fixtures/verified-backend`. Run `devenv shell -- python3 docs/agents/verified-backend-acceptance.py <CLI>` after committing it, with `CONTAINER_CONNECTION` selecting a disposable local Podman VM. The script prints the builder/runtime digests and descriptor, independently hashes the extracted image executable, and checks rejection without success evidence. It exercises a local committed source with a process-local Git transport mapping, not public provenance authentication.
 
 ## Follow-up validation
 
 The follow-up rebases on `23e5a1df`. The CLI library suite passed: 559 tests, 5 ignored. A tiny dependency-free locked backend fixture exports before a deliberate normal-startup panic. `verified-backend-acceptance.py` uses a signed synthetic commit of its committed tree and an invocation-only Git transport mapping to exercise full reproduction locally; this does not authenticate public GitHub provenance. It never publishes images or deploys.
 
 RPC descriptors are still unsigned operator evidence. The independent descriptor pin authenticates the operator claim; no guest signature, approval, or runtime attestation is implied. Website and service evidence, and approval integration, remain outside this slice.
+
+Review found the initial packaging implementation reused a text checksum for executable bytes. The follow-up uses raw-byte SHA-256 and tests invalid-UTF-8 substitutions. It also normalizes Podman image IDs and validates a descriptor before writing it.

@@ -48,6 +48,17 @@ with tempfile.TemporaryDirectory(prefix="a04-acceptance-") as temp:
     try:
         run(*package, "--out", str(descriptor), env=env)
         print(descriptor.read_text())
+        evidence = json.loads(descriptor.read_text())
+        assert evidence["executable_sha256"] == digest((out / "bundle/artifacts/backend").read_bytes())
+        assert evidence["engine_image_id"].startswith("sha256:")
+        container = run("podman", "create", tag)
+        try:
+            extracted = temp / "extracted-backend"
+            run("podman", "cp", f"{container}:/app/backend", str(extracted))
+            assert digest(extracted.read_bytes()) == evidence["executable_sha256"]
+            print("independent extracted executable SHA-256", digest(extracted.read_bytes()))
+        finally:
+            run("podman", "rm", container)
         run(*package, "--reuse-existing", "--out", str(temp / "reuse.json"), env=env)
         for relative in ["artifacts/backend", "source/src/main.rs", "source/migrations/registry.txt", "source/leptoskit.toml", "build.json"]:
             path = out / "bundle" / relative

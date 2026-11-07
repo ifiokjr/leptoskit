@@ -159,7 +159,7 @@ fn rpc_contract(engine: Engine, image: &str, no_rpc: bool) -> Result<RpcContract
 		let bytes = fs::read(path)?;
 		leptoskit_rpc_codegen::ApiSpec::from_json(std::str::from_utf8(&bytes)?)?;
 		Ok(RpcContract::Exported {
-			sha256: super::digest(&bytes),
+			sha256: digest(&bytes),
 			compatibility: CheckState::NotChecked,
 		})
 	})();
@@ -169,8 +169,13 @@ fn rpc_contract(engine: Engine, image: &str, no_rpc: bool) -> Result<RpcContract
 	Ok(contract)
 }
 
+fn digest(bytes: &[u8]) -> String {
+	use sha2::Digest as _;
+	hex::encode(sha2::Sha256::digest(bytes))
+}
+
 fn hash_json(value: &Value) -> Result<String> {
-	Ok(super::digest(&serde_json::to_vec(value)?))
+	Ok(digest(&serde_json::to_vec(value)?))
 }
 
 fn output(engine: Engine, args: &[&str]) -> Result<Vec<u8>> {
@@ -241,7 +246,7 @@ fn executable(bytes: &[u8], expected: &str) -> Result<()> {
 	let mut content = Vec::new();
 	entry.read_to_end(&mut content)?;
 	ensure!(
-		super::digest(&content) == expected,
+		digest(&content) == expected,
 		"image executable bytes differ"
 	);
 	drop(entry);
@@ -343,7 +348,7 @@ pub(super) fn run(args: &Args) -> Result<()> {
 		"verified executable must have mode 0755"
 	);
 	let backend = fs::read(bundle.root().join("artifacts/backend"))?;
-	let backend_hash = super::digest(&backend);
+	let backend_hash = digest(&backend);
 	fs::write(context.path().join("backend"), &backend)?;
 	let dockerfile = format!(
 		"FROM {}\nCOPY --chmod=0755 backend /app/backend\nWORKDIR /app\nUSER \
@@ -441,12 +446,13 @@ pub(super) fn run(args: &Args) -> Result<()> {
 	let bytes = write_descriptor(&args.out, &descriptor)?;
 	println!(
 		"Packaged {id}; descriptor SHA-256 {}. No registry digest or runtime attestation.",
-		super::digest(&bytes)
+		digest(&bytes)
 	);
 	Ok(())
 }
 
 fn write_descriptor(path: &Path, descriptor: &Descriptor) -> Result<Vec<u8>> {
+	descriptor.validate()?;
 	let bytes = serde_json::to_vec_pretty(descriptor)?;
 	use std::io::Write as _;
 	fs::OpenOptions::new()
@@ -460,7 +466,7 @@ fn write_descriptor(path: &Path, descriptor: &Descriptor) -> Result<Vec<u8>> {
 pub(super) fn read(path: &Path, pin: &str) -> Result<Descriptor> {
 	let bytes = fs::read(path)?;
 	ensure!(
-		super::digest(&bytes) == pin,
+		digest(&bytes) == pin,
 		"descriptor does not match independently authenticated pin"
 	);
 	let descriptor: Descriptor = serde_json::from_slice(&bytes)?;
@@ -550,8 +556,14 @@ mod tests {
 	}
 
 	#[test]
+	fn binary_hashing_does_not_collapse_invalid_utf8() {
+		assert_ne!(digest(&[0xff]), digest(&[0xfe]));
+		assert!(executable(&archive(&[0xfe], 0o755), &digest(&[0xff])).is_err());
+	}
+
+	#[test]
 	fn image_bytes_and_mode_are_checked_without_trusting_labels() {
-		let pin = super::super::digest(b"verified");
+		let pin = digest(b"verified");
 		assert!(executable(&archive(b"verified", 0o755), &pin).is_ok());
 		assert!(executable(&archive(b"substituted", 0o755), &pin).is_err());
 		assert!(executable(&archive(b"verified", 0o644), &pin).is_err());
@@ -627,11 +639,11 @@ mod tests {
 		let path = dir.path().join("descriptor.json");
 		fs::write(&path, b"{}").unwrap();
 		assert!(
-			read(&path, &super::super::digest(b"original"))
+			read(&path, &digest(b"original"))
 				.unwrap_err()
 				.to_string()
 				.contains("pin")
 		);
-		assert!(read(&path, &super::super::digest(b"{}")).is_err());
+		assert!(read(&path, &digest(b"{}")).is_err());
 	}
 }
