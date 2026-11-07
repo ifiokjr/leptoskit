@@ -80,8 +80,11 @@ fn assemble(out: &Path, url: &str, mode: Mode) -> Result<&'static str> {
 		&mut runtime,
 		&mut std::fs::File::create(out.join("rive/rive.js"))?,
 	)?;
+	// The book lives under `/docs/`; its logo leads back to the landing page
+	// at the artifact's root.
 	leptoskit_docs_site::site(leptoskit_docs_site::book())
 		.url(format!("{}/docs/", url.trim_end_matches('/')))
+		.home("/")
 		.build(out.join("docs"))?;
 	if mode == Mode::Public {
 		export_schema_aliases(out)?;
@@ -174,6 +177,11 @@ mod tests {
 		assert!(
 			!landing.contains("/console"),
 			"the public page must not offer the console"
+		);
+		let book = std::fs::read_to_string(out.join("docs/guide/01-installation.html"))?;
+		assert!(
+			book.contains(r#"<a href="/" class="lk-brand">"#),
+			"the book's logo must lead back to the landing page"
 		);
 		for book_page in [
 			"docs/index.html",

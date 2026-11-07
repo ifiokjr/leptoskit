@@ -62,7 +62,7 @@ server.wait();
 
 ### Publish
 
-`docs/dist` is plain static files. Upload it to GitHub Pages or any static host. Give the site its public address with `.url("https://me.github.io/my_app/")` so it can write canonical links, link previews, and a 404 page that works at any depth.
+`docs/dist` is plain static files. Upload it to GitHub Pages or any static host. Give the site its public address with `.url("https://me.github.io/my_app/")` so it can write canonical links, link previews, and a 404 page that works at any depth. When the book is one part of a larger site, such as under `/docs/` beside a landing page, `.home("/")` makes the logo in its header lead back to that page instead of the book's first chapter.
 
 </Steps>
 

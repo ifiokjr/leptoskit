@@ -59,13 +59,17 @@ pub(super) fn css(props: &MotionProps, offset: Duration) -> MotionCss {
 	};
 
 	let easing = easing(motion.easing_curve());
+	// An entrance ends on the element's own style, so once it has played the
+	// animation lets go. Holding its last keyframe would keep a reveal's
+	// `inset(0%)` clipping whatever the element paints outside its box, such
+	// as a heading's descenders.
+	let fill = if motion.holds_last_pose() {
+		"both"
+	} else {
+		"backwards"
+	};
 	match motion.trigger() {
 		Trigger::Appear => {
-			let fill = if motion.holds_last_pose() {
-				"both"
-			} else {
-				"backwards"
-			};
 			write!(
 				out.rules,
 				"@media (prefers-reduced-motion:no-preference){{{SELECTOR}{{animation:{name} {}ms \
@@ -75,7 +79,9 @@ pub(super) fn css(props: &MotionProps, offset: Duration) -> MotionCss {
 			)
 			.expect("write to String");
 		}
-		Trigger::InView(range) => scrolled(&mut out.rules, &name, &easing, "view()", *range),
+		Trigger::InView(range) => {
+			scrolled(&mut out.rules, &name, &easing, fill, "view()", *range);
+		}
 		Trigger::Timeline {
 			name: timeline,
 			range,
@@ -84,6 +90,7 @@ pub(super) fn css(props: &MotionProps, offset: Duration) -> MotionCss {
 				&mut out.rules,
 				&name,
 				&easing,
+				fill,
 				&timeline_name(timeline),
 				*range,
 			);
@@ -94,13 +101,20 @@ pub(super) fn css(props: &MotionProps, offset: Duration) -> MotionCss {
 	out
 }
 
-/// A scroll-driven animation on `timeline` over `range`.
-fn scrolled(rules: &mut String, name: &str, easing: &str, timeline: &str, range: ViewRange) {
+/// A scroll-driven animation on `timeline` over `range`, filling `fill`.
+fn scrolled(
+	rules: &mut String,
+	name: &str,
+	easing: &str,
+	fill: &str,
+	timeline: &str,
+	range: ViewRange,
+) {
 	write!(
 		rules,
 		"@supports (animation-timeline:view()){{@media \
 		 (prefers-reduced-motion:no-preference){{{SELECTOR}{{animation:{name} {easing} \
-		 both;animation-timeline:{timeline};animation-range:{} {}% {} {}%}}}}}}",
+		 {fill};animation-timeline:{timeline};animation-range:{} {}% {} {}%}}}}}}",
 		phase(range.start),
 		number(fraction(range.start_at) * 100.0),
 		phase(range.end),
@@ -405,7 +419,34 @@ mod tests {
 			 (prefers-reduced-motion:no-preference){#el{"
 		));
 		assert!(
-			rules.contains("both;animation-timeline:view();animation-range:entry 10% cover 50%}")
+			rules.contains(
+				"backwards;animation-timeline:view();animation-range:entry 10% cover 50%}"
+			)
+		);
+	}
+
+	#[test]
+	fn scroll_driven_entrances_rest_on_the_elements_own_style() {
+		// Past its range, a reveal lets go of its `inset(0%)`, so nothing the
+		// element paints outside its box stays clipped.
+		let reveal = rules(&of(Motion::enter(
+			Pose::new().clip(Inset::from_bottom(0.0)),
+		)
+		.in_view(ViewRange::entry())));
+		assert!(
+			reveal.contains(" backwards;animation-timeline:view();"),
+			"{reveal}"
+		);
+
+		// A motion that ends on a pose of its own keeps holding it.
+		let held = rules(&of(Motion::keyframes([
+			(0.0, Pose::new().clip(Inset::from_left(0.0))),
+			(1.0, Pose::new().clip(Inset::NONE)),
+		])
+		.follow("stage", ViewRange::contain())));
+		assert!(
+			held.contains(" both;animation-timeline:--lk-stage;"),
+			"{held}"
 		);
 	}
 

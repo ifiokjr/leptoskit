@@ -206,6 +206,17 @@ fn the_public_landing_html_offers_documentation_without_account_actions() {
 	] {
 		assert!(html.contains(kept), "the public page must keep {kept}");
 	}
+	// Each line of a section title is an element of its own, so it wraps
+	// evenly on its own instead of across the forced break.
+	for line in [
+		"id=\"capabilities-intro-title-0\">Bring the idea. <",
+		"id=\"capabilities-intro-title-1\">The foundations are here. <",
+	] {
+		assert!(
+			html.contains(line),
+			"the title line {line} must stand alone"
+		);
+	}
 	// The hosted page keeps rendering its console and hosted-service offers.
 	let hosted = leptoskit_app::site::landing_html("https://deploy.example.test", Mode::Hosted);
 	assert!(hosted.contains("href=\"/console/\""));
