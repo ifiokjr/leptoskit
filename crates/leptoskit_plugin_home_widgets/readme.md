@@ -35,12 +35,12 @@
 
 Publish a bounded text snapshot from the Wasm guest, store it where a native widget extension can read it, and ask the OS to reload WidgetKit timelines or Android App Widgets. A successful call means the host accepted the snapshot or reload request. It does not create, pin, or draw a widget, and it does not prove that a home-screen instance exists.
 
-| Platform    | Implementation                                      | Scope                                                                                          |
-| ----------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| iOS / macOS | Swift `UserDefaults` + `WidgetCenter`               | Capability, set/get/clear snapshot, reload timelines; installed state is always `Unknown`      |
-| Android     | Kotlin `SharedPreferences` + `AppWidgetManager`     | The above, plus best-effort installed queries against the app's own App Widget providers       |
-| Browser     | Unavailable                                         | No home-screen widget backend                                                                  |
-| Windows / Linux | Unavailable                                     | No widget backend yet                                                                          |
+| Platform        | Implementation                                  | Scope                                                                                     |
+| --------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| iOS / macOS     | Swift `UserDefaults` + `WidgetCenter`           | Capability, set/get/clear snapshot, reload timelines; installed state is always `Unknown` |
+| Android         | Kotlin `SharedPreferences` + `AppWidgetManager` | The above, plus best-effort installed queries against the app's own App Widget providers  |
+| Browser         | Unavailable                                     | No home-screen widget backend                                                             |
+| Windows / Linux | Unavailable                                     | No widget backend yet                                                                     |
 
 The app still owns the WidgetKit extension target or `AppWidgetProvider`. On Apple, pass an App Group identifier when constructing `HomeWidgetsPlugin` so the extension and the host share the same suite; without it, snapshots land in standard `UserDefaults` and capability reports `shared_store = false`. On Android, providers are discovered from the app package's `APPWIDGET_UPDATE` receivers; kind-to-provider matching is best-effort by class name.
 
@@ -50,14 +50,14 @@ Interactive widget controls, timeline entries with multiple dates, configuration
 
 All integers are little-endian `u32`. Strings are `u32` byte lengths followed by strict UTF-8. Every decoder rejects trailing bytes, truncated fields, invalid UTF-8 and values outside their domain before calling a platform API.
 
-| ID | Method     | Request                                              | Response            |
-| -- | ---------- | ---------------------------------------------------- | ------------------- |
-| 0  | Capability | Empty                                                | Capability flags    |
-| 1  | Set        | Kind, family, title, body, URL strings               | Empty               |
-| 2  | Get        | Kind string                                          | Snapshot            |
-| 3  | Clear      | Kind string                                          | Empty               |
-| 4  | Reload     | Empty (all) or kind string                           | Empty               |
-| 5  | Installed  | Kind string                                          | Installed `u32`     |
+| ID | Method     | Request                                | Response         |
+| -- | ---------- | -------------------------------------- | ---------------- |
+| 0  | Capability | Empty                                  | Capability flags |
+| 1  | Set        | Kind, family, title, body, URL strings | Empty            |
+| 2  | Get        | Kind string                            | Snapshot         |
+| 3  | Clear      | Kind string                            | Empty            |
+| 4  | Reload     | Empty (all) or kind string             | Empty            |
+| 5  | Installed  | Kind string                            | Installed `u32`  |
 
 Capability bits: supported=1, can_reload=2, can_query_installed=4, shared_store=8. Family is System=0, Small=1, Medium=2, Large=3 or ExtraLarge=4. Installed is Unknown=0, None=1 or Some=2. Kinds are 1–64 ASCII letters, digits, `.`, `_` or `-`. Titles have at most 256 UTF-8 bytes, bodies 1024, URLs 2048. Titles must contain non-whitespace text. Control characters are rejected except line feeds and tabs in bodies. Empty URLs mean no deep link; non-empty URLs must include a scheme separator.
 
@@ -79,11 +79,11 @@ let widgets = HomeWidgets::new()?;
 let capability = widgets.capability().await?;
 // Inspect capability.supported / shared_store before relying on reload.
 let snapshot = Snapshot::new(
-    Kind::new("status")?,
-    Family::Medium,
-    "Inbox",
-    "3 unread",
-    "myapp://inbox",
+	Kind::new("status")?,
+	Family::Medium,
+	"Inbox",
+	"3 unread",
+	"myapp://inbox",
 )?;
 widgets.set(&snapshot).await?;
 widgets.reload(Some(snapshot.kind())).await?;
