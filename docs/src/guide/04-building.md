@@ -126,7 +126,7 @@ leptoskit = { version = "0.1", features = ["server"] }
 - **`leptoskit::leptos`**, **`leptoskit::leptos_router`**, and **`leptoskit::leptos_meta`** are leptos itself, behind the `leptos` feature. The `csr`, `hydrate`, `ssr`, and `islands` features forward to them, so a package can write `hydrate = ["leptoskit/hydrate"]` instead of naming leptos, and `leptoskit build` turns islands on through `leptoskit/islands` when a package reaches leptos this way. `server` implies `ssr`.
 - **`leptoskit::codepush`** re-exports `ed25519_dalek` and `semver`, for code that signs or numbers releases itself rather than through the CLI.
 
-The one thing that stays a dependency of its own is `leptos` in a crate that uses its macros: `view!`, `#[component]`, `#[island]`, and `#[server]` expand to `::leptos::` paths, which only a direct dependency resolves. `leptoskit new` follows that line: the `_app` crate depends on `leptos`, while the server and backend packages depend on `leptoskit` alone. This is the server it generates:
+The one thing that stays a dependency of its own is `leptos` in a crate that uses its macros: `view!`, `#[component]`, `#[island]`, and `#[server]` expand to `::leptos::` paths, which only a direct dependency resolves. `leptoskit new` follows that line: the `_app` crate depends on `leptos`, and so does the `_backend` crate, whose `health` check is a `#[server]` function, while the server package depends on `leptoskit` alone. This is the server it generates:
 
 ```rust,ignore
 use leptoskit::server::leptos_axum::LeptosRoutes;
@@ -135,6 +135,8 @@ use leptoskit::server::tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	// Writes the published API and exits when `leptoskit rpc` asks for it.
+	leptoskit::rpc::spec::export_if_requested();
 	let options = leptoskit::leptos::config::get_configuration(None)?.leptos_options;
 	let address = options.site_addr;
 	let package_dir = format!("{}/{}", options.site_root, options.site_pkg_dir);

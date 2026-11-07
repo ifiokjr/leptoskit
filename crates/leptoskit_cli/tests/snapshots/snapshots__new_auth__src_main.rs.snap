@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
-assertion_line: 415
 expression: contents
 ---
 //! Web SSR entrypoint. Application UI and backend handlers live in their
@@ -23,6 +22,13 @@ use leptoskit::server::tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	// `leptoskit rpc spec` and `leptoskit rpc generate` run this binary with
+	// `LEPTOSKIT_RPC_SPEC_OUT` set to read the published API: this writes it
+	// there and exits, before anything below reads configuration, opens the
+	// database, loads the sign-in keys or binds a port. Otherwise it checks
+	// that no two operations share a route.
+	leptoskit::rpc::spec::export_if_requested();
+
 	let mut options = leptoskit::leptos::config::get_configuration(None)?.leptos_options;
 	options.output_name = "snapshotted_app".into();
 
@@ -31,16 +37,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	}
 
 	// `--role` (or `LEPTOSKIT_ROLE`) picks which parts of the app this
-	// process runs, every one unless it says: `web` serves the pages and the
-	// API, and `live`, `worker` and `capture` are for the live sockets, the
-	// job workers and replication capture once the app has them, so one
-	// binary can run as any part of a larger deployment.
+	// process runs, every one unless it says: `web` serves the pages, the
+	// API and sign-in, and `live` the live socket. `worker` and `capture` are
+	// for the job workers and replication capture once the app has them, so
+	// one binary can run as any part of a larger deployment.
 	let roles = Roles::from_env_and_args()?;
 	let address = options.site_addr;
 	let package_dir = format!("{}/{}", options.site_root, options.site_pkg_dir);
 	let assets_dir = format!("{}/assets", options.site_root);
+	// `/readyz` answers 200 once every check passes, so a load balancer only
+	// sends traffic to an instance that can serve it. It checks only what
+	// this process runs.
 	let readiness = Readiness::new();
 	let migrated = readiness.check("migrations");
+	let live_ready = roles.live().then(|| readiness.check("live"));
 	// The database, migrated before the first request.
 	let url = std::env::var("DATABASE_URL")
 		.unwrap_or_else(|_| "sqlite://snapshotted.sqlite3".to_owned());
@@ -49,19 +59,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	for name in db.migrate(snapshotted_db::MIGRATIONS).await? {
 		println!("applied migration {name}");
 	}
+
 	migrated.pass();
 
 	// Sign-in, from `[auth]` in leptoskit.toml. Each new account gets a
 	// `User` row.
 	let auth = sign_in::service::<snapshotted_db::User>(&db)?;
 
+	// The queries and mutations in `snapshotted_shared`, each run as whoever
+	// signed in, so the tables' policies apply: `POST /api/<name>`, and the
+	// live socket at `/live`, where a screen or a generated client
+	// subscribes to a query and receives every change to its result. Once
+	// `[auth] origin` names the site, the socket refuses pages from anywhere
+	// else; native apps, which send no `Origin`, sign in with a token.
+	let operations = snapshotted_backend::operations(db.clone()).identify(auth.clone());
+	let live = match auth.origin() {
+		Some(origin) => operations.live().origin(origin),
+		None => operations.live(),
+	};
+
+	if let Some(ready) = live_ready {
+		live.start().await?;
+		ready.pass();
+	}
+
 	let routes = generate_route_list(App);
 	let app_options = options.clone();
 	// The pages, the API and sign-in, with the `web` role. The built files
 	// are served with their precompressed brotli and gzip copies when the
 	// browser accepts them.
-	let app = if roles.web() {
-		snapshotted_backend::router()
+	let mut app = if roles.web() {
+		snapshotted_backend::router(&operations)
 			.merge(auth.router())
 			// The native apps' association files, for their passkeys.
 			.merge(sign_in::associations()?)
@@ -74,19 +102,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 				leptoskit::server::static_files(assets_dir.as_ref()),
 			)
 			.leptos_routes(&options, routes, move || shell(app_options.clone()))
-			// Last, so it wraps every route: it finds each request's session
-			// and gives handlers a database that acts for whoever is signed in.
-			.layer(auth.layer())
 			.with_state(options)
 	} else {
 		leptoskit::server::axum::Router::new()
+	};
+
+	if roles.live() {
+		app = app.merge(live.router());
 	}
-	.merge(readiness.routes());
+
+	// The sign-in layer wraps every route above: it finds each request's
+	// session and gives handlers a database that acts for whoever is signed
+	// in. `/healthz` and `/readyz` join after it, so a probe never needs a
+	// session.
+	let app = app.layer(auth.layer()).merge(readiness.routes());
 	let listener = tokio::net::TcpListener::bind(address).await?;
 
 	println!("listening on http://{address}");
-	// Readiness fails before shutdown drains the requests in flight.
-	let shutdown = GracefulShutdown::new().readiness(&readiness);
+	// Serves until Ctrl-C or the SIGTERM a container runtime sends. Then
+	// `/readyz` fails, every live socket is told to reconnect elsewhere (with
+	// jitter, so they don't all come back at once), and after a few seconds
+	// for the load balancer to notice, the server stops accepting and
+	// finishes the requests in flight.
+	let draining = live.clone();
+	let shutdown = GracefulShutdown::new()
+		.readiness(&readiness)
+		.signal(async move {
+			leptoskit::server::shutdown_signal().await;
+			draining.drain();
+		});
 	leptoskit::server::serve_listener_with(listener, app, shutdown).await?;
 
 	Ok(())

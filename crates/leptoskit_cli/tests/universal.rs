@@ -354,6 +354,17 @@ fn generated_application_shares_behavior_and_selects_platform_overrides() {
 		"Leptos HydrationScripts requires a named hydrate export"
 	);
 	assert_server(&project);
+	// The published API, read from the server binary: the backend's health
+	// check, on the route the server just answered.
+	let listed = command(&project, env!("CARGO_BIN_EXE_leptoskit"), &["rpc", "list"]);
+	assert_success(&listed);
+	let listed = String::from_utf8_lossy(&listed.stdout);
+	assert!(
+		listed
+			.lines()
+			.any(|line| line.starts_with("health") && line.contains("GET /api/health")),
+		"{listed}"
+	);
 	assert!(!dependency_graph(&project, "web").contains("server_only_probe"));
 
 	for platform in ["ios", "android", "macos", "windows", "linux"] {

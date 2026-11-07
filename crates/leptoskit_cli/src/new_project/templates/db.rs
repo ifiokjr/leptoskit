@@ -8,8 +8,16 @@ use leptoskit_db::Id;
 use leptoskit_db::Timestamp;
 use leptoskit_db::table;
 
+// The operations keep receipts here, in the `rpc` schema pack, so a mutation
+// a client sends again after losing the answer runs once.
+#[cfg(feature = "server")]
+leptoskit_db::packs!(leptoskit_rpc);
+
 /// Something worth remembering. Clients see it as `PublicNote`.
-#[table(name = "notes", public)]
+///
+/// It's `live`: every write reaches the screens and generated clients that
+/// subscribe to a query reading it.
+#[table(name = "notes", public, live)]
 pub struct Note {
 	pub id: Id<Note>,
 	/// What the note says.

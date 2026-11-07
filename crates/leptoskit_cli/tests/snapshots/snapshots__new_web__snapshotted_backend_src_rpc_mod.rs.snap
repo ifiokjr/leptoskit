@@ -2,12 +2,20 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: contents
 ---
-//! Server implementations of the shared RPC contracts.
+//! The backend's server functions. `#[api]` publishes each one, so the RPC
+//! spec and the clients `leptoskit rpc generate` writes describe it.
 
 use snapshotted_shared::Health;
-use leptoskit::server::axum::Json;
+use leptos::prelude::ServerFnError;
+use leptos::server;
+use leptos::server_fn::codec::GetUrl;
+use leptoskit::rpc::api;
 
-/// Reports backend availability using the app's shared response model.
-pub async fn health() -> Json<Health> {
-	Json(Health { ready: true })
+/// Reports whether the backend is ready to receive requests.
+#[api(crate = "leptoskit::rpc", tag = "health")]
+// `name` keeps the struct `#[server]` generates apart from the `Health` it
+// returns.
+#[server(name = CheckHealth, endpoint = "health", input = GetUrl)]
+pub async fn health() -> Result<Health, ServerFnError> {
+	Ok(Health { ready: true })
 }

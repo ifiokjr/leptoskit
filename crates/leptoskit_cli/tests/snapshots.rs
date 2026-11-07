@@ -324,9 +324,10 @@ fn database_scaffold_is_pinned() {
 		"migrations/registry.txt",
 		"snapshotted_db/Cargo.toml",
 		"snapshotted_db/src/lib.rs",
+		"snapshotted_shared/Cargo.toml",
+		"snapshotted_shared/src/lib.rs",
 		"snapshotted_backend/Cargo.toml",
 		"snapshotted_backend/src/lib.rs",
-		"snapshotted_backend/src/rpc/mod.rs",
 	] {
 		let contents = std::fs::read_to_string(project.join(file))
 			.unwrap_or_else(|error| panic!("read {file}: {error}"));
@@ -342,8 +343,20 @@ fn database_scaffold_is_pinned() {
 	let project = scratch.path.join("postgres");
 	let read = |file: &str| std::fs::read_to_string(project.join(file)).unwrap();
 	assert!(read(leptoskit_config::CONFIG_FILE).contains("[db]\ndialect = \"postgres\""));
-	assert!(read("Cargo.toml").contains("features = [\"server\", \"db-postgres\", \"rpc\"]"));
-	assert!(read("postgres_db/Cargo.toml").contains("server = [\"leptoskit_db/postgres\"]"));
+	assert!(
+		read("Cargo.toml")
+			.contains("features = [\"server\", \"rpc-ssr\", \"db-postgres\", \"rpc-live\"]")
+	);
+	assert!(read("postgres_db/Cargo.toml").contains(
+		"server = [\"leptoskit_db/postgres\", \"dep:leptoskit_rpc\", \"leptoskit_rpc/postgres\"]"
+	));
+	assert!(read("postgres_shared/Cargo.toml").contains(
+		"server = [\"postgres_db/server\", \"leptoskit/rpc-ssr\", \"leptoskit/db-postgres\"]"
+	));
+	assert!(
+		read("postgres_backend/Cargo.toml")
+			.contains("features = [\"server\", \"rpc-ssr\", \"db-postgres\"]")
+	);
 	assert!(read("src/main.rs").contains("such as postgres://localhost/postgres\")?;"));
 
 	assert!(!read(".gitignore").contains("sqlite3"));
@@ -409,6 +422,9 @@ fn auth_scaffold_is_pinned() {
 		"snapshotted_app/src/lib.rs",
 		"snapshotted_db/Cargo.toml",
 		"snapshotted_db/src/lib.rs",
+		"snapshotted_shared/Cargo.toml",
+		"snapshotted_shared/src/lib.rs",
+		"snapshotted_backend/Cargo.toml",
 		"snapshotted_backend/src/lib.rs",
 	] {
 		let contents = std::fs::read_to_string(project.join(file))
@@ -444,12 +460,14 @@ fn auth_scaffold_is_pinned() {
 	let read =
 		|file: &str| std::fs::read_to_string(scratch.path.join("postgres").join(file)).unwrap();
 	assert!(
-		read("Cargo.toml").contains("features = [\"server\", \"db-postgres\", \"rpc\", \"auth\"]")
+		read("Cargo.toml").contains(
+			"features = [\"server\", \"rpc-ssr\", \"db-postgres\", \"rpc-live\", \"auth\"]"
+		)
 	);
-	assert!(
-		read("postgres_db/Cargo.toml")
-			.contains("server = [\"leptoskit_db/postgres\", \"leptoskit_auth/postgres\"]")
-	);
+	assert!(read("postgres_db/Cargo.toml").contains(
+		"server = [\"leptoskit_db/postgres\", \"leptoskit_auth/postgres\", \"dep:leptoskit_rpc\", \
+		 \"leptoskit_rpc/postgres\"]"
+	));
 
 	let output = leptoskit(
 		&scratch.path,

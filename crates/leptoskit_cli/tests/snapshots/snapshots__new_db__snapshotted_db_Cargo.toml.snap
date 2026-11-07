@@ -10,7 +10,9 @@ publish = false
 
 [dependencies]
 leptoskit_db = { version = "=[version]", default-features = false }
+# The server side keeps the operations' receipts in the `rpc` schema pack.
+leptoskit_rpc = { version = "=[version]", default-features = false, optional = true }
 
 [features]
 # The server side of the tables: rows, queries, migrations, and the driver.
-server = ["leptoskit_db/sqlite"]
+server = ["leptoskit_db/sqlite", "dep:leptoskit_rpc", "leptoskit_rpc/sqlite"]

@@ -179,11 +179,197 @@ fn exchange(
 	(status, head.to_owned(), body.to_owned())
 }
 
+/// A scaffolded server, killed if the test ends while it runs.
+struct Server {
+	child: std::process::Child,
+	address: String,
+}
+
+impl Server {
+	/// Starts the scaffold's debug server on `address`, with `envs`, and
+	/// waits for it to listen.
+	fn start(root: &Path, target: &Path, address: &str, envs: &[(&str, &str)]) -> Self {
+		let mut child = Command::new(target.join("debug/notes"));
+		child
+			.current_dir(root)
+			.env("LEPTOS_SITE_ADDR", address)
+			.env_remove("DATABASE_URL")
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null());
+
+		for (name, value) in envs {
+			child.env(name, value);
+		}
+
+		let server = Self {
+			child: child.spawn().unwrap(),
+			address: address.to_owned(),
+		};
+		let ready = (0..240).any(|_| {
+			std::thread::sleep(std::time::Duration::from_millis(250));
+			std::net::TcpStream::connect(address).is_ok()
+		});
+		assert!(ready, "the server never listened on {address}");
+		server
+	}
+
+	/// Stops the server the way a container runtime does, with `SIGTERM`, and
+	/// returns whether it shut down cleanly: it fails `/readyz`, tells live
+	/// sockets to reconnect, and finishes what's in flight.
+	fn terminate(mut self) -> bool {
+		#[cfg(unix)]
+		{
+			let signalled = Command::new("kill")
+				.args(["-TERM", &self.child.id().to_string()])
+				.status()
+				.unwrap();
+			assert!(signalled.success());
+		}
+		#[cfg(not(unix))]
+		self.child.kill().unwrap();
+
+		let stopped = (0..240).find_map(|_| {
+			std::thread::sleep(std::time::Duration::from_millis(250));
+			self.child.try_wait().unwrap()
+		});
+		stopped.is_some_and(|status| cfg!(not(unix)) || status.success())
+	}
+}
+
+impl Drop for Server {
+	fn drop(&mut self) {
+		let _ = self.child.kill();
+		let _ = self.child.wait();
+	}
+}
+
+/// A free port on this machine, as `127.0.0.1:port`.
+fn free_address() -> String {
+	std::net::TcpListener::bind("127.0.0.1:0")
+		.unwrap()
+		.local_addr()
+		.unwrap()
+		.to_string()
+}
+
+/// Whether `program` runs; otherwise the part of the test that needs it is
+/// skipped, unless `LEPTOSKIT_REQUIRE_SDK_TOOLCHAINS=1`.
+fn have(program: &str) -> bool {
+	let found = Command::new(program)
+		.arg("--version")
+		.output()
+		.is_ok_and(|output| output.status.success());
+
+	if !found {
+		assert!(
+			std::env::var("LEPTOSKIT_REQUIRE_SDK_TOOLCHAINS").as_deref() != Ok("1"),
+			"`{program}` is required but isn't on PATH"
+		);
+		eprintln!("skipped: `{program}` isn't on PATH");
+	}
+
+	found
+}
+
+/// `leptoskit rpc spec` and `leptoskit rpc generate --target typescript`
+/// with the server's environment broken: no sign-in keys, and a database
+/// URL that can't connect. Both still succeed, because the server writes
+/// the spec before it reads either, and nothing touches the database. The
+/// spec lists `operations`, each at `POST /api/<name>`, and the backend's
+/// `GET /api/health`; the client is written to `client`.
+fn exports_without_the_environment(root: &Path, operations: &[&str], client: &Path) -> String {
+	let target = std::env::var_os("LEPTOSKIT_E2E_TARGET_DIR")
+		.map_or_else(|| root.join("target"), PathBuf::from);
+	let broken = |args: &[&str]| {
+		let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+			.args(args)
+			.current_dir(root)
+			.env("CARGO_TARGET_DIR", &target)
+			.env("DATABASE_URL", "postgres://nobody@127.0.0.1:1/never")
+			.env_remove("AUTH_ENCRYPTION_KEYS")
+			.output()
+			.expect("run leptoskit");
+		succeeds(&output)
+	};
+
+	let spec = broken(&["rpc", "spec"]);
+	let parsed: serde_json::Value = serde_json::from_str(&spec).expect("the spec is JSON");
+	let functions = parsed["functions"]
+		.as_array()
+		.expect("the spec lists functions");
+	let route = |name: &str| {
+		functions
+			.iter()
+			.find(|function| function["name"] == name)
+			.map(|function| {
+				format!(
+					"{} {}",
+					function["method"].as_str().unwrap(),
+					function["path"].as_str().unwrap()
+				)
+			})
+	};
+	assert_eq!(
+		route("health").as_deref(),
+		Some("GET /api/health"),
+		"{spec}"
+	);
+
+	for name in operations {
+		assert_eq!(
+			route(name),
+			Some(format!("POST /api/{name}")),
+			"{name} isn't published: {spec}"
+		);
+	}
+
+	broken(&[
+		"rpc",
+		"generate",
+		"--target",
+		"typescript",
+		"--out",
+		client.to_str().unwrap(),
+	]);
+	let index = fs::read_to_string(client.join("index.ts")).unwrap();
+	assert!(index.contains("health(): Promise<Health>"), "{index}");
+
+	for name in operations {
+		let member = name
+			.split('_')
+			.enumerate()
+			.map(|(index, part)| {
+				if index == 0 {
+					part.to_owned()
+				} else {
+					part[..1].to_uppercase() + &part[1..]
+				}
+			})
+			.collect::<String>();
+		assert!(
+			index.contains(&format!("readonly {member} ")),
+			"{member}: {index}"
+		);
+	}
+
+	assert!(
+		!root.join("notes.sqlite3").exists(),
+		"exporting the spec opened the database"
+	);
+	spec
+}
+
 /// `leptoskit new --db sqlite`, its first migration, and the server it
-/// generates: migrated at startup, storing and listing notes.
+/// generates: the published API exports without a database, the server
+/// migrates at startup and serves the shared crate's typed operations, and
+/// the TypeScript client generated from the spec, run outside this
+/// repository, adds a note live, sees it in its subscription, and follows
+/// the server through a restart.
 #[test]
 #[ignore = "compiles a scaffolded server; run with --ignored"]
 fn the_database_scaffold_migrates_and_serves() {
+	use std::io::BufRead;
+
 	let scratch = tempfile::tempdir().unwrap();
 	let sdk = repository();
 	succeeds(&leptoskit(
@@ -202,52 +388,113 @@ fn the_database_scaffold_migrates_and_serves() {
 
 	let created = succeeds(&leptoskit(&root, &["db", "migration", "create", "init"]));
 	assert!(created.contains("+ table notes (3 columns)"), "{created}");
+	assert!(created.contains("+ table rpc.receipts"), "{created}");
 	succeeds(&leptoskit(&root, &["db", "check"]));
+
+	let client = scratch.path().join("client");
+	exports_without_the_environment(&root, &["notes", "add_note"], &client);
 
 	let target = std::env::var_os("LEPTOSKIT_E2E_TARGET_DIR")
 		.map_or_else(|| root.join("target"), PathBuf::from);
-	let built = Command::new(env!("CARGO"))
-		.args(["build", "--locked", "--package", "notes"])
-		.current_dir(&root)
-		.env("CARGO_TARGET_DIR", &target)
-		.status()
-		.unwrap();
-	assert!(built.success());
+	let cargo = |args: &[&str]| {
+		let status = Command::new(env!("CARGO"))
+			.args(args)
+			.current_dir(&root)
+			.env("CARGO_TARGET_DIR", &target)
+			.status()
+			.unwrap();
+		assert!(status.success(), "cargo {}", args.join(" "));
+	};
+	cargo(&["build", "--locked", "--package", "notes"]);
+	// The shared contracts build for the browser without the server's
+	// driver.
+	cargo(&[
+		"check",
+		"--locked",
+		"--package",
+		"notes_app",
+		"--target",
+		"wasm32-unknown-unknown",
+		"--features",
+		"hydrate",
+	]);
 
-	let address = std::net::TcpListener::bind("127.0.0.1:0")
-		.unwrap()
-		.local_addr()
-		.unwrap()
-		.to_string();
-	let mut server = Command::new(target.join("debug/notes"))
-		.current_dir(&root)
-		.env("LEPTOS_SITE_ADDR", &address)
-		.env_remove("DATABASE_URL")
-		.stdout(std::process::Stdio::null())
-		.stderr(std::process::Stdio::null())
-		.spawn()
-		.unwrap();
-	let ready = (0..120).any(|_| {
-		std::thread::sleep(std::time::Duration::from_millis(250));
-		std::net::TcpStream::connect(&address).is_ok()
-	});
-	let added = ready.then(|| request(&address, "POST", "/api/notes", r#"{"body":"hello"}"#));
-	let empty = ready.then(|| request(&address, "POST", "/api/notes", r#"{"body":""}"#));
-	let listed = ready.then(|| request(&address, "GET", "/api/notes", ""));
-	server.kill().unwrap();
-	server.wait().unwrap();
+	let address = free_address();
+	let server = Server::start(&root, &target, &address, &[]);
+	let health = request(&address, "GET", "/api/health", "");
+	let added = request(&address, "POST", "/api/add_note", r#"{"body":"hello"}"#);
+	let empty = request(&address, "POST", "/api/add_note", r#"{"body":""}"#);
+	let listed = request(&address, "POST", "/api/notes", "{}");
+	let ready = request(&address, "GET", "/readyz", "");
 
-	assert!(ready, "the server never listened on {address}");
-	let (status, body) = added.unwrap();
+	assert_eq!(health, (200, r#"{"ready":true}"#.to_owned()));
+	let (status, body) = added;
 	assert_eq!(status, 200, "{body}");
 	assert!(body.contains(r#""body":"hello""#), "{body}");
-	assert_eq!(empty.unwrap().0, 422, "an empty note breaks min_len");
-	let (status, body) = listed.unwrap();
+	let (status, body) = empty;
+	assert_eq!(status, 400, "an empty note breaks min_len: {body}");
+	assert!(body.starts_with("Args|"), "{body}");
+	let (status, body) = listed;
 	assert_eq!(status, 200);
 	assert!(
 		body.starts_with('[') && body.contains(r#""body":"hello""#),
 		"{body}"
 	);
+	assert_eq!(ready.0, 200, "{}", ready.1);
+
+	if have("node") {
+		fs::copy(
+			Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/notes_sdk/journey.ts"),
+			client.join("journey.ts"),
+		)
+		.unwrap();
+		let mut journey = Command::new("node")
+			.args(["--experimental-strip-types", "--no-warnings", "journey.ts"])
+			.current_dir(&client)
+			.env("NOTES_URL", format!("http://{address}"))
+			.stdout(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::inherit())
+			.spawn()
+			.unwrap();
+		let mut lines = std::io::BufReader::new(journey.stdout.take().unwrap()).lines();
+		let mut said = Vec::new();
+		let mut server = Some(server);
+
+		for line in lines.by_ref() {
+			let line = line.unwrap();
+			said.push(line.clone());
+
+			if line == "ready for restart" {
+				assert!(
+					server.take().unwrap().terminate(),
+					"the server didn't shut down cleanly"
+				);
+				server = Some(Server::start(&root, &target, &address, &[]));
+				let (status, body) = request(
+					&address,
+					"POST",
+					"/api/add_note",
+					r#"{"body":"after restart"}"#,
+				);
+				assert_eq!(status, 200, "{body}");
+			}
+		}
+
+		let finished = journey.wait().unwrap();
+		assert!(finished.success(), "the journey failed after {said:?}");
+		assert_eq!(
+			said,
+			[
+				"ok subscribed",
+				"ok mutation",
+				"ready for restart",
+				"ok reconnect"
+			]
+		);
+		assert!(server.unwrap().terminate());
+	} else {
+		assert!(server.terminate(), "the server didn't shut down cleanly");
+	}
 
 	assert!(root.join("notes.sqlite3").is_file());
 }
@@ -319,11 +566,11 @@ fn the_studio_serves_the_apps_tables() {
 	assert!(schema.1.contains("<h2>users</h2>"), "{}", schema.1);
 }
 
-/// `leptoskit new --auth`: its tables migrate, the server and the app build
-/// for the server, the browser, and a native guest that loads in the native
-/// runtime, the generated tests pass,
-/// and the server signs someone in with an emailed code from the development
-/// mailbox.
+/// `leptoskit new --auth`: its tables migrate, its published API exports
+/// without sign-in keys or a database, the server and the app build for the
+/// server, the browser, and a native guest that loads in the native runtime,
+/// the generated tests pass, the server signs someone in with an emailed code
+/// from the development mailbox, and each person's notes are their own.
 #[test]
 #[ignore = "compiles a scaffolded server; run with --ignored"]
 fn the_auth_scaffold_signs_people_in() {
@@ -344,7 +591,13 @@ fn the_auth_scaffold_signs_people_in() {
 
 	let created = succeeds(&leptoskit(&root, &["db", "migration", "create", "init"]));
 	assert!(created.contains("+ table users (3 columns)"), "{created}");
+	assert!(created.contains("+ table notes (4 columns)"), "{created}");
 	assert!(created.contains("+ table auth.sessions"), "{created}");
+	exports_without_the_environment(
+		&root,
+		&["notes", "add_note"],
+		&scratch.path().join("client"),
+	);
 
 	let target = std::env::var_os("LEPTOSKIT_E2E_TARGET_DIR")
 		.map_or_else(|| root.join("target"), PathBuf::from);
@@ -450,7 +703,48 @@ fn the_auth_scaffold_signs_people_in() {
 			"",
 		)
 	});
-	let notes = ready.then(|| request(&address, "POST", "/api/notes", r#"{"body":"hello"}"#));
+	// Each person's notes are their own: the operations run as the caller,
+	// and the table's policy shows them only their rows.
+	let bob = ready.then(|| {
+		let (_, head, _) = exchange(
+			&address,
+			"POST",
+			"/auth/dev/sign-in",
+			&origin,
+			r#"{"email":"bob@example.com"}"#,
+		);
+		let line = head
+			.lines()
+			.find(|line| line.to_ascii_lowercase().starts_with("set-cookie:"))
+			.expect("dev sign-in sets a cookie");
+		line["set-cookie:".len()..]
+			.split(';')
+			.next()
+			.unwrap()
+			.trim()
+			.to_owned()
+	});
+	let call = |cookie: Option<&String>, path: &str, body: &str| {
+		let headers = match cookie {
+			Some(cookie) => format!("{origin}Cookie: {cookie}\r\n"),
+			None => origin.clone(),
+		};
+		let (status, _, body) = exchange(&address, "POST", path, &headers, body);
+		(status, body)
+	};
+	let anonymous = ready.then(|| call(None, "/api/add_note", r#"{"body":"nobody's"}"#));
+	let added = cookie
+		.as_ref()
+		.map(|ada| call(Some(ada), "/api/add_note", r#"{"body":"ada's"}"#));
+	let bobs = bob
+		.as_ref()
+		.map(|bob| call(Some(bob), "/api/add_note", r#"{"body":"bob's"}"#));
+	let adas_list = cookie
+		.as_ref()
+		.map(|ada| call(Some(ada), "/api/notes", "{}"));
+	let bobs_list = bob.as_ref().map(|bob| call(Some(bob), "/api/notes", "{}"));
+	// The probes answer without a session.
+	let probe = ready.then(|| request(&address, "GET", "/readyz", ""));
 	server.kill().unwrap();
 	server.wait().unwrap();
 
@@ -468,11 +762,25 @@ fn the_auth_scaffold_signs_people_in() {
 	let (status, _, body) = session.unwrap();
 	assert_eq!(status, 200);
 	assert!(body.contains(r#""account_id""#), "{body}");
-	assert_eq!(
-		notes.unwrap().0,
-		200,
-		"the notes still work under the auth layer"
+	let (status, body) = anonymous.unwrap();
+	assert_eq!(status, 401, "{body}");
+	let (status, body) = added.unwrap();
+	assert_eq!(status, 200, "{body}");
+	assert!(body.contains(r#""body":"ada's""#), "{body}");
+	assert_eq!(bobs.unwrap().0, 200);
+	let (status, body) = adas_list.unwrap();
+	assert_eq!(status, 200, "{body}");
+	assert!(
+		body.contains("ada's") && !body.contains("bob's"),
+		"Ada sees only hers: {body}"
 	);
+	let (status, body) = bobs_list.unwrap();
+	assert_eq!(status, 200, "{body}");
+	assert!(
+		body.contains("bob's") && !body.contains("ada's"),
+		"Bob sees only his: {body}"
+	);
+	assert_eq!(probe.unwrap().0, 200);
 
 	assert_eq!(
 		succeeds(&leptoskit(&root, &["generate", "auth"])),

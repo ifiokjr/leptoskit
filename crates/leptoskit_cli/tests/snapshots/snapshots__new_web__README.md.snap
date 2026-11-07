@@ -18,7 +18,7 @@ leptoskit build --platform linux
 
 All six destinations are enabled in `leptoskit.toml`. Each build activates exactly one platform feature in `snapshotted_app`; add optional dependencies to that feature when they support the app's actual compilation target. Native app code compiles to Wasm, so UIKit, JNI, and other OS dependencies belong in the corresponding runner's Cargo manifest or a native plugin.
 
-`src/main.rs` starts the SSR server, serves browser files, and registers the backend's `GET /api/health` endpoint. Shared assets live in `assets/`. `web/index.html` supplies the document for CSR mode (`app.render = "csr"`); SSR uses the shared app's `shell` function.
+`src/main.rs` starts the SSR server and serves browser files. The backend's `health` server function answers `GET /api/health`, and `#[api]` publishes it: `leptoskit rpc spec` prints the published API, and `leptoskit rpc generate --target typescript` writes a typed client for it. Shared assets live in `assets/`. `web/index.html` supplies the document for CSR mode (`app.render = "csr"`); SSR uses the shared app's `shell` function.
 
 ## Platform overrides
 
