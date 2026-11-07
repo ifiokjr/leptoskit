@@ -115,8 +115,8 @@ class DevicePlugin(
                 3
             }
 
-            Configuration.UI_MODE_TYPE_DESK -> {
-                4
+            Configuration.UI_MODE_TYPE_VR_HEADSET -> {
+                7
             }
 
             Configuration.UI_MODE_TYPE_WATCH -> {
@@ -127,7 +127,8 @@ class DevicePlugin(
                 6
             }
 
-            Configuration.UI_MODE_TYPE_NORMAL -> {
+            // A desk dock holds a phone or tablet; it does not make one a desktop.
+            Configuration.UI_MODE_TYPE_NORMAL, Configuration.UI_MODE_TYPE_DESK -> {
                 val width = context.resources.configuration.smallestScreenWidthDp
                 when {
                     width >= 600 -> 2

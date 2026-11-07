@@ -137,6 +137,10 @@ pub struct Response {
 }
 
 /// Host-owned limits and exact origin allowlist. There is no allow-all default.
+/// The most request or response headers a call carries. A response with more
+/// fails with [`Error::TooLarge`], the same through the bridge as directly.
+pub const MAX_HEADERS: usize = 128;
+
 /// An origin grants every path on that origin; this is not a DNS/IP firewall.
 #[derive(Debug, Clone)]
 #[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
@@ -145,6 +149,7 @@ pub struct Config {
 	/// Maximum request or response body, enforced while receiving chunks.
 	pub max_body_bytes: usize,
 	/// Maximum combined name/value bytes for exposed request/response headers.
+	/// At most [`MAX_HEADERS`] headers are accepted either way.
 	pub max_header_bytes: usize,
 	/// Total deadline, including connection, headers and body.
 	pub timeout: Duration,
@@ -251,6 +256,10 @@ fn parse_url(value: &str) -> Result<Url, Error> {
 }
 #[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 fn check_headers(headers: &[Header], max_bytes: usize) -> Result<(), Error> {
+	if headers.len() > MAX_HEADERS {
+		return Err(Error::TooLarge);
+	}
+
 	let mut size = 0_usize;
 
 	for header in headers {

@@ -68,9 +68,9 @@ Linux builds deliberately disable GTK3 and GTK4. The maintained snapshot backend
 
 ## Verification and limits
 
-Pure tests cover duplicate IDs, labels, depth/node limits, and bounded callback overflow. The macOS main-thread integration test creates only its own invisible process menu, dispatches an AppKit item action, verifies state/event routing, checks ownership contention, and proves previous-menu restoration and unrelated replacement preservation. It does not open a visible menu or claim a real keyboard/input journey. Windows and Linux native code are cross-compiled; Windows message-loop behavior and a running Linux StatusNotifier host still need platform runtime tests. Browser/mobile builds validate definitions but export no native menu objects.
+Pure tests cover duplicate IDs, labels, depth/node limits, and bounded callback overflow. The macOS main-thread integration test creates only its own invisible process menu, dispatches an AppKit item action, verifies state/event routing, checks ownership contention, and proves previous-menu restoration and unrelated replacement preservation. It does not open a visible menu or claim a real keyboard/input journey. The Windows test below runs on the Windows CI runner. A running Linux StatusNotifier host still needs a platform runtime test. Browser/mobile builds validate definitions but export no native menu objects.
 
-The Windows-only test creates a hidden HWND, sends `WM_COMMAND` to its menu subclass, checks event routing and disabled-command handling, and verifies previous-menu restoration before destroying its owned resources. It is included for Windows test runners and has been cross-compiled, not executed on this macOS development host.
+The Windows-only test creates a hidden HWND, sends `WM_COMMAND` to its menu subclass, checks event routing and disabled-command handling, and verifies previous-menu restoration before destroying its owned resources. It runs in the Windows CI job.
 
 ## How it fits
 

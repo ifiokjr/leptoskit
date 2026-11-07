@@ -40,6 +40,7 @@ Selection, impact and notification feedback with binary plugin messages.
 - macOS uses its trackpad haptic performer. Its three patterns approximate the richer mobile styles.
 - Browsers use the Vibration API when available and allowed by user activation/device policy.
 - Windows and Linux return `Unavailable`; this crate does not assume a game controller or other actuator exists.
+- Android returns `Unavailable` when the system plays nothing, for example with no vibrator or with touch feedback turned off, instead of reporting success.
 
 Add the crate as a direct app dependency and select `"haptics"` in `native.plugins`. Native registration is automatic. Interpreter guests enable the `guest` feature and construct `guest::Haptics` once to cache its numeric plugin ID.
 

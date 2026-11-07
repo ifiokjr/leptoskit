@@ -47,10 +47,11 @@ private const val STATE_UNKNOWN = 0
 private const val STATE_DISCHARGING = 1
 private const val STATE_CHARGING = 2
 private const val STATE_FULL = 3
+private const val STATE_NOT_CHARGING = 4
 
 /** The valid range of every validated field. */
 private const val LAST_FLAG = 2
-private const val LAST_STATE = 3
+private const val LAST_STATE = 4
 private const val FULL_CHARGE = 1000
 
 /** Method identifiers. */
@@ -256,8 +257,14 @@ class BatteryPlugin(
     private fun state(reading: Intent): Int =
         when (reading.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)) {
             BatteryManager.BATTERY_STATUS_CHARGING -> STATE_CHARGING
+
             BatteryManager.BATTERY_STATUS_FULL -> STATE_FULL
-            BatteryManager.BATTERY_STATUS_DISCHARGING, BatteryManager.BATTERY_STATUS_NOT_CHARGING -> STATE_DISCHARGING
+
+            BatteryManager.BATTERY_STATUS_DISCHARGING -> STATE_DISCHARGING
+
+            // Plugged in but held: a charge limit, or a charger too weak to charge.
+            BatteryManager.BATTERY_STATUS_NOT_CHARGING -> STATE_NOT_CHARGING
+
             else -> STATE_UNKNOWN
         }
 

@@ -105,6 +105,27 @@ async fn chunked_body_cannot_bypass_the_size_limit() {
 }
 
 #[tokio::test]
+async fn requests_carry_no_more_headers_than_the_bridge() {
+	let (_listener, origin) = listener().await;
+	let client = Client::new(Config::new([&origin]).unwrap()).unwrap();
+	let mut request = Request::get(&origin);
+	request.headers = (0..=leptoskit_plugin_http::MAX_HEADERS)
+		.map(|index| {
+			Header {
+				name: format!("x-h{index}"),
+				value: b"v".to_vec(),
+			}
+		})
+		.collect();
+	// The byte limit allows them all, so only the count refuses them, before
+	// anything is sent.
+	assert!(matches!(
+		client.execute(request).await,
+		Err(Error::TooLarge)
+	));
+}
+
+#[tokio::test]
 async fn redirects_are_returned_without_contacting_the_target() {
 	let (listener, origin) = listener().await;
 	let (forbidden, destination) = self::listener().await;

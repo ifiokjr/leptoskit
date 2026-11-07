@@ -71,10 +71,10 @@ public final class ScreenCapturePlugin: NativePlugin {
 
     /// The visible window and the scene its capture state belongs to.
     private func presentedScene() throws -> (UIWindow, UIWindowScene) {
-        let owner = try context.requirePresentationOwner()
+        let owner = try context.requireAttachedOwner()
 
         guard let window = owner.viewIfLoaded?.window,
-              let scene = window.windowScene else { throw PluginError.unavailable }
+              let scene = window.windowScene, Self.onScreen(scene) else { throw PluginError.unavailable }
 
         return (window, scene)
     }
@@ -111,13 +111,15 @@ public final class ScreenCapturePlugin: NativePlugin {
     }
 
     /// The notifications that end a watch when the scene leaves the foreground.
+    /// Deactivation alone does not: opening Control Center to start a
+    /// recording deactivates the scene, which is exactly when a watch matters.
     private func departureObservers(
         scene: UIWindowScene,
         deliver: @escaping CaptureObservation.Delivery
     ) -> [NSObjectProtocol] {
         var observers: [NSObjectProtocol] = []
 
-        for name in [UIScene.willDeactivateNotification, UIScene.didDisconnectNotification] {
+        for name in [UIScene.didEnterBackgroundNotification, UIScene.didDisconnectNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: scene, queue: .main) { _ in
                 MainActor.assumeIsolated { deliver(.failure(PluginError.cancelled)) }
             })
@@ -197,11 +199,17 @@ public final class ScreenCapturePlugin: NativePlugin {
 
     /// Rejects a sample for a window the presenting owner no longer shows.
     private func requirePresented(_ window: UIWindow, _ scene: UIWindowScene) throws {
-        let owner = try context.requirePresentationOwner()
+        let owner = try context.requireAttachedOwner()
 
-        guard owner.viewIfLoaded?.window === window, window.windowScene === scene else {
+        guard owner.viewIfLoaded?.window === window, window.windowScene === scene, Self.onScreen(scene) else {
             throw PluginError.unavailable
         }
+    }
+
+    /// A scene under Control Center or a system alert is inactive but still
+    /// on screen, and its capture state still matters.
+    private static func onScreen(_ scene: UIWindowScene) -> Bool {
+        scene.activationState == .foregroundActive || scene.activationState == .foregroundInactive
     }
     #else
     /// Only the status query is answered without UIKit.

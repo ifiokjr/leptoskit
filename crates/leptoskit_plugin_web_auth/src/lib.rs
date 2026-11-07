@@ -368,6 +368,14 @@ pub mod desktop {
 		next: u32,
 	}
 
+	impl WebAuth {
+		/// The session waiting to authenticate, if any.
+		#[cfg(test)]
+		pub(crate) fn waiting(&self) -> Option<u32> {
+			self.session.as_ref().map(|(id, _)| *id)
+		}
+	}
+
 	impl Plugin for WebAuth {
 		fn name(&self) -> &'static str {
 			NAME
@@ -393,12 +401,13 @@ pub mod desktop {
 
 				AUTHENTICATE => {
 					let (id, url) = decode_authenticate(&payload)?;
-					let (session, loopback) = self.session.take().ok_or(Error::InvalidCall)?;
 
-					if session != id {
+					// A call for another session must not end this one.
+					if self.session.as_ref().map(|(session, _)| *session) != Some(id) {
 						return Err(Error::InvalidCall);
 					}
 
+					let (_, loopback) = self.session.take().ok_or(Error::InvalidCall)?;
 					authenticate(&loopback, &url, TIMEOUT).map(Bytes::from)
 				}
 				BEGIN => Err(Error::InvalidArgument),
@@ -655,8 +664,9 @@ mod tests {
 			),
 			Err(Error::InvalidCall)
 		);
+		// The wrong call left the real session waiting.
+		assert_eq!(plugin.waiting(), Some(session.id));
 		// A page that isn't a provider's never reaches the launcher.
-		let session = Session::decode(&plugin.invoke(BEGIN, Bytes::new()).unwrap()).unwrap();
 		assert_eq!(
 			plugin.invoke(
 				AUTHENTICATE,

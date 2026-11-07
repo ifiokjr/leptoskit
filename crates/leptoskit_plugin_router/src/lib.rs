@@ -394,9 +394,14 @@ mod tests {
 
 	use super::*;
 
+	/// A fresh project directory. Each run gets its own, so test runs in two
+	/// checkouts at once never delete each other's files.
 	fn temp_root(tag: &str) -> PathBuf {
-		let root = std::env::temp_dir().join(format!("leptoskit-router-plugin-{tag}"));
-		let _ = std::fs::remove_dir_all(&root);
+		let root = tempfile::Builder::new()
+			.prefix(&format!("leptoskit-router-plugin-{tag}-"))
+			.tempdir()
+			.unwrap()
+			.keep();
 		std::fs::create_dir_all(root.join("src/routes/notes")).unwrap();
 		std::fs::write(root.join("src/routes/index.rs"), "pub fn page() {}\n").unwrap();
 		std::fs::write(

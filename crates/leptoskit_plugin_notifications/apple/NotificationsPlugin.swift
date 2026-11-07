@@ -15,7 +15,9 @@ protocol NotificationService {
 private final class SystemNotificationService: NotificationService {
     private let center = UNUserNotificationCenter.current()
     func authorization() async -> UNAuthorizationStatus { await center.notificationSettings().authorizationStatus }
-    func requestAuthorization() async throws { _ = try await center.requestAuthorization(options: [.alert, .sound]) }
+    // Notifications are silent on Apple, so asking for sound would request
+    // a permission the plugin never uses.
+    func requestAuthorization() async throws { _ = try await center.requestAuthorization(options: [.alert]) }
     func add(_ request: UNNotificationRequest) async throws { try await center.add(request) }
     func identifiers() async -> [String] {
         let pending = await center.pendingNotificationRequests().map(\.identifier)

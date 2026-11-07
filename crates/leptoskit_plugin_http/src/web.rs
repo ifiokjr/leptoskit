@@ -107,7 +107,7 @@ impl Client {
 					.and_then(|size| size.checked_add(value.len()))
 					.ok_or(Error::TooLarge)?;
 
-				if header_bytes > self.config.max_header_bytes {
+				if header_bytes > self.config.max_header_bytes || headers.len() == MAX_HEADERS {
 					return Err(Error::TooLarge);
 				}
 

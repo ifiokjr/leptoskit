@@ -12,7 +12,9 @@ import androidx.window.layout.WindowLayoutInfo
 import androidx.window.layout.WindowMetricsCalculator
 import dev.leptoskit.bridge.NativePlugin
 import dev.leptoskit.bridge.PluginException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
@@ -40,6 +42,7 @@ class PosturePlugin(
     private val hingeSensor = sensors?.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE)
     private var lastAngle: Int? = null
     private var waiting = false
+    private var waitJob: Job? = null
     private var closed = false
 
     override suspend fun invoke(
@@ -65,6 +68,7 @@ class PosturePlugin(
 
         if (waiting) throw PluginException(PluginException.BUSY)
         waiting = true
+        waitJob = currentCoroutineContext()[Job]
         try {
             // The first layout is the current one, so a change between the guest's
             // last snapshot and this call is reported immediately.
@@ -73,11 +77,14 @@ class PosturePlugin(
             }.first { !it.contentEquals(previous) }
         } finally {
             waiting = false
+            waitJob = null
         }
     }
 
+    /** Ends a pending wait too, which releases its hinge listener and layout collection. */
     override fun close() {
         closed = true
+        waitJob?.cancel()
     }
 
     /** Whole-degree hinge angles, or a single null on devices without the sensor. */

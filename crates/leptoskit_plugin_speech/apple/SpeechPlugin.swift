@@ -8,6 +8,12 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
     public let methods: [UInt32] = [0, 1, 2, 3]
     private let synthesizer = AVSpeechSynthesizer()
     private var active: ActiveSpeech?
+    /// Cancelled utterances kept alive until the synthesizer reports them.
+    /// Callbacks match by identity, and a freed utterance's address can be
+    /// reused by the next one, so a late `didCancel` could otherwise end it.
+    private var cancelling: [ObjectIdentifier: AVSpeechUtterance] = [:]
+    /// The most cancelled utterances held at once; older ones are released.
+    private static let maxCancelling = 8
     private var closed = false
 
     /// The wire methods the Rust crate calls.
@@ -163,11 +169,18 @@ public final class SpeechPlugin: NSObject, NativePlugin, AVSpeechSynthesizerDele
     private func cancel() {
         guard let current = active else { return }
         active = nil
+
+        if cancelling.count >= Self.maxCancelling, let oldest = cancelling.keys.first { cancelling[oldest] = nil }
+
+        cancelling[ObjectIdentifier(current.utterance)] = current.utterance
         synthesizer.stopSpeaking(at: .immediate)
         current.completion.resume(throwing: PluginError.cancelled)
     }
 
     private func finish(_ identity: ObjectIdentifier, cancelled: Bool) {
+        // The report for an utterance this plugin already cancelled.
+        guard cancelling.removeValue(forKey: identity) == nil else { return }
+
         guard let current = active, ObjectIdentifier(current.utterance) == identity else { return }
         active = nil
 
