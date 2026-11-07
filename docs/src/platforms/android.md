@@ -39,6 +39,26 @@ You can also open the `android/` folder in Android Studio and run it from there.
 
 The `android/` folder is yours: the activity, the manifest, the Gradle files, and `Cargo.toml` for native Rust dependencies such as [runtime plugins](plugins.md). The CLI keeps its generated files in `.leptoskit/android/`, including the R8 keep rules that release builds need for the native library; put rules for your own code in `android/app/proguard-rules.pro`.
 
+## Foldable phones
+
+Folding a Pixel Fold, Galaxy Z Fold, Z Flip, or similar resizes the activity instead of recreating it: the generated manifest lists `orientation|screenSize|screenLayout|smallestScreenSize` in `android:configChanges`, and `LeptosKitView` remeasures on configuration changes. Your guest keeps its state; Tailwind responsive classes and the layout engine see the new size.
+
+To know *how* the phone is folded — closed on the cover screen, half open as a book or tabletop, or open flat — and where each hinge crosses the window, add the `posture` plugin and watch it as [Foldable phones](../guide/21-foldable-phones.md) shows. Android reports Jetpack WindowManager folding features (state, axis, bounds, occlusion, and `isSeparating`) plus the hinge angle sensor. A fully open continuous foldable reports its crease with `separating = false`, so `panes()` and `is_dual_pane()` stay single-pane until the device is half open or a dual-screen hinge truly splits the window. No Android permission is required; selecting `posture` in `native.plugins` adds `androidx.window:window` to the generated app.
+
+```toml
+[native]
+plugins = ["posture"]
+```
+
+```rust
+let posture = RwSignal::new(Posture::default());
+let fold = use_posture(posture);
+// Dual-pane list/detail when a separating fold crosses the window:
+// if fold.is_dual_pane.get() { … panes as percentage widths … }
+```
+
+Apps scaffolded before foldable support need `screenLayout|smallestScreenSize` added to `android:configChanges` by hand so folding does not restart the activity.
+
 ## Test it
 
 Each project includes an instrumented test that taps **Add one** and waits for **Count: 1**. Update it when you change the home screen, then run it with an emulator running:

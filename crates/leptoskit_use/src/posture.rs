@@ -1,6 +1,7 @@
 pub use leptoskit_plugin_posture::Axis;
 pub use leptoskit_plugin_posture::Fold;
 pub use leptoskit_plugin_posture::Hinge;
+pub use leptoskit_plugin_posture::LayoutMode;
 pub use leptoskit_plugin_posture::Posture;
 pub use leptoskit_plugin_posture::Region;
 use reactive_graph::computed::Memo;
@@ -25,6 +26,10 @@ pub struct UsePostureReturn {
 	pub is_tabletop: Signal<bool>,
 	/// Half open with a top-to-bottom hinge, held like a book.
 	pub is_book: Signal<bool>,
+	/// More than one pane: a separating fold crosses the window.
+	pub is_dual_pane: Signal<bool>,
+	/// Tabletop, book, dual-pane, or single, derived from the posture.
+	pub layout_mode: Signal<LayoutMode>,
 	/// The first hinge's angle in whole degrees, when the platform measures
 	/// it: 0 shut, 180 flat.
 	pub angle: Signal<Option<u16>>,
@@ -38,7 +43,9 @@ pub struct UsePostureReturn {
 /// Native guests feed the signal from the `posture` runtime plugin's `watch`
 /// future and render after each change; browsers feed it from
 /// `leptoskit_plugin_posture::web::watch`. SSR and tests can supply any
-/// posture. No device API is accessed here.
+/// posture. No device API is accessed here. Folding also resizes the window;
+/// combine this with [`crate::use_window_size`] when a layout depends on both
+/// posture and size (Android configuration changes keep the activity alive).
 pub fn use_posture(posture: impl Into<Signal<Posture>>) -> UsePostureReturn {
 	let posture = posture.into();
 	let fold = Memo::new(move |_| posture.with(|posture| posture.fold));
@@ -50,6 +57,8 @@ pub fn use_posture(posture: impl Into<Signal<Posture>>) -> UsePostureReturn {
 		is_open: is(Fold::Open),
 		is_tabletop: Memo::new(move |_| posture.with(Posture::is_tabletop)).into(),
 		is_book: Memo::new(move |_| posture.with(Posture::is_book)).into(),
+		is_dual_pane: Memo::new(move |_| posture.with(Posture::is_dual_pane)).into(),
+		layout_mode: Memo::new(move |_| posture.with(Posture::layout_mode)).into(),
 		angle: Memo::new(move |_| {
 			posture.with(|posture| posture.hinges.first().and_then(|hinge| hinge.angle))
 		})

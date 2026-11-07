@@ -75,6 +75,8 @@ fn hinge_between(
 		angle: None,
 		// Content in the gap between segments is not visible.
 		occluding: Some(gap > 0.0),
+		// Viewport segments only exist when the fold splits the window.
+		separating: Some(true),
 	}
 }
 

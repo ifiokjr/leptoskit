@@ -12,7 +12,7 @@ import {
 // The wire format in leptoskit_plugin_posture's src/lib.rs.
 const MAX_HINGES = 4;
 const HEADER_BYTES = 12;
-const HINGE_BYTES = 36;
+const HINGE_BYTES = 40;
 const NO_ANGLE = 0xffffffff;
 const UNKNOWN = 0;
 const CLOSED = 1;
@@ -170,7 +170,13 @@ export function encodePosture(reading: PostureReading): ArrayBuffer {
 		view.setUint32(offset, hinge.fold, true);
 		view.setUint32(offset + 4, hinge.axis, true);
 		view.setUint32(offset + 8, UNKNOWN_FLAG, true);
-		view.setUint32(offset + 12, region === undefined ? 0 : 1, true);
+		// A crease that crosses the window splits it into panes.
+		view.setUint32(
+			offset + 12,
+			region === undefined ? UNKNOWN_FLAG : TRUE_FLAG,
+			true,
+		);
+		view.setUint32(offset + 16, region === undefined ? 0 : 1, true);
 		[
 			region?.left ?? 0,
 			region?.top ?? 0,
@@ -179,12 +185,12 @@ export function encodePosture(reading: PostureReading): ArrayBuffer {
 		]
 			.forEach((value: number, field: number) => {
 				view.setFloat32(
-					offset + 16 + 4 * field,
+					offset + 20 + 4 * field,
 					Math.min(Math.max(value, 0), 1),
 					true,
 				);
 			});
-		view.setUint32(offset + 32, hinge.angle, true);
+		view.setUint32(offset + 36, hinge.angle, true);
 	});
 
 	return output;

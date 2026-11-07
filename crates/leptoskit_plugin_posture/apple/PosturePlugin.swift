@@ -162,11 +162,11 @@ private final class HingeWatcher {
 #endif
 
 /// The posture wire format shared with Rust and Kotlin: little-endian u32
-/// words, a three-word header, and nine words per hinge.
+/// words, a three-word header, and ten words per hinge.
 enum PostureEncoding {
     static let maxHinges = 4
     static let headerBytes = 12
-    static let hingeBytes = 36
+    static let hingeBytes = 40
 
     private static let unknownFlag: UInt32 = 0
     private static let falseFlag: UInt32 = 1
@@ -212,6 +212,8 @@ enum PostureEncoding {
             words += [
                 frame.height >= frame.width ? 1 : 2,
                 occluded ? trueFlag : falseFlag,
+                // A division reserved region splits the window into panes.
+                trueFlag,
                 1,
                 Float((frame.minX - bounds.minX) / bounds.width).bitPattern,
                 Float((frame.minY - bounds.minY) / bounds.height).bitPattern,
@@ -219,7 +221,7 @@ enum PostureEncoding {
                 Float(frame.height / bounds.height).bitPattern
             ]
         } else {
-            words += [0, unknownFlag, 0, 0, 0, 0, 0]
+            words += [0, unknownFlag, unknownFlag, 0, 0, 0, 0, 0]
         }
 
         words.append(degrees)
