@@ -411,4 +411,65 @@ mod tests {
 		assert!(theme.expand("bg-savings").contains("--savings"));
 		assert_eq!(theme.roles().last().map(|(role, _)| role), Some("savings"));
 	}
+
+	#[test]
+	fn a_role_can_be_recoloured_and_re_summarized() {
+		let theme = Theme::default().color(
+			"accent",
+			hex(0x0011_2233),
+			hex(0x0044_5566),
+			"A new summary.",
+		);
+		let token = theme.token("accent").unwrap();
+		assert_eq!(token.light, hex(0x0011_2233));
+		assert_eq!(token.dark, hex(0x0044_5566));
+		assert_eq!(token.summary, "A new summary.");
+		assert_eq!(token.variable, "accent");
+
+		// An empty summary keeps the one the role had.
+		let theme = theme.color("accent", hex(0x0011_2233), hex(0x0044_5566), "");
+		assert_eq!(theme.token("accent").unwrap().summary, "A new summary.");
+	}
+
+	#[test]
+	fn a_role_reads_a_prefixed_variable_name() {
+		let theme = Theme::default().variable("accent", "--brand");
+		assert_eq!(theme.token("accent").unwrap().variable, "brand");
+		let classes = theme.expand("bg-accent");
+		leptoskit_native::Theme::clear();
+		assert_eq!(background(&classes, false), Some(hex(0x002a_78d6)));
+	}
+
+	#[test]
+	fn unknown_roles_and_variables_panic() {
+		let unknown_role = std::panic::catch_unwind(|| {
+			Theme::default().color("NotALowercaseRole", hex(0), hex(0), "")
+		});
+		assert!(unknown_role.is_err());
+
+		let unknown_variable = std::panic::catch_unwind(|| Theme::default().variable("nope", "x"));
+		assert!(unknown_variable.is_err());
+
+		let bad_variable =
+			std::panic::catch_unwind(|| Theme::default().variable("accent", "not a name!"));
+		assert!(bad_variable.is_err());
+
+		let empty_variable = std::panic::catch_unwind(|| Theme::default().variable("accent", ""));
+		assert!(empty_variable.is_err());
+
+		let unknown_class = std::panic::catch_unwind(|| Theme::default().class("bg", "nope"));
+		assert!(unknown_class.is_err());
+
+		let unknown_resolve = std::panic::catch_unwind(|| Theme::default().resolve("nope"));
+		assert!(unknown_resolve.is_err());
+
+		assert!(Theme::default().token("nope").is_none());
+	}
+
+	#[test]
+	fn border_utilities_take_roles_too() {
+		let theme = Theme::default();
+		assert!(theme.expand("border-line").contains("border-[var(--line"));
+		assert!(theme.expand("border-red-500").eq("border-red-500"));
+	}
 }

@@ -260,5 +260,23 @@ mod tests {
 		assert_eq!(format_number(10.0 / 3.0), "3.33");
 		assert_eq!(group_thousands("1234567"), "1,234,567");
 		assert_eq!(group_thousands("123"), "123");
+		assert_eq!(format_number(1e20), "100000000000000000000");
+		assert_eq!(format_number(f64::NAN), "—");
+	}
+
+	#[test]
+	fn weighs_values_for_the_documents_limits() {
+		assert_eq!(Value::Null.weight(), 8);
+		assert_eq!(Value::Bool(true).weight(), 8);
+		assert_eq!(Value::Number(1.0).weight(), 8);
+		assert_eq!(Value::from("abcd").weight(), 4);
+		assert_eq!(
+			Value::List(vec![Value::from("ab"), Value::Number(1.0)]).weight(),
+			8 + 2 + 8
+		);
+		assert_eq!(
+			Value::Record(BTreeMap::from([("a".to_owned(), Value::Number(1.0))])).weight(),
+			8 + 1 + 8
+		);
 	}
 }
