@@ -176,6 +176,85 @@ fn transforms_compose_in_canvas_order() {
 	assert_eq!(transform.apply(Point::new(1.0, 1.0)), Point::new(12.0, 2.0));
 }
 
+#[test]
+fn shadows_and_clip_paths_come_out_bounded() {
+	let nan = f32::NAN;
+	let scene = Scene::new()
+		.box_shadow(
+			Rect::new(nan, 0.0, 10.0, 10.0),
+			CornerRadii::all(nan),
+			BoxShadow {
+				offset_x: f32::INFINITY,
+				blur: -1.0e9,
+				spread: nan,
+				color: Color::rgba(2.0, 0.0, 0.0, 0.5),
+				..BoxShadow::default()
+			},
+		)
+		.push_clip_path(
+			Path::new().quad_to(nan, 1.0e30, 5.0, 5.0),
+			FillRule::EvenOdd,
+		)
+		.sanitized();
+	let Command::BoxShadow {
+		rect,
+		radii,
+		shadow,
+	} = &scene.commands[0]
+	else {
+		panic!("a shadow");
+	};
+	assert_eq!(*rect, Rect::new(0.0, 0.0, 10.0, 10.0));
+	assert_eq!(*radii, CornerRadii::all(0.0));
+	assert_eq!(
+		(shadow.offset_x, shadow.blur, shadow.spread),
+		(0.0, 0.0, 0.0),
+		"an infinity or NaN becomes the bound closest to zero"
+	);
+	assert_eq!(shadow.color, Color::rgba(1.0, 0.0, 0.0, 0.5));
+	let Command::PushClipPath { path, rule } = &scene.commands[1] else {
+		panic!("a clip path");
+	};
+	assert_eq!(
+		path.commands,
+		[PathCommand::QuadTo(
+			Point::new(0.0, MAX_COORDINATE),
+			Point::new(5.0, 5.0)
+		)]
+	);
+	assert_eq!(*rule, FillRule::EvenOdd);
+}
+
+#[test]
+fn a_clip_left_open_is_closed_at_the_end() {
+	let rect = Rect::new(0.0, 0.0, 1.0, 1.0);
+	let scene = Scene::new().push_clip(rect, 0.0).sanitized();
+	assert_eq!(
+		scene.commands,
+		[
+			Command::PushClip {
+				rect,
+				radii: CornerRadii::default(),
+			},
+			Command::PopClip,
+		]
+	);
+}
+
+#[test]
+fn clip_paths_past_the_depth_are_dropped() {
+	let mut scene = Scene::new();
+	for _ in 0..MAX_DEPTH + 5 {
+		scene = scene.push_clip_path(Path::new().circle(1.0, 1.0, 1.0), FillRule::NonZero);
+	}
+	let commands = scene.sanitized().commands;
+	assert_eq!(
+		commands.len(),
+		MAX_DEPTH * 2,
+		"the pushes past the depth are dropped; the kept ones are closed"
+	);
+}
+
 #[cfg(feature = "serde")]
 #[test]
 fn scenes_round_trip_through_json() {

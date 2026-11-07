@@ -835,3 +835,49 @@ pub fn render_to_rgba(
 	Renderer::new(&device, &queue, wgpu::TextureFormat::Rgba8Unorm)
 		.render_to_rgba(scene, width, height, scale)
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn errors_describe_themselves_and_availability() {
+		assert_eq!(
+			Error::NoAdapter("none".into()).to_string(),
+			"no GPU adapter is available: none"
+		);
+		assert_eq!(
+			Error::Device("denied".into()).to_string(),
+			"the GPU device could not be created: denied"
+		);
+		assert_eq!(
+			Error::TooLarge {
+				width: 100,
+				height: 1,
+				limit: 99
+			}
+			.to_string(),
+			"the canvas is 100×1 pixels, larger than the GPU limit of 99"
+		);
+		assert_eq!(
+			Error::UnsupportedFormat(wgpu::TextureFormat::Rg16Float).to_string(),
+			"pixels cannot be read back from the Rg16Float format"
+		);
+		assert_eq!(
+			Error::Readback("lost".into()).to_string(),
+			"reading the pixels back failed: lost"
+		);
+		assert!(Error::NoAdapter("none".into()).is_unavailable());
+		assert!(Error::Device("denied".into()).is_unavailable());
+		assert!(
+			!Error::TooLarge {
+				width: 9,
+				height: 9,
+				limit: 8
+			}
+			.is_unavailable()
+		);
+		assert!(!Error::UnsupportedFormat(wgpu::TextureFormat::Rg16Float).is_unavailable());
+		assert!(!Error::Readback("lost".into()).is_unavailable());
+	}
+}
