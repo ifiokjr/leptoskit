@@ -150,10 +150,18 @@ fn start_services(
 		root: root.as_std_path(),
 		public_origin: format!("http://{address}"),
 		app_url: format!("http://{app_address}"),
-		app_database_url: config
+		// `serve` never runs the development Postgres, so a service on Postgres
+		// gets its database from `LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL`.
+		app_database: config
 			.db
 			.as_ref()
-			.and_then(|db| std::env::var(&db.url_env).ok()),
+			.and_then(|db| std::env::var(&db.url_env).ok())
+			.map(|url| {
+				crate::services::run::AppDatabase {
+					url,
+					dev_server: false,
+				}
+			}),
 		tokens: &tokens,
 	};
 	let prepared = crate::services::run::prepare(&services.services, &session)?;

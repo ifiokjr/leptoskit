@@ -2785,6 +2785,36 @@ mod services {
 		assert!(project.service.as_ref().unwrap().app.is_some());
 	}
 
+	/// `reset --service` with the app's `DATABASE_URL` on another server, and
+	/// no URL of the service's own, refuses before connecting anywhere: it
+	/// would otherwise drop the service's database there. The host doesn't
+	/// exist, so reaching it would fail differently.
+	#[test]
+	fn a_service_beside_an_outside_app_database_is_never_recreated_there() {
+		let (dir, config) = workspace(Some("postgres"));
+		let project = Project::service(&config, dir.path().to_path_buf(), "analytics").unwrap();
+		let service = project.service.as_ref().unwrap();
+
+		for existing in [
+			crate::services::database::Existing::Recreate,
+			crate::services::database::Existing::Keep,
+		] {
+			let error = project
+				.service_database_beside(
+					service,
+					existing,
+					Some("postgres://admin:secret@db.invalid:5432/app"),
+				)
+				.unwrap_err();
+			let message = format!("{error:#}");
+			assert!(
+				message.contains("set LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_URL")
+					&& message.contains("--url"),
+				"{message}"
+			);
+		}
+	}
+
 	#[test]
 	fn services_without_a_database_here_are_refused_by_name() {
 		let (dir, config) = workspace(Some("sqlite"));

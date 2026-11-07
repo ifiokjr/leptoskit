@@ -1,13 +1,17 @@
 //! A service's own database in development, which `leptoskit dev`,
 //! `leptoskit serve`, and `leptoskit db --service` share: a SQLite file
-//! under `.leptoskit/services/<name>/`, or on the app's Postgres server a
-//! database and a login role of the service's own.
+//! under `.leptoskit/services/<name>/`, or on the development Postgres
+//! `leptoskit` runs a database and a login role of the service's own.
 //!
 //! On Postgres the role is named after the main branch's database,
 //! `<app>_service_<name>`, and owns the service's database on every branch,
-//! so a branch's copy, `<app>__<branch>_service_<name>`, holds tables the
+//! so a branch's copy, `<app>__<branch>__service__<name>`, holds tables the
 //! same role owns. Only the role connects to it, and the role can't connect
-//! to the app's database.
+//! to any of the app's databases.
+//!
+//! Nothing here touches a server `leptoskit` didn't start: a service of an
+//! app whose database is elsewhere gets its URL from
+//! `LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL`, the way a deploy gives it one.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -43,50 +47,80 @@ pub(crate) fn sqlite_url(root: &Path, service: &str) -> Result<String> {
 	Ok(format!("sqlite://{}", path.display()))
 }
 
+/// The variable that gives a service its database's URL when `leptoskit`
+/// doesn't make it one: `LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL`, the name
+/// deploys keep it under.
+#[must_use]
+pub fn url_env(service: &str) -> String {
+	format!(
+		"LEPTOSKIT_SERVICE_{}_DATABASE_URL",
+		leptoskit_config::services::env_segment(service)
+	)
+}
+
+/// The error for a service whose app database is on a server `leptoskit`
+/// didn't start, so it creates nothing there.
+pub(crate) fn not_on_the_dev_server(service: &str, app_url_env: &str) -> anyhow::Error {
+	anyhow::anyhow!(
+		"services.{service} needs a database of its own, and the app's database ({app_url_env}) \
+		 is on a server leptoskit doesn't run, so it won't create roles or databases there; set \
+		 {} to the service's database, or unset {app_url_env} to use the development Postgres",
+		url_env(service)
+	)
+}
+
 /// The names a service's Postgres database goes by beside the app's
 /// database `app_database`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PostgresNames {
 	/// The service's database beside `app_database`.
 	pub database: String,
-	/// The role that owns it, which is also the main branch's database.
+	/// The role that owns it, which is also the main branch's service
+	/// database.
 	pub role: String,
 	/// The branch, when `app_database` is a branch's own copy.
 	pub branch: Option<String>,
-	/// The main branch's app database, which the role mustn't reach either:
-	/// `app_database` itself off a branch.
+	/// The main branch's app database, whose branch copies start with it
+	/// and `__`.
 	pub app_main: String,
 }
 
 impl PostgresNames {
 	/// The names for `service` beside `app_database`, which is a branch's
-	/// database when it's `<main>__<branch>` and `app` (the app's database
-	/// settings) has branch databases.
-	pub(crate) fn of(app: Option<&Project>, app_database: &str, service: &str) -> Self {
-		let main = app
-			.filter(|app| app.config.branch_databases)
-			.map(Project::database_name)
-			.filter(|main| {
-				app_database
-					.strip_prefix(main.as_str())
-					.is_some_and(|rest| rest.starts_with("__"))
-			});
-		let branch = main.as_ref().and_then(|_| {
-			app.and_then(|app| branches::branches(&app.root))
-				.and_then(|branches| branches.current)
-		});
-		let app_main = main.unwrap_or_else(|| app_database.to_owned());
+	/// database when it's `<main>__<branch>` and `app` has branch databases.
+	///
+	/// A branch's service database is `<main>__<branch>__service__<name>`.
+	/// A branch's part never holds `__`, so no branch's app database, and no
+	/// other branch's or service's database, can have the same name.
+	pub(crate) fn of(app: &Project, app_database: &str, service: &str) -> Self {
+		let main = app.database_name();
+		let on_branch = app.config.branch_databases
+			&& app_database
+				.strip_prefix(main.as_str())
+				.is_some_and(|rest| rest.starts_with("__"));
+		let branch = on_branch
+			.then(|| branches::branches(&app.root).and_then(|branches| branches.current))
+			.flatten();
+		let role = super::postgres_database(&main, service);
+		let database = if on_branch {
+			super::shortened(format!(
+				"{app_database}__service__{}",
+				service.replace('-', "_")
+			))
+		} else {
+			role.clone()
+		};
 
 		Self {
-			database: super::postgres_database(app_database, service),
-			role: super::postgres_database(&app_main, service),
+			database,
+			role,
 			branch,
-			app_main,
+			app_main: main,
 		}
 	}
 }
 
-/// What [`postgres_url`] does with a service's database that exists.
+/// What [`dev_postgres_url`] does with a service's database that exists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Existing {
 	/// Keeps it.
@@ -95,9 +129,11 @@ pub(crate) enum Existing {
 	Recreate,
 }
 
-/// The URL of `service`'s own database on the Postgres server the app's
-/// database `app_url` is on, creating the database and its role when
-/// they're missing.
+/// The URL of `service`'s own database on the development Postgres
+/// `leptoskit` runs, whose app database is `app_url`, creating the database
+/// and its role when they're missing. Callers make sure `app_url` is that
+/// server's: this drops databases, creates roles, and changes who may
+/// connect.
 ///
 /// A branch's database starts as a copy of the main branch's, the way the
 /// app's branch databases do, labelled with its branch so `leptoskit db
@@ -109,9 +145,8 @@ pub(crate) enum Existing {
 ///
 /// When the server refuses the setup, or the database was created by an
 /// older leptoskit under another owner.
-pub(crate) fn postgres_url(
-	app: Option<&Project>,
-	root: &Path,
+pub(crate) fn dev_postgres_url(
+	app: &Project,
 	app_url: &str,
 	service: &str,
 	existing: Existing,
@@ -119,20 +154,11 @@ pub(crate) fn postgres_url(
 	let app_database = database_of(app_url)?;
 	let names = PostgresNames::of(app, &app_database, service);
 	let server = dev_server::with_database(app_url, "postgres")?;
-	let superuser = crate::db::runtime()?.block_on(async {
-		let db = Db::connect(&server).await?;
-		let rows = db
-			.fetch(Statement {
-				sql: "SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user"
-					.to_owned(),
-				args: vec![],
-			})
-			.await?;
-		anyhow::Ok(matches!(
-			rows.first().and_then(|row| row.first()),
-			Some(Value::Bool(true))
-		))
-	})?;
+	let superuser = first(
+		&server,
+		"SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user",
+		vec![],
+	)? == Some(Value::Bool(true));
 
 	if existing == Existing::Recreate {
 		branches::drop_database(&server, &names.database)?;
@@ -147,50 +173,127 @@ pub(crate) fn postgres_url(
 		return dev_server::with_database(app_url, &names.database);
 	}
 
+	let password = role(&server, &app.root, service, &names.role)?;
+	create(&server, &names, Some(&names.role), existing)?;
+	lock_down(&server, &names, &app_database)?;
+	let url = dev_server::with_database(app_url, &names.database)?;
+	dev_server::with_login(&url, &names.role, &password)
+}
+
+/// Makes the service's login role unless it exists, and returns its
+/// password, kept in `.leptoskit/services/<name>/postgres-password`.
+///
+/// The password is set only when the role is made, or when this checkout
+/// has none kept for an existing role, as after deleting `.leptoskit`; it
+/// reaches Postgres only as a SCRAM verifier, so no log holds it.
+fn role(server: &str, root: &Path, service: &str, role: &str) -> Result<String> {
 	let directory = super::dev_dir(root, service);
 	std::fs::create_dir_all(&directory)
 		.with_context(|| format!("could not create {}", directory.display()))?;
-	let password = dev_server::remembered(&directory.join("postgres-password"), || {
+	let file = directory.join("postgres-password");
+	let kept = file.is_file();
+	let password = dev_server::remembered(&file, || {
 		let mut bytes = [0_u8; 18];
 		getrandom::fill(&mut bytes).map_err(|error| anyhow::anyhow!("{error}"))?;
 		Ok(hex::encode(bytes))
 	})?;
-	let role = quote_identifier(&names.role);
-	let script = format!(
-		"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = {name}) THEN \
-		 CREATE ROLE {role} LOGIN; END IF; END $$;\nALTER ROLE {role} LOGIN PASSWORD \
-		 '{password}';\n",
-		name = literal(&names.role),
-	);
+	let exists = first(
+		server,
+		"SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1",
+		vec![Value::Text(role.to_owned())],
+	)?
+	.is_some();
+
+	if exists && kept {
+		return Ok(password);
+	}
+
+	let verifier = postgres_protocol::password::scram_sha_256(password.as_bytes());
+	let quoted = quote_identifier(role);
+	let script = if exists {
+		format!("ALTER ROLE {quoted} LOGIN PASSWORD {};", literal(&verifier))
+	} else {
+		format!(
+			"CREATE ROLE {quoted} LOGIN PASSWORD {};",
+			literal(&verifier)
+		)
+	};
 	crate::db::runtime()?.block_on(async {
-		let db = Db::connect(&server).await?;
+		let db = Db::connect(server).await?;
 		anyhow::Ok(db.run_script(&script).await?)
 	})?;
-	create(&server, &names, Some(&names.role), existing)?;
+	Ok(password)
+}
 
-	// Only the service's role connects to its database, and it can't reach
-	// the app's, on this branch or the main one, whose own login, a
-	// superuser here, still can.
-	let mut lockdown = String::new();
+/// Revokes `PUBLIC`'s `CONNECT` on the service's database and on every one
+/// of the app's on the development server: the main branch's, the current
+/// branch's, and every other branch's copy, which `CREATE DATABASE …
+/// TEMPLATE` gives `PUBLIC`'s default access again. Only each database's
+/// owner, and the app's login, a superuser here, still connect.
+fn lock_down(server: &str, names: &PostgresNames, app_database: &str) -> Result<()> {
+	let rows = crate::db::runtime()?.block_on(async {
+		let db = Db::connect(server).await?;
+		anyhow::Ok(
+			db.fetch(Statement {
+				sql: "SELECT datname FROM pg_catalog.pg_database WHERE datname = $1 OR \
+				      starts_with(datname, $2) ORDER BY datname"
+					.to_owned(),
+				args: vec![
+					Value::Text(names.app_main.clone()),
+					Value::Text(format!("{}__", names.app_main)),
+				],
+			})
+			.await?,
+		)
+	})?;
+	let mut databases: Vec<String> = rows
+		.into_iter()
+		.filter_map(|row| {
+			match row.into_iter().next() {
+				Some(Value::Text(name)) => Some(name),
+				_ => None,
+			}
+		})
+		.collect();
 
-	for database in [&names.database, &app_database, &names.app_main] {
-		if database == &names.app_main && !exists(&server, database)? {
-			continue;
+	for database in [&names.database, &app_database.to_owned()] {
+		if !databases.contains(database) {
+			databases.push(database.clone());
 		}
+	}
 
+	let mut script = String::new();
+
+	for database in &databases {
 		let _ = writeln!(
-			lockdown,
+			script,
 			"REVOKE CONNECT ON DATABASE {} FROM PUBLIC;",
 			quote_identifier(database)
 		);
 	}
-	crate::db::runtime()?.block_on(async {
-		let db = Db::connect(&server).await?;
-		anyhow::Ok(db.run_script(&lockdown).await?)
-	})?;
 
-	let url = dev_server::with_database(app_url, &names.database)?;
-	dev_server::with_login(&url, &names.role, &password)
+	crate::db::runtime()?.block_on(async {
+		let db = Db::connect(server).await?;
+		anyhow::Ok(db.run_script(&script).await?)
+	})
+}
+
+/// The first column of the first row `sql` returns on `url`.
+fn first(url: &str, sql: &str, args: Vec<Value>) -> Result<Option<Value>> {
+	crate::db::runtime()?.block_on(async {
+		let db = Db::connect(url).await?;
+		let rows = db
+			.fetch(Statement {
+				sql: sql.to_owned(),
+				args,
+			})
+			.await?;
+		anyhow::Ok(
+			rows.into_iter()
+				.next()
+				.and_then(|row| row.into_iter().next()),
+		)
+	})
 }
 
 /// Creates the service's database unless it exists: owned by `owner`, and
@@ -369,6 +472,41 @@ mod tests {
 		leptoskit_db::load_migrations(&directory).unwrap()
 	}
 
+	/// The service's first start on the main branch: its role's password
+	/// reaches Postgres only as a SCRAM verifier, a second start leaves it
+	/// alone, and a checkout that lost the kept password sets a new one.
+	/// Returns the service's URL.
+	fn passwords_are_set_once_as_verifiers(app: &Project, app_url: &str) -> String {
+		let service = || dev_postgres_url(app, app_url, "analytics", Existing::Keep).unwrap();
+		let admin = dev_server::with_database(app_url, "postgres").unwrap();
+		let verifier = || {
+			first(
+				&admin,
+				"SELECT rolpassword FROM pg_authid WHERE rolname = 'my_app_service_analytics'",
+			)
+		};
+		let url = service();
+		let parsed = url::Url::parse(&url).unwrap();
+		assert_eq!(parsed.username(), "my_app_service_analytics");
+		assert_eq!(parsed.path(), "/my_app_service_analytics");
+		let set = verifier();
+		assert!(
+			matches!(&set, Some(Value::Text(text)) if text.starts_with("SCRAM-SHA-256$")),
+			"the password reaches Postgres only as a verifier: {set:?}"
+		);
+		assert_eq!(service(), url, "a second start keeps the role's password");
+		assert_eq!(verifier(), set, "and doesn't set it again");
+
+		std::fs::remove_file(
+			super::super::dev_dir(&app.root, "analytics").join("postgres-password"),
+		)
+		.unwrap();
+		let url = service();
+		assert_ne!(verifier(), set);
+		assert_eq!(first(&url, "SELECT 1"), Some(Value::Int(1)));
+		url
+	}
+
 	/// The whole development path on a real Postgres: the service's role and
 	/// database, its migrations, the app's database closed to it, a branch's
 	/// copy, and `reset`'s recreation.
@@ -397,18 +535,19 @@ mod tests {
 		let server =
 			dev_server::start(&app, dev_server::Source::Embedded, Some(&binaries)).unwrap();
 		let service = |app_url: &str, existing| {
-			postgres_url(Some(&app), root.path(), app_url, "analytics", existing).unwrap()
+			dev_postgres_url(&app, app_url, "analytics", existing).unwrap()
 		};
 
-		let url = service(&server.url, Existing::Keep);
-		let parsed = url::Url::parse(&url).unwrap();
-		assert_eq!(parsed.username(), "my_app_service_analytics");
-		assert_eq!(parsed.path(), "/my_app_service_analytics");
+		// Another branch's database, made before the service ever ran.
+		git(root.path(), &["checkout", "--quiet", "-b", "feat/other"]);
+		let postgres = dev_server::with_database(&server.url, "postgres").unwrap();
 		assert_eq!(
-			service(&server.url, Existing::Keep),
-			url,
-			"a second start keeps the role's password"
+			branches::ensure(&app, &postgres).unwrap(),
+			"my_app__feat_other"
 		);
+		git(root.path(), &["checkout", "--quiet", "main"]);
+
+		let url = passwords_are_set_once_as_verifiers(&app, &server.url);
 
 		// The service migrates and writes its own database, as its role.
 		crate::db::runtime().unwrap().block_on(async {
@@ -438,7 +577,6 @@ mod tests {
 
 		// A branch's database starts as a copy of the main branch's.
 		git(root.path(), &["checkout", "--quiet", "-b", "feat/charts"]);
-		let postgres = dev_server::with_database(&server.url, "postgres").unwrap();
 		let branch = branches::ensure(&app, &postgres).unwrap();
 		assert_eq!(branch, "my_app__feat_charts");
 		let branch_url = service(
@@ -447,12 +585,13 @@ mod tests {
 		);
 		let parsed = url::Url::parse(&branch_url).unwrap();
 		assert_eq!(parsed.username(), "my_app_service_analytics");
-		assert_eq!(parsed.path(), "/my_app__feat_charts_service_analytics");
+		assert_eq!(parsed.path(), "/my_app__feat_charts__service__analytics");
 		assert_eq!(
 			first(&branch_url, "SELECT count(*) FROM events"),
 			Some(Value::Int(1))
 		);
-		for app_database in ["my_app", "my_app__feat_charts"] {
+		// Nor any branch's app database, even one made before the service ran.
+		for app_database in ["my_app", "my_app__feat_charts", "my_app__feat_other"] {
 			let reach = dev_server::with_database(&branch_url, app_database).unwrap();
 			assert_eq!(first(&reach, "SELECT 1"), None, "{app_database}");
 		}
@@ -465,7 +604,8 @@ mod tests {
 			listed,
 			[
 				"my_app__feat_charts",
-				"my_app__feat_charts_service_analytics"
+				"my_app__feat_charts__service__analytics",
+				"my_app__feat_other"
 			],
 			"`db branch prune` finds the service's copy with the app's"
 		);
@@ -484,22 +624,21 @@ mod tests {
 		);
 
 		// Without a main branch's copy, a branch's starts empty, still its own.
-		let cards = postgres_url(
-			Some(&app),
-			root.path(),
+		let cards = dev_postgres_url(
+			&app,
 			&dev_server::with_database(&server.url, &branch).unwrap(),
 			"cards",
 			Existing::Keep,
 		)
 		.unwrap();
 		assert!(
-			cards.contains("/my_app__feat_charts_service_cards"),
+			cards.contains("/my_app__feat_charts__service__cards"),
 			"{cards}"
 		);
 		let listed = branches::list(&app, &postgres).unwrap();
 		assert!(
 			listed.iter().any(|database| {
-				database.name == "my_app__feat_charts_service_cards"
+				database.name == "my_app__feat_charts__service__cards"
 					&& database.branch == "feat/charts"
 			}),
 			"{listed:?}"
@@ -516,7 +655,7 @@ mod tests {
 			service: None,
 		};
 		assert_eq!(
-			PostgresNames::of(Some(&app), "app", "analytics"),
+			PostgresNames::of(&app, "app", "analytics"),
 			PostgresNames {
 				database: "app_service_analytics".into(),
 				role: "app_service_analytics".into(),
@@ -524,19 +663,45 @@ mod tests {
 				app_main: "app".into(),
 			}
 		);
-		let branch = PostgresNames::of(Some(&app), "app__feat_x", "analytics");
-		assert_eq!(branch.database, "app__feat_x_service_analytics");
+		let branch = PostgresNames::of(&app, "app__feat_x", "analytics");
+		assert_eq!(branch.database, "app__feat_x__service__analytics");
 		assert_eq!(branch.role, "app_service_analytics");
 		assert_eq!(branch.app_main, "app");
-		// A database `db.url_env` names isn't a branch's.
-		assert_eq!(
-			PostgresNames::of(Some(&app), "staging", "analytics").role,
-			"staging_service_analytics"
+
+		// A branch's slug never holds `__`, so a branch named like another
+		// branch's service database gets a different database.
+		let on = |current: &str| {
+			branches::Branches {
+				current: Some(current.to_owned()),
+				main: "main".into(),
+			}
+		};
+		let lookalike = branches::database_for("app", &on("x-service-analytics"));
+		assert_eq!(lookalike, "app__x_service_analytics");
+		assert_ne!(
+			PostgresNames::of(&app, "app__x", "analytics").database,
+			lookalike
 		);
-		assert_eq!(
-			PostgresNames::of(None, "app__feat_x", "analytics").role,
-			"app__feat_x_service_analytics"
-		);
+
+		// Long branches that share their first 50 bytes still differ.
+		let shop = Project {
+			name: "shop".into(),
+			..app
+		};
+		let names: Vec<String> = ["part-1", "part-2"]
+			.into_iter()
+			.map(|part| {
+				let branch = branches::database_for(
+					"shop",
+					&on(&format!(
+						"feature/add-service-database-support-to-the-cli-{part}"
+					)),
+				);
+				PostgresNames::of(&shop, &branch, "analytics").database
+			})
+			.collect();
+		assert!(names.iter().all(|name| name.len() <= 63), "{names:?}");
+		assert_ne!(names[0], names[1]);
 	}
 
 	#[test]

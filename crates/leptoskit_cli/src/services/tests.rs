@@ -268,7 +268,7 @@ fn prepares_each_service_and_the_app() {
 		root,
 		public_origin: "http://127.0.0.1:3000".into(),
 		app_url: "http://127.0.0.1:41000".into(),
-		app_database_url: None,
+		app_database: None,
 		tokens: &tokens,
 	};
 	let prepared = run::prepare(&services, &session).expect("prepare");
@@ -309,6 +309,43 @@ fn prepares_each_service_and_the_app() {
 	);
 	assert_eq!(app["BILLING_API"], "https://billing.example/api");
 	assert_eq!(prepared.launches.len(), 1, "a remote service isn't started");
+}
+
+/// An app whose Postgres `leptoskit` doesn't run, as under `leptoskit
+/// serve` or with `DATABASE_URL` set: nothing is made or changed there, and
+/// the service's own URL is asked for. The server here doesn't exist, so
+/// any attempt to reach it would fail differently.
+#[test]
+fn a_service_beside_an_outside_postgres_needs_its_own_url() {
+	let config = LeptoskitConfig::from_toml(
+		"[app]\nname = \"app\"\n\n[db]\ndialect = \"postgres\"\n",
+		Path::new("/nowhere"),
+	)
+	.unwrap();
+	let services = [built(
+		"analytics",
+		"package = 'a'\nport = 3100\ndatabase = true",
+		None,
+		true,
+	)];
+	let tokens = run::tokens(&services).unwrap();
+	let session = run::Session {
+		config: &config,
+		root: Path::new("/nowhere"),
+		public_origin: "http://127.0.0.1:3000".into(),
+		app_url: "http://127.0.0.1:9".into(),
+		app_database: Some(run::AppDatabase {
+			url: "postgres://admin:secret@db.invalid:5432/app".into(),
+			dev_server: false,
+		}),
+		tokens: &tokens,
+	};
+	let error = run::prepare(&services, &session).unwrap_err().to_string();
+	assert!(
+		error.contains("set LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_URL")
+			&& error.contains("won't create roles or databases"),
+		"{error}"
+	);
 }
 
 #[test]
@@ -748,7 +785,10 @@ fn analytics_runs_on_postgres_in_a_database_of_its_own() {
 		root,
 		public_origin: "http://127.0.0.1:3000".into(),
 		app_url: "http://127.0.0.1:9".into(),
-		app_database_url: Some(server.url.clone()),
+		app_database: Some(run::AppDatabase {
+			url: server.url.clone(),
+			dev_server: true,
+		}),
 		tokens: &tokens,
 	};
 	let prepared = run::prepare(&built.services, &session).unwrap();

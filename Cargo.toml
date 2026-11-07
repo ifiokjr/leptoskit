@@ -126,6 +126,7 @@ objc2-quartz-core = { version = "0.3", default-features = false }
 parking_lot = "0.12"
 png = "0.17"
 pollster = "0.4"
+postgres-protocol = { version = "0.6", default-features = false }
 postgresql_embedded = { version = "0.22", default-features = false, features = ["blocking", "theseus", "tls-rustls-ring"] }
 prettyplease = "0.3"
 proc-macro-crate = "3"

@@ -132,10 +132,13 @@ impl DevDatabase {
 		Ok(StudioProcess(child))
 	}
 
-	/// The app's database URL, when `leptoskit dev` knows it. Services put
-	/// their own databases beside it.
-	pub(crate) fn url(&self) -> Option<&str> {
-		self.url.as_deref()
+	/// The database as services see it: its URL, and whether it's on the
+	/// development server this session runs.
+	pub(crate) fn app_database(&self) -> Option<crate::services::run::AppDatabase> {
+		Some(crate::services::run::AppDatabase {
+			url: self.url.clone()?,
+			dev_server: self.server.is_some(),
+		})
 	}
 
 	/// The variables the app server needs to find the database: the URL,

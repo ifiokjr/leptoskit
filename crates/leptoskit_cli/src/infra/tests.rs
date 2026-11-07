@@ -954,3 +954,81 @@ fn a_service_databases_history_is_read_before_and_after_it_migrates() {
 	);
 	assert!(service_history_script("notes", "x; rm -rf /").is_err());
 }
+
+/// A rollback checks every database before any down migration: a service's
+/// missing password, or its recorded migrations missing here, stops it
+/// while the app's database is still untouched.
+#[test]
+fn a_rollback_checks_every_service_before_the_apps_down_migrations() {
+	let root = tempfile::tempdir().unwrap();
+	let project = services_project(root.path(), "first-party");
+	let config = crate::deploy::tests::project_with_services(
+		root.path(),
+		crate::deploy::tests::Db::Postgres,
+		"first-party",
+	);
+	fs::create_dir_all(root.path().join("migrations")).unwrap();
+	fs::write(root.path().join("migrations/registry.txt"), "").unwrap();
+	service_migration(
+		root.path(),
+		"20260101T000000_init",
+		"CREATE TABLE events (id INTEGER PRIMARY KEY);",
+	);
+	let schemas = service_schemas(&project.services).unwrap();
+	let target = Release {
+		authorization: None,
+		evidence: None,
+		version: "v1".into(),
+		migrations: history_fingerprint(Vec::new()).unwrap(),
+		schema: Vec::new(),
+		image_digest: None,
+		completed_at: None,
+		services: schemas.clone(),
+	};
+	let plan = |lookup: &dyn Fn(&str) -> Option<String>, target: &Release| {
+		releases::plan_rollbacks(root.path(), &config, &project, target, lookup)
+	};
+	let every = |name: &str| Some(format!("{name}-value"));
+
+	let planned = plan(&every, &target).unwrap();
+	assert_eq!(
+		planned.len(),
+		2,
+		"the app's database, then the analytics service's"
+	);
+
+	let no_service_password = |name: &str| {
+		(name != "LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_PASSWORD")
+			.then(|| every(name))
+			.flatten()
+	};
+	let error = plan(&no_service_password, &target).err().unwrap();
+	assert_eq!(
+		error.to_string(),
+		"set LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_PASSWORD"
+	);
+
+	let mut missing = target.clone();
+	missing
+		.services
+		.get_mut("analytics")
+		.unwrap()
+		.schema
+		.push(("20260202T000000_gone".into(), "sum".into()));
+	let error = plan(&every, &missing).err().unwrap();
+	assert!(
+		error.to_string().contains("leptoskit_service_analytics"),
+		"{error}"
+	);
+
+	let mut gone = target;
+	gone.services
+		.insert("search".into(), schemas["analytics"].clone());
+	let error = plan(&every, &gone).err().unwrap();
+	assert!(
+		error
+			.to_string()
+			.starts_with("services.search is in the target release"),
+		"{error}"
+	);
+}

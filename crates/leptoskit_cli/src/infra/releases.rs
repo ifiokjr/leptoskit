@@ -80,17 +80,30 @@ fn stop_services(ip: &str, c: &InfraConfig, project: &crate::deploy::Project) ->
 	Ok(())
 }
 
-/// Fails when a service's migrations changed since `previous`, the release
-/// a new one follows, without `--maintenance`. Services new since `previous`
-/// aren't checked.
+/// Fails when a service's migrations changed since the latest release in
+/// `history`, which a new release follows, without `--maintenance`.
+/// Services new since then aren't checked. `None` for a rollback or a
+/// recovery, which follows nothing.
 fn check_service_changes(
 	args: &ReleaseArgs,
-	previous: Option<&Release>,
+	history: Option<&[Release]>,
 	local: &BTreeMap<String, ServiceSchema>,
 ) -> Result<()> {
-	let Some(previous) = previous else {
+	let Some(previous) = history.and_then(<[Release]>::last) else {
 		return Ok(());
 	};
+	// An older leptoskit rewrites the history without the services' schemas,
+	// which it doesn't know: their checks can't run against that release.
+	if previous.services.is_empty()
+		&& !local.is_empty()
+		&& history.is_some_and(|history| history.iter().any(|release| !release.services.is_empty()))
+	{
+		crate::ui::warning(format_args!(
+			"release {} records no service schemas though earlier ones do, so an older leptoskit \
+			 wrote it; the services' databases aren't checked against it",
+			previous.version
+		));
+	}
 	for (name, schema) in local {
 		if let Some(recorded) = previous.services.get(name) {
 			ensure!(
@@ -118,8 +131,18 @@ fn check_drift(
 		"database drifted from shared history; investigate before a new release"
 	);
 	for (name, recorded) in &previous.services {
+		// A service this checkout dropped, or no longer gives a database, keeps
+		// its database untouched; nothing here migrates it anymore.
+		let Some(local) = local.get(name).map(|schema| &schema.migrations) else {
+			crate::ui::warning(format_args!(
+				"services.{name} was in the previous release but has no database in this \
+				 checkout; its database `{}` is left as it is",
+				service_database(name)
+			));
+			continue;
+		};
 		let actual = remote_service_history(ip, &c.name, &service_database(name))?;
-		let local = local.get(name).map(|schema| &schema.migrations);
+		let local = Some(local);
 		ensure!(
 			actual == recorded.migrations || (args.maintenance && Some(&actual) == local),
 			"services.{name}: its database drifted from shared history; investigate before a new \
@@ -129,20 +152,10 @@ fn check_drift(
 	Ok(())
 }
 
-/// Takes each service the target release recorded back to its schema when
-/// `rollback` is asked, then fails unless every one holds it.
-fn reach_service_schemas(
-	ip: &str,
-	private: &str,
-	c: &InfraConfig,
-	project: &crate::deploy::Project,
-	target: &Release,
-	rollback: bool,
-) -> Result<()> {
+/// Fails unless every service the target release recorded holds its
+/// schema.
+fn reach_service_schemas(ip: &str, c: &InfraConfig, target: &Release) -> Result<()> {
 	for (name, schema) in &target.services {
-		if rollback {
-			rollback_service_schema(ip, private, c, project, name, &schema.schema)?;
-		}
 		ensure!(
 			remote_service_history(ip, &c.name, &service_database(name))? == schema.migrations,
 			"services.{name}: its database differs from target; use --rollback-schema --yes with \
@@ -886,7 +899,7 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let local_services = super::service_schemas(&project.services)?;
 	check_service_changes(
 		args,
-		target.as_ref().map_or(history.last(), |_| None),
+		target.as_ref().map_or(Some(&history[..]), |_| None),
 		&local_services,
 	)?;
 	if c.backups.enabled && args.setup {
@@ -936,14 +949,14 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	}
 	if let Some(target) = &target {
 		if args.rollback_schema {
-			rollback_schema(ip, &private, &root, &config, &target.schema)?;
+			roll_back(ip, &private, c, (&root, &config, &project), target)?;
 		}
 		ensure!(
 			remote_history(ip, &c.name)? == target.migrations,
 			"database differs from target; use --rollback-schema --yes with the newer migration \
 			 files, or recover explicitly"
 		);
-		reach_service_schemas(ip, &private, c, &project, target, args.rollback_schema)?;
+		reach_service_schemas(ip, c, target)?;
 	}
 	super::services::prepare(ip, c, &project)?;
 	let result = execute(
@@ -1045,168 +1058,213 @@ pub(super) fn prepare() -> Result<()> {
 	Ok(())
 }
 
-fn rollback_schema(
-	ip: &str,
-	private: &str,
-	root: &Path,
-	config: &LeptoskitConfig,
-	target: &[(String, String)],
-) -> Result<()> {
-	let name = &config
-		.infra
-		.as_ref()
-		.context("missing infrastructure")?
-		.name;
-	let db_config = config.db.as_ref().context("missing database")?;
-	let migrations = leptoskit_db::load_migrations(&root.join(&db_config.migrations))?;
-	let password = std::env::var("DATABASE_PASSWORD").context("set DATABASE_PASSWORD")?;
-	rollback_database(
-		ip,
-		private,
-		name,
-		APP_DATABASE,
-		&password,
-		&migrations,
-		target,
-	)
-}
-
-/// Rolls a service's database back to `target` with the down migrations in
-/// this checkout, logged in as the service's role, which owns its tables.
-fn rollback_service_schema(
+/// `--rollback-schema`: takes the app's database and each service's the
+/// target release recorded back to their schemas. Every database is
+/// checked first (its migrations and password here, its recorded prefix,
+/// nothing connected, nothing older than the target), so a missing
+/// password or a service gone from this checkout stops the rollback
+/// before any down migration runs.
+fn roll_back(
 	ip: &str,
 	private: &str,
 	c: &InfraConfig,
-	project: &crate::deploy::Project,
-	name: &str,
-	target: &[(String, String)],
+	(root, config, project): (&Path, &LeptoskitConfig, &crate::deploy::Project),
+	target: &Release,
 ) -> Result<()> {
-	let service = project
-		.services
-		.iter()
-		.find(|service| service.name == name && service.database)
-		.with_context(|| {
-			format!(
-				"services.{name} is in the target release but has no database in this checkout's \
-				 leptoskit.toml, so its down migrations aren't here; restore its \
-				 [services.{name}] table, or recover explicitly"
-			)
-		})?;
-	let directory = service
-		.migrations
-		.as_ref()
-		.with_context(|| format!("services.{name} has no migrations directory in this checkout"))?;
-	let migrations = if directory.is_dir() {
-		leptoskit_db::load_migrations(directory)?
-	} else {
-		Vec::new()
-	};
-	let variable = service.database_password_env();
-	let password = std::env::var(&variable).with_context(|| format!("set {variable}"))?;
-	rollback_database(
-		ip,
-		private,
-		&c.name,
-		&service.postgres_name(APP_DATABASE),
-		&password,
-		&migrations,
-		target,
-	)
+	let plans = plan_rollbacks(root, config, project, target, |name| {
+		std::env::var(name).ok()
+	})?;
+	for plan in &plans {
+		plan.check_remote(ip, &c.name)?;
+	}
+	for plan in &plans {
+		plan.run(ip, private)?;
+	}
+	Ok(())
 }
 
-/// Runs the down migrations that take `database`, owned by the role of the
-/// same name, back to `target`, through an SSH tunnel to the private
-/// Postgres, once nothing is connected to it.
-fn rollback_database(
-	ip: &str,
-	private: &str,
-	name: &str,
-	database: &str,
-	password: &str,
-	migrations: &[leptoskit_db::Migration],
-	target: &[(String, String)],
-) -> Result<()> {
-	ensure!(
-		database
-			.bytes()
-			.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'),
-		"unexpected database name"
-	);
-	let clients = remote::execute(
-		ip,
-		&format!(
-			"docker exec {name}-db psql -U leptoskit_admin -d postgres -At -c \"SELECT count(*) \
-			 FROM pg_stat_activity WHERE datname = '{database}'\""
-		),
-		None,
-	)?;
-	ensure!(
-		String::from_utf8(clients)?.trim() == "0",
-		"`{database}` still has clients; stop external writers before down migrations"
-	);
-	ensure!(
-		target.len() <= migrations.len()
-			&& migrations
-				.iter()
-				.take(target.len())
-				.zip(target)
-				.all(|(m, (name, sum))| m.name == *name && m.checksum == *sum),
-		"the target migration prefix of `{database}` is not present in this checkout"
-	);
-	let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-	let port = listener.local_addr()?.port();
-	drop(listener);
-	let child = Command::new("ssh")
-		.args([
-			"-o",
-			"BatchMode=yes",
-			"-o",
-			"ExitOnForwardFailure=yes",
-			"-N",
-			"-L",
-			&format!("127.0.0.1:{port}:{private}:5432"),
-			&format!("root@{ip}"),
-		])
-		.stdin(Stdio::null())
-		.stdout(Stdio::null())
-		.stderr(Stdio::null())
-		.spawn()?;
-	struct Tunnel(std::process::Child);
-	impl Drop for Tunnel {
-		fn drop(&mut self) {
-			let _ = self.0.kill();
-			let _ = self.0.wait();
-		}
+/// One database a rollback takes back, once every one is checked. Not
+/// `Debug`: it holds a password.
+pub(super) struct Rollback {
+	/// The database, and the role of the same name that owns it.
+	database: String,
+	password: String,
+	migrations: Vec<leptoskit_db::Migration>,
+	target: Vec<(String, String)>,
+}
+
+/// The app's database, then each service's the target recorded, checked
+/// against this checkout, reading passwords through `lookup`.
+pub(super) fn plan_rollbacks(
+	root: &Path,
+	config: &LeptoskitConfig,
+	project: &crate::deploy::Project,
+	target: &Release,
+	lookup: impl Fn(&str) -> Option<String>,
+) -> Result<Vec<Rollback>> {
+	let required = |name: &str| {
+		lookup(name)
+			.filter(|value| !value.is_empty())
+			.with_context(|| format!("set {name}"))
+	};
+	let db_config = config.db.as_ref().context("missing database")?;
+	let mut plans = vec![Rollback::checked(
+		APP_DATABASE,
+		required("DATABASE_PASSWORD")?,
+		leptoskit_db::load_migrations(&root.join(&db_config.migrations))?,
+		&target.schema,
+	)?];
+	for (name, schema) in &target.services {
+		let service = project
+			.services
+			.iter()
+			.find(|service| service.name == *name && service.database)
+			.with_context(|| {
+				format!(
+					"services.{name} is in the target release but has no database in this \
+					 checkout's leptoskit.toml, so its down migrations aren't here; restore its \
+					 [services.{name}] table, or recover explicitly"
+				)
+			})?;
+		let directory = service.migrations.as_ref().with_context(|| {
+			format!("services.{name} has no migrations directory in this checkout")
+		})?;
+		let migrations = if directory.is_dir() {
+			leptoskit_db::load_migrations(directory)?
+		} else {
+			Vec::new()
+		};
+		plans.push(Rollback::checked(
+			&service.postgres_name(APP_DATABASE),
+			required(&service.database_password_env())?,
+			migrations,
+			&schema.schema,
+		)?);
 	}
-	let _tunnel = Tunnel(child);
-	let mut url = url::Url::parse(&format!(
-		"postgres://{database}@127.0.0.1:{port}/{database}?sslmode=disable"
-	))?;
-	url.set_password(Some(password))
-		.map_err(|()| anyhow::anyhow!("invalid database password"))?;
-	tokio::runtime::Runtime::new()?.block_on(async {
-		let mut connection = None;
-		for _ in 0..50 {
-			match leptoskit_db::Db::connect(url.as_str()).await {
-				Ok(db) => {
-					connection = Some(db);
-					break;
-				}
-				Err(_) => tokio::time::sleep(std::time::Duration::from_millis(200)).await,
-			}
-		}
-		let db = connection.context("database tunnel did not become ready")?;
-		let applied = db.applied_migrations().await?;
+	Ok(plans)
+}
+
+impl Rollback {
+	/// A rollback of `database` to `target` with `migrations`, which must
+	/// hold `target` as their prefix.
+	fn checked(
+		database: &str,
+		password: String,
+		migrations: Vec<leptoskit_db::Migration>,
+		target: &[(String, String)],
+	) -> Result<Self> {
 		ensure!(
-			applied.len() >= target.len(),
+			database
+				.bytes()
+				.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'),
+			"unexpected database name"
+		);
+		ensure!(
+			target.len() <= migrations.len()
+				&& migrations
+					.iter()
+					.take(target.len())
+					.zip(target)
+					.all(|(m, (name, sum))| m.name == *name && m.checksum == *sum),
+			"the target migration prefix of `{database}` is not present in this checkout"
+		);
+		Ok(Self {
+			database: database.to_owned(),
+			password,
+			migrations,
+			target: target.to_vec(),
+		})
+	}
+
+	/// Fails while anything is connected to the database, or when it has
+	/// applied less than the target, read on the primary host as the
+	/// administrator.
+	fn check_remote(&self, ip: &str, name: &str) -> Result<()> {
+		let database = &self.database;
+		let clients = remote::execute(
+			ip,
+			&format!(
+				"docker exec {name}-db psql -U leptoskit_admin -d postgres -At -c \"SELECT \
+				 count(*) FROM pg_stat_activity WHERE datname = '{database}'\""
+			),
+			None,
+		)?;
+		ensure!(
+			String::from_utf8(clients)?.trim() == "0",
+			"`{database}` still has clients; stop external writers before down migrations"
+		);
+		let applied: Vec<(String, String)> = serde_json::from_slice(&remote::execute(
+			ip,
+			&super::service_history_script(name, database)?,
+			None,
+		)?)
+		.context("invalid remote migration history")?;
+		ensure!(
+			self.target.iter().all(|entry| applied.contains(entry)),
 			"`{database}` is older than the target schema"
 		);
-		if applied.len() > target.len() {
-			db.rollback(migrations, applied.len() - target.len())
-				.await?;
+		Ok(())
+	}
+
+	/// Runs the down migrations, through an SSH tunnel to the private
+	/// Postgres, logged in as the database's own role.
+	fn run(&self, ip: &str, private: &str) -> Result<()> {
+		let database = &self.database;
+		let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+		let port = listener.local_addr()?.port();
+		drop(listener);
+		let child = Command::new("ssh")
+			.args([
+				"-o",
+				"BatchMode=yes",
+				"-o",
+				"ExitOnForwardFailure=yes",
+				"-N",
+				"-L",
+				&format!("127.0.0.1:{port}:{private}:5432"),
+				&format!("root@{ip}"),
+			])
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::null())
+			.spawn()?;
+		struct Tunnel(std::process::Child);
+		impl Drop for Tunnel {
+			fn drop(&mut self) {
+				let _ = self.0.kill();
+				let _ = self.0.wait();
+			}
 		}
-		anyhow::Ok(())
-	})
+		let _tunnel = Tunnel(child);
+		let mut url = url::Url::parse(&format!(
+			"postgres://{database}@127.0.0.1:{port}/{database}?sslmode=disable"
+		))?;
+		url.set_password(Some(&self.password))
+			.map_err(|()| anyhow::anyhow!("invalid database password"))?;
+		tokio::runtime::Runtime::new()?.block_on(async {
+			let mut connection = None;
+			for _ in 0..50 {
+				match leptoskit_db::Db::connect(url.as_str()).await {
+					Ok(db) => {
+						connection = Some(db);
+						break;
+					}
+					Err(_) => tokio::time::sleep(std::time::Duration::from_millis(200)).await,
+				}
+			}
+			let db = connection.context("database tunnel did not become ready")?;
+			let applied = db.applied_migrations().await?;
+			ensure!(
+				applied.len() >= self.target.len(),
+				"`{database}` is older than the target schema"
+			);
+			if applied.len() > self.target.len() {
+				db.rollback(&self.migrations, applied.len() - self.target.len())
+					.await?;
+			}
+			anyhow::Ok(())
+		})
+	}
 }
 
 #[cfg(test)]
@@ -1236,6 +1294,7 @@ mod tests {
 			schema: Vec::new(),
 			image_digest: Some(format!("sha256:{}", "a".repeat(64))),
 			completed_at: None,
+			services: BTreeMap::new(),
 		}
 	}
 

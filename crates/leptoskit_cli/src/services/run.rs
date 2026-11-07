@@ -44,11 +44,22 @@ pub struct Session<'a> {
 	pub public_origin: String,
 	/// The app server's private base URL.
 	pub app_url: String,
-	/// The app's database URL, when known: a service's Postgres database goes
-	/// on the same server.
-	pub app_database_url: Option<String>,
+	/// The app's database, when known: a service's Postgres database goes on
+	/// the same server, but only when it's the development Postgres
+	/// `leptoskit` runs.
+	pub app_database: Option<AppDatabase>,
 	/// Each process service's token, made once per session.
 	pub tokens: &'a BTreeMap<String, String>,
+}
+
+/// The app's database, as a session knows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppDatabase {
+	/// Its URL.
+	pub url: String,
+	/// Whether it's on the development Postgres `leptoskit` runs, the only
+	/// server where `leptoskit` creates a service's role and database itself.
+	pub dev_server: bool,
 }
 
 /// One token per service that runs as a process: 32 random bytes, in hex.
@@ -221,22 +232,29 @@ fn database_url(built: &BuiltService, session: &Session<'_>) -> Result<String> {
 		DbDialect::Sqlite => super::database::sqlite_url(session.root, name),
 
 		DbDialect::Postgres => {
-			let app = session.app_database_url.as_deref().with_context(|| {
+			// The service's own URL wins, as a deploy gives it one.
+			if let Ok(url) = std::env::var(super::database::url_env(name)) {
+				return Ok(url);
+			}
+
+			let app_url_env = session
+				.config
+				.db
+				.as_ref()
+				.map_or("DATABASE_URL", |db| db.url_env.as_str());
+			let app = session.app_database.as_ref().with_context(|| {
 				format!(
 					"services.{name} asks for a database beside the app's, but the app's Postgres \
-					 URL isn't known; set {}",
-					session
-						.config
-						.db
-						.as_ref()
-						.map_or("DATABASE_URL", |db| db.url_env.as_str())
+					 URL isn't known; set {app_url_env}, or {} to the service's own",
+					super::database::url_env(name)
 				)
 			})?;
-			let project = crate::db::Project::of(session.config, session.root.to_path_buf());
-			super::database::postgres_url(
-				project.as_ref(),
-				session.root,
-				app,
+			let project = crate::db::Project::of(session.config, session.root.to_path_buf())
+				.filter(|_| app.dev_server)
+				.ok_or_else(|| super::database::not_on_the_dev_server(name, app_url_env))?;
+			super::database::dev_postgres_url(
+				&project,
+				&app.url,
 				name,
 				super::database::Existing::Keep,
 			)

@@ -622,10 +622,7 @@ impl Project {
 			package: Some(package.clone()),
 			features: service.settings.features.clone(),
 			migrations,
-			url_env: format!(
-				"LEPTOSKIT_SERVICE_{}_DATABASE_URL",
-				leptoskit_config::services::env_segment(name)
-			),
+			url_env: crate::services::database::url_env(name),
 			dev_server: app
 				.as_ref()
 				.map_or(defaults.dev_server, |app| app.config.dev_server),
@@ -717,13 +714,29 @@ impl Project {
 	}
 
 	/// A service's development database, where `leptoskit dev` gives it one:
-	/// its SQLite file, or its own database on the app's Postgres, beside
-	/// the database the app's `db.url_env` names or the branch's on the
-	/// development server.
+	/// its SQLite file, or its own database beside the app's, or the
+	/// branch's, on the development Postgres. An app whose `db.url_env`
+	/// names another server gets nothing made there: the service's URL has
+	/// to come from `--url` or `LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL`.
 	fn service_database(
 		&self,
 		service: &ServiceProject,
 		existing: crate::services::database::Existing,
+	) -> Result<(String, Option<dev_server::DevServer>)> {
+		let app_url = service
+			.app
+			.as_deref()
+			.and_then(|app| std::env::var(&app.config.url_env).ok());
+		self.service_database_beside(service, existing, app_url.as_deref())
+	}
+
+	/// [`Self::service_database`], with the URL the app's `db.url_env` holds,
+	/// if any, as `app_url`.
+	fn service_database_beside(
+		&self,
+		service: &ServiceProject,
+		existing: crate::services::database::Existing,
+		app_url: Option<&str>,
 	) -> Result<(String, Option<dev_server::DevServer>)> {
 		let Some(app) = service
 			.app
@@ -734,27 +747,27 @@ impl Project {
 			println!("using the development database {url}");
 			return Ok((url, None));
 		};
-		let (app_url, server) = if let Ok(url) = std::env::var(&app.config.url_env) {
-			(url, None)
-		} else {
-			let Some(source) = dev_server::source(app) else {
-				bail!(
-					"set {} to the service's database URL, or {} to the app's, or pass --url",
-					self.config.url_env,
-					app.config.url_env
-				);
-			};
-			let binaries = dev_server::binaries_from_env();
-			let server = dev_server::start(app, source, binaries.as_deref())?;
-			(server.url.clone(), Some(server))
+		// Only on the development Postgres does leptoskit create, drop, or
+		// lock down a service's database.
+		if app_url.is_some() {
+			return Err(crate::services::database::not_on_the_dev_server(
+				&self.name,
+				&app.config.url_env,
+			)
+			.context("or pass --url"));
+		}
+
+		let Some(source) = dev_server::source(app) else {
+			bail!(
+				"set {} to the service's database URL, or pass --url; db.dev_server is off",
+				self.config.url_env
+			);
 		};
-		let url = crate::services::database::postgres_url(
-			Some(app),
-			&self.root,
-			&app_url,
-			&self.name,
-			existing,
-		)?;
+		let binaries = dev_server::binaries_from_env();
+		let server = dev_server::start(app, source, binaries.as_deref())?;
+		let url =
+			crate::services::database::dev_postgres_url(app, &server.url, &self.name, existing)?;
+		let server = Some(server);
 		let database = crate::services::database::database_of(&url)?;
 		println!("using the service's development database `{database}`");
 		Ok((url, server))

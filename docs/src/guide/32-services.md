@@ -330,12 +330,14 @@ A service's live connection doesn't share the app's offline queue either: while 
 
 With `database = true`, the service gets a database of its own on the engine your `[db]` table names, or SQLite when your app has no `[db]`:
 
-| Your app uses        | The service gets in `leptoskit dev`                                                                                    |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| SQLite, or no `[db]` | the file `.leptoskit/services/<name>/<name>.sqlite3`                                                                   |
-| Postgres             | the database `<your database>_service_<name>` on the same development server, and a login role of its own that owns it |
+| Your app uses        | The service gets in `leptoskit dev`                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| SQLite, or no `[db]` | the file `.leptoskit/services/<name>/<name>.sqlite3`                                                                                 |
+| Postgres             | the database `<your database>_service_<name>` on the development Postgres `leptoskit` runs, and a login role of its own that owns it |
 
-On Postgres the service logs in as its own role, which can't connect to your app's database, so a bug in the service can't read or change the app's tables. The one exception is a development server whose login can't create roles (it isn't a superuser): the service then shares the app's login, with a database of its own, and `leptoskit dev` warns that it isn't isolated.
+On Postgres the service logs in as its own role, which can't connect to any of your app's databases, so a bug in the service can't read or change the app's tables. The one exception is a development server whose login can't create roles (it isn't a superuser): the service then shares the app's login, with a database of its own, and `leptoskit dev` warns that it isn't isolated.
+
+`leptoskit` only sets this up on the development Postgres it runs for you. If your app's `DATABASE_URL` points at another server, such as a shared staging database, `leptoskit` creates and changes nothing there: set `LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL` to the service's own database instead, or `leptoskit dev` stops and says so. `leptoskit serve` always works this way, since it never runs the development Postgres; it's the variable deploys set too.
 
 The service finds its database in `DATABASE_URL`. It applies its own migrations when it starts, as in the binary above, so an installed service brings its tables with it. Keep them beside the service's `Cargo.toml`: `migrations/` for SQLite, and `migrations-postgres/` for Postgres when the service supports both.
 
@@ -349,7 +351,7 @@ leptoskit db migrate --service analytics
 leptoskit db status --service analytics
 ```
 
-To point a command at another copy of the service's database, pass `--url`, or set `LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL`; the app's `DATABASE_URL` is never used for a service. `leptoskit db reset --service <name> --yes` deletes the service's development database and creates it again from its migrations. A service installed from a registry or git ships its migrations, so `migration create`, `migration consolidate`, and `release record` refuse to write to it.
+To point a command at another copy of the service's database, pass `--url`, or set `LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL`; the app's `DATABASE_URL` is never used for a service, and when it's set to another server, a service command needs one of those two. `leptoskit db reset --service <name> --yes` deletes the service's development database and creates it again from its migrations; with `--url`, as for the app, it only resets a database on this machine. A service installed from a registry or git ships its migrations, so `migration create`, `migration consolidate`, and `release record` refuse to write to it.
 
 ### On a branch
 
