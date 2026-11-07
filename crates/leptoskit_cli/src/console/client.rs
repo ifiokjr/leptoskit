@@ -252,6 +252,11 @@ pub fn token(project: &str, scope: Scope) -> Result<()> {
 
 pub fn deploy(connection: &Connection, args: &crate::infra::ReleaseArgs) -> Result<()> {
 	ensure!(
+		args.verified_descriptor.is_none() && args.descriptor_sha256.is_none(),
+		"verified image descriptors require direct managed deployment; connected service \
+		 deployment does not support this evidence"
+	);
+	ensure!(
 		!args.recover && !args.rollback_schema,
 		"perform disaster recovery and database reversal on the trusted worker using the explicit \
 		 local recovery commands"

@@ -138,6 +138,15 @@ fn prepare_recorded(
 		);
 	}
 	verify_schema_labels(hosts, c, &release.version, &release.migrations)?;
+	if let Some(evidence) = &release.evidence {
+		for host in hosts {
+			evidence.check_remote(
+				host,
+				&format!("{}:{}", image(c), release.version),
+				&release.migrations,
+			)?;
+		}
+	}
 	Ok(())
 }
 
@@ -275,6 +284,25 @@ struct Flight<'a> {
 	finished: bool,
 }
 
+impl Flight<'_> {
+	fn checked(&self, result: Result<String>, hosts: &[String]) -> Result<String> {
+		match result {
+			Ok(image) => Ok(image),
+			Err(error) => {
+				stop(hosts, self.config)?;
+				record(
+					self.ip,
+					self.config,
+					self.owner,
+					"verification-failed-app-stopped",
+					self.version,
+				)?;
+				Err(error)
+			}
+		}
+	}
+}
+
 impl Drop for Flight<'_> {
 	fn drop(&mut self) {
 		if self.finished {
@@ -384,6 +412,11 @@ fn verify_release(
 		);
 	}
 	if let Some(target) = target {
+		if let Some(evidence) = &target.evidence {
+			for host in hosts {
+				evidence.check_remote(host, &image, expected)?;
+			}
+		}
 		ensure!(
 			target.image_digest.as_ref() == Some(&image),
 			"running image differs from recorded digest"
@@ -509,6 +542,36 @@ fn target_release(
 	Ok(target)
 }
 
+fn release_evidence(
+	args: &ReleaseArgs,
+	target: Option<&Release>,
+	history: &[Release],
+	local_hash: &str,
+) -> Result<Option<super::verified::Descriptor>> {
+	let evidence = match (&args.verified_descriptor, &args.descriptor_sha256) {
+		(Some(path), Some(pin)) => {
+			ensure!(
+				target.is_none(),
+				"recorded releases use their recorded evidence"
+			);
+			Some(super::verified::read(path, pin)?)
+		}
+		(None, None) => target.and_then(|r| r.evidence.clone()),
+		_ => anyhow::bail!("descriptor and independent pin are both required"),
+	};
+	ensure!(
+		!history.iter().any(|r| r.evidence.is_some()) || evidence.is_some(),
+		"verified release history cannot downgrade to legacy evidence"
+	);
+	if let Some(evidence) = &evidence {
+		ensure!(
+			evidence.migrations == *target.map_or(local_hash, |r| &r.migrations),
+			"verified source schema differs from release schema"
+		);
+	}
+	Ok(evidence)
+}
+
 pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let c = managed_settings(&config)?;
@@ -540,6 +603,7 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let local_schema = schema(&root, &config)?;
 	let local_hash = history_fingerprint(local_schema.clone())?;
 	let target = target_release(args, &history, version, &local_hash)?;
+	let evidence = release_evidence(args, target.as_ref(), &history, &local_hash)?;
 	let env = runtime_files(&dir, c, &root, &config, &hosts, &private)?;
 	if c.backups.enabled && args.setup {
 		super::recovery::credentials()?;
@@ -566,6 +630,15 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 			&reservation,
 		)?;
 		verify_schema_labels(&hosts, c, version, &local_hash)?;
+	}
+	if let Some(evidence) = &evidence {
+		for host in &hosts {
+			evidence.check_remote(
+				host,
+				&format!("{}:{version}", image(c)),
+				&evidence.migrations,
+			)?;
+		}
 	}
 	execute(&dir, &["proxy", "boot"], &env, &reservation)?;
 	if !args.setup && target.is_none() {
@@ -611,22 +684,18 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let expected = target
 		.as_ref()
 		.map_or(&local_hash, |target| &target.migrations);
-	let verified = verify_release(&hosts, c, version, expected, target.as_ref());
-	let image = match verified {
-		Ok(image) => image,
-		Err(error) => {
-			stop(&hosts, c)?;
-			record(
-				ip,
-				c,
-				&reservation.owner,
-				"verification-failed-app-stopped",
-				version,
-			)?;
-			return Err(error);
+	let verified = (|| {
+		let digest = verify_release(&hosts, c, version, expected, target.as_ref())?;
+		if let Some(evidence) = &evidence {
+			for host in &hosts {
+				evidence.check_remote(host, &digest, expected)?;
+			}
 		}
-	};
+		anyhow::Ok(digest)
+	})();
+	let image = flight.checked(verified, &hosts)?;
 	history.push(Release {
+		evidence,
 		version: version.clone(),
 		migrations: expected.clone(),
 		schema: target.as_ref().map_or(local_schema, |t| t.schema.clone()),

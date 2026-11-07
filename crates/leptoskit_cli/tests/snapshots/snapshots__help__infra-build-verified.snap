@@ -1,0 +1,51 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Reproduce and package a backend without rebuilding it in the image
+
+Usage: leptoskit infra build-verified [OPTIONS] --bundle <BUNDLE> --manifest <MANIFEST> --sha256 <SHA256> --runtime-image <RUNTIME_IMAGE> --runtime-config-sha256 <RUNTIME_CONFIG_SHA256> --tag <TAG> --out <OUT>
+
+Options:
+      --bundle <BUNDLE>
+          The extracted backend bundle directory
+
+      --manifest <MANIFEST>
+          The inventory written with the bundle
+
+      --sha256 <SHA256>
+          The expected inventory digest, obtained independently of the bundle
+
+      --checkout <CHECKOUT>
+          Compare the source with this local clone instead of fetching the recipe's commit from its repository
+
+      --offline
+          Skip the steps that need the network: fetching the commit and re-resolving dependencies. Only the executable is rebuilt
+
+      --engine <ENGINE>
+          The container engine. Defaults to docker, then podman, whichever responds
+
+          Possible values:
+          - docker: Docker
+          - podman: Podman
+
+      --runtime-image <RUNTIME_IMAGE>
+          Digest-pinned runtime image (not a mutable tag)
+
+      --runtime-config-sha256 <RUNTIME_CONFIG_SHA256>
+          Independently selected SHA-256 of the runtime image's Config JSON
+
+      --tag <TAG>
+          Local image tag. This command never pushes
+
+      --reuse-existing
+          Inspect an existing local tag instead of packaging a new image
+
+      --out <OUT>
+          New descriptor file, written only after image extraction succeeds
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

@@ -7,11 +7,23 @@ Deploys a Git commit through its service, releases a prebuilt image, or rolls ba
 Usage: leptoskit deploy [OPTIONS]
 
 Options:
-      --version <VERSION>    Immutable image tag, or a Git commit for the connected deployment service
-      --rollback <ROLLBACK>  Previously recorded version to roll back to. Schema history must match
-      --setup                First deploy: prepare the server and boot Postgres and the tunnel
-      --maintenance          Stop the current app before a schema-changing release. On failure it stays stopped until an operator recovers the schema and application
-      --recover              Redeploy a recorded version after recovery without reusing it as a new release
-      --rollback-schema      Stop writers and run checked down migrations to the rollback target
-      --yes                  Confirm an explicitly requested database rollback
-  -h, --help                 Print help
+      --verified-descriptor <VERIFIED_DESCRIPTOR>
+          Packaging descriptor whose digest was independently authenticated
+      --descriptor-sha256 <DESCRIPTOR_SHA256>
+          Independently authenticated SHA-256 of the packaging descriptor
+      --version <VERSION>
+          Immutable image tag, or a Git commit for the connected deployment service
+      --rollback <ROLLBACK>
+          Previously recorded version to roll back to. Schema history must match
+      --setup
+          First deploy: prepare the server and boot Postgres and the tunnel
+      --maintenance
+          Stop the current app before a schema-changing release. On failure it stays stopped until an operator recovers the schema and application
+      --recover
+          Redeploy a recorded version after recovery without reusing it as a new release
+      --rollback-schema
+          Stop writers and run checked down migrations to the rollback target
+      --yes
+          Confirm an explicitly requested database rollback
+  -h, --help
+          Print help
