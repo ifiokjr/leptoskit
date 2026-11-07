@@ -1,7 +1,9 @@
 //! The broker serves the public site, real documentation, console and API.
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
+use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::ensure;
 use axum::Router;
@@ -26,6 +28,8 @@ pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<R
 		"bootstrap.js",
 		"pkg/leptoskit_app.js",
 		"pkg/leptoskit_app_bg.wasm",
+		SPLIT_LOADER,
+		SPLIT_MANIFEST,
 		"landing.css",
 		"landing.mjs",
 		"console.css",
@@ -35,6 +39,12 @@ pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<R
 	] {
 		ensure!(
 			assets.join(file).is_file(),
+			"missing website asset {file}; build the complete site first"
+		);
+	}
+	for file in split_chunks(assets)? {
+		ensure!(
+			assets.join(&file).is_file(),
 			"missing website asset {file}; build the complete site first"
 		);
 	}
@@ -84,6 +94,28 @@ pub fn router(api: Router, assets: &Path, docs: &Path, origin: &str) -> Result<R
 				 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
 			),
 		)))
+}
+
+/// The chunk loader `leptoskit build` writes beside a split client. The
+/// console loads as a chunk of its own, so it cannot start without it.
+const SPLIT_LOADER: &str = "pkg/__wasm_split.______________________.js";
+
+/// The split client's manifest: each lazy entry point and the chunk files,
+/// by stem, that it loads.
+const SPLIT_MANIFEST: &str = "pkg/__wasm_split_manifest.json";
+
+/// Every chunk file the split manifest in `assets` names, relative to
+/// `assets`.
+fn split_chunks(assets: &Path) -> Result<Vec<String>> {
+	let manifest = std::fs::read(assets.join(SPLIT_MANIFEST))
+		.with_context(|| format!("could not read {SPLIT_MANIFEST}"))?;
+	let manifest: BTreeMap<String, Vec<String>> =
+		serde_json::from_slice(&manifest).with_context(|| format!("invalid {SPLIT_MANIFEST}"))?;
+	Ok(manifest
+		.into_values()
+		.flatten()
+		.map(|stem| format!("pkg/{stem}.wasm"))
+		.collect())
 }
 
 /// The ASCII subsets of the book's fonts that the landing page draws with;

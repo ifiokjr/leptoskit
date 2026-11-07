@@ -9,8 +9,9 @@ render = "csr"
 client_package = "leptoskit_app"
 features = []
 [bundle]
-split = false
+optimize = "smallest"
 precompress = false
+budget_kib = 180
 [native]
 package_id = "dev.leptoskit.cloud"
 update_contract = "mobile-v1"

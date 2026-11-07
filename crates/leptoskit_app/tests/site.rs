@@ -22,6 +22,15 @@ fn web_assets(root: &Path) {
 		("console.css", include_str!("../web/console.css")),
 		("pkg/leptoskit_app.js", "fixture module"),
 		("pkg/leptoskit_app_bg.wasm", "fixture wasm"),
+		(
+			"pkg/__wasm_split.______________________.js",
+			"fixture chunk loader",
+		),
+		(
+			"pkg/__wasm_split_manifest.json",
+			r#"{"mount_console_1":["split_mount_console_1"]}"#,
+		),
+		("pkg/split_mount_console_1.wasm", "fixture console chunk"),
 		("rive/rive.js", "fixture runtime"),
 		("rive/rive.wasm", "fixture runtime wasm"),
 		("rive/brand.riv", "fixture scene"),
@@ -222,5 +231,26 @@ fn an_incomplete_website_artifact_cannot_be_served() {
 			.unwrap_err()
 			.to_string()
 			.contains("missing documentation")
+	);
+}
+
+/// The console loads as a chunk of its own, so an artifact without one of the
+/// chunks its manifest names cannot serve the console.
+#[test]
+fn a_website_without_the_console_chunk_cannot_be_served() {
+	let directory = tempfile::tempdir().unwrap();
+	web_assets(directory.path());
+	std::fs::remove_file(directory.path().join("pkg/split_mount_console_1.wasm")).unwrap();
+	let result = leptoskit_app::site::router(
+		Router::new(),
+		directory.path(),
+		&directory.path().join("docs"),
+		"https://deploy.example.test",
+	);
+	assert!(
+		result
+			.unwrap_err()
+			.to_string()
+			.contains("missing website asset pkg/split_mount_console_1.wasm")
 	);
 }
