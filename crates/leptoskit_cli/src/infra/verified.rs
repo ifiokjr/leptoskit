@@ -116,6 +116,7 @@ fn rpc_contract(engine: Engine, image: &str, no_rpc: bool) -> Result<RpcContract
 			"--security-opt=no-new-privileges",
 			"--pids-limit=32",
 			"--memory=128m",
+			"--ulimit=fsize=16777216:16777216",
 			"--user=65532:65532",
 			"--mount",
 			&mount,
@@ -428,7 +429,7 @@ pub(super) fn run(args: &Args) -> Result<()> {
 		migrations,
 		runtime_image: args.runtime_image.clone(),
 		runtime_config_sha256: args.runtime_config_sha256.clone(),
-		engine_image_id: id.into(),
+		engine_image_id: format!("sha256:{}", id.strip_prefix("sha256:").unwrap_or(id)),
 		image_config_sha256: hash_json(&image["Config"])?,
 		platform: platform.into(),
 		assets: CheckState::NotApplicable,
@@ -437,18 +438,23 @@ pub(super) fn run(args: &Args) -> Result<()> {
 		native_guest_compatibility: CheckState::NotApplicable,
 		runtime_attestation: CheckState::Absent,
 	};
-	let bytes = serde_json::to_vec_pretty(&descriptor)?;
-	use std::io::Write as _;
-	fs::OpenOptions::new()
-		.write(true)
-		.create_new(true)
-		.open(&args.out)?
-		.write_all(&bytes)?;
+	let bytes = write_descriptor(&args.out, &descriptor)?;
 	println!(
 		"Packaged {id}; descriptor SHA-256 {}. No registry digest or runtime attestation.",
 		super::digest(&bytes)
 	);
 	Ok(())
+}
+
+fn write_descriptor(path: &Path, descriptor: &Descriptor) -> Result<Vec<u8>> {
+	let bytes = serde_json::to_vec_pretty(descriptor)?;
+	use std::io::Write as _;
+	fs::OpenOptions::new()
+		.write(true)
+		.create_new(true)
+		.open(path)?
+		.write_all(&bytes)?;
+	Ok(bytes)
 }
 
 pub(super) fn read(path: &Path, pin: &str) -> Result<Descriptor> {

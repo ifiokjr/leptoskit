@@ -41,6 +41,9 @@ Options:
       --reuse-existing
           Inspect an existing local tag instead of packaging a new image
 
+      --no-rpc
+          Explicit operator declaration that this backend exposes no RPC API
+
       --out <OUT>
           New descriptor file, written only after image extraction succeeds
 

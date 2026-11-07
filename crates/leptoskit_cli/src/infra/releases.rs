@@ -864,6 +864,8 @@ mod tests {
 
 	fn args() -> ReleaseArgs {
 		ReleaseArgs {
+			verified_descriptor: None,
+			descriptor_sha256: None,
 			version: None,
 			rollback: None,
 			setup: false,
@@ -876,12 +878,72 @@ mod tests {
 
 	fn recorded(version: &str, migrations: &str) -> Release {
 		Release {
+			evidence: None,
 			version: version.into(),
 			migrations: migrations.into(),
 			schema: Vec::new(),
 			image_digest: Some(format!("sha256:{}", "a".repeat(64))),
 			completed_at: None,
 		}
+	}
+
+	#[test]
+	fn verified_history_rejects_legacy_reuse_rollback_and_recovery() {
+		let descriptor = serde_json::json!({
+			"format_version": 1, "kind": "leptoskit-verified-backend-image",
+			"inventory_sha256": "a".repeat(64),
+			"recipe": {"repository": "https://github.com/example/backend", "commit": "a".repeat(40),
+				"builder_image": format!("builder@sha256:{}", "a".repeat(64)),
+				"target": "aarch64-unknown-linux-musl", "package": "backend", "binary": "backend",
+				"features": [], "no_default_features": false, "rustflags": []},
+			"executable_sha256": "b".repeat(64), "executable_mode": 493,
+			"migrations": "schema", "runtime_image": format!("runtime@sha256:{}", "a".repeat(64)),
+			"runtime_config_sha256": "c".repeat(64), "engine_image_id": format!("sha256:{}", "d".repeat(64)),
+			"image_config_sha256": "e".repeat(64), "platform": "linux/arm64",
+			"assets": "not_applicable", "services": "unsupported",
+			"rpc_contract": {"state": "not_applicable", "declaration": "operator_declares_no_rpc"},
+			"native_guest_compatibility": "not_applicable", "runtime_attestation": "absent"
+		});
+		let mut verified = recorded("verified", "schema");
+		verified.evidence = Some(serde_json::from_value(descriptor).unwrap());
+		let legacy = recorded("legacy", "schema");
+		for recover in [false, true] {
+			let mut options = args();
+			options.recover = recover;
+			assert!(
+				release_evidence(
+					&options,
+					Some(&legacy),
+					std::slice::from_ref(&verified),
+					"schema"
+				)
+				.is_err()
+			);
+			assert!(
+				release_evidence(
+					&options,
+					Some(&verified),
+					std::slice::from_ref(&legacy),
+					"schema"
+				)
+				.unwrap()
+				.is_some()
+			);
+			assert!(
+				release_evidence(&options, None, std::slice::from_ref(&verified), "schema")
+					.is_err()
+			);
+		}
+		assert!(
+			release_evidence(
+				&args(),
+				Some(&legacy),
+				std::slice::from_ref(&legacy),
+				"schema"
+			)
+			.unwrap()
+			.is_none()
+		);
 	}
 
 	fn infra() -> InfraConfig {

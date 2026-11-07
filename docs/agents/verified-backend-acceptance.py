@@ -57,6 +57,20 @@ with tempfile.TemporaryDirectory(prefix="a04-acceptance-") as temp:
             run(*package, "--out", str(failed), env=env, success=False)
             assert not failed.exists(), "failure wrote success evidence"
             path.write_bytes(original)
+        failed = temp / "failed-config.json"
+        changed = package.copy()
+        changed[changed.index("--runtime-config-sha256") + 1] = "0" * 64
+        run(*changed, "--reuse-existing", "--out", str(failed), env=env, success=False)
+        assert not failed.exists()
+        # Preserve the schema label and entrypoint but replace the actual bytes.
+        wrong = temp / "wrong"
+        wrong.mkdir()
+        (wrong / "backend").write_bytes(b"wrong executable")
+        (wrong / "Dockerfile").write_text(f"FROM {tag}\nCOPY --chmod=0755 backend /app/backend\n")
+        run("podman", "build", "--network=none", "--tag", tag, str(wrong))
+        failed = temp / "failed-bytes.json"
+        run(*package, "--reuse-existing", "--out", str(failed), env=env, success=False)
+        assert not failed.exists()
         print("REAL ENGINE ACCEPTANCE PASSED; local fixture transport, no public provenance claim")
     finally:
         run("podman", "image", "rm", "--force", tag)

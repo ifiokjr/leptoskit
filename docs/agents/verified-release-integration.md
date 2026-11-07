@@ -32,7 +32,7 @@ Use existing setup/maintenance/rollback-schema flags as required. Those checks a
 
 Only projects whose sole platform is server are accepted. Schema fingerprints come from migrations inside the frozen verified source. Source, recipe, dependencies and every bundle entry are covered by the independent inventory. Website assets and service-bearing projects are rejected. PR #553 requires a later descriptor covering every service executable and schema; app-only evidence must not authorize it.
 
-RPC contract checking is explicitly not_checked. Native/guest compatibility and assets are not_applicable; services are unsupported; runtime attestation is absent. No online schema compatibility claim is made.
+RPC export runs the checked image executable with no network, a read-only root, no capabilities, a non-root user, bounded resources, and a 30-second deadline. The executable must export before database/auth startup; arbitrary executable behavior is not attested. The descriptor hashes the exact exported spec bytes after parsing. Compatibility is explicitly not_checked. Only an explicit `--no-rpc` operator declaration records RPC as not_applicable. Native/guest compatibility and assets are not_applicable; services are unsupported; runtime attestation is absent. No online schema compatibility claim is made.
 
 The real-engine fixture acceptance remains pending: a tiny committed locked backend, independently pinned builder/runtime, build twice, full reproduce, package without push, extract/hash, then reject tampering. Do not mark this acceptance complete from fake-engine or unit tests. The local engine was unavailable on Mini02 and no machine was provisioned alongside compilation.
 
@@ -48,3 +48,9 @@ The real-engine fixture acceptance remains pending: a tiny committed locked back
 - Still missing: real-engine committed fixture/pins and execution, exported RPC contract binding, and comprehensive fake-engine release/reuse/rollback/recovery fault injection. These remain acceptance gaps, not successful verification.
 
 - Publication is blocked: the pre-push hook requires full-workspace clippy and other checks, beyond the authorized single heavy build. Free disk fell to 1.3 GiB amid other work; reclaiming this clone's target directory restored 7.4 GiB. The hook was not bypassed and no PR was created. Parent handoff is the signed local feature-branch commit; full pre-push checks and publication remain pending.
+
+## Follow-up validation
+
+The follow-up rebases on `23e5a1df`. The CLI library suite passed: 559 tests, 5 ignored. A tiny dependency-free locked backend fixture exports before a deliberate normal-startup panic. `verified-backend-acceptance.py` uses a signed synthetic commit of its committed tree and an invocation-only Git transport mapping to exercise full reproduction locally; this does not authenticate public GitHub provenance. It never publishes images or deploys.
+
+RPC descriptors are still unsigned operator evidence. The independent descriptor pin authenticates the operator claim; no guest signature, approval, or runtime attestation is implied. Website and service evidence, and approval integration, remain outside this slice.
