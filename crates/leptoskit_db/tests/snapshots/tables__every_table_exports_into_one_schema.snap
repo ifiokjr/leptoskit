@@ -3,8 +3,9 @@ source: crates/leptoskit_db/tests/tables.rs
 expression: schema.to_json()
 ---
 {
-  "format": 1,
+  "format": 2,
   "dialect": "postgres",
+  "packs": [],
   "tables": [
     {
       "name": {
