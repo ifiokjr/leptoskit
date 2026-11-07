@@ -12,6 +12,7 @@ pub use leptoskit_plugin_brightness;
 pub use leptoskit_plugin_clipboard;
 pub use leptoskit_plugin_crypto;
 pub use leptoskit_plugin_device;
+pub use leptoskit_plugin_device_policy;
 pub use leptoskit_plugin_dialog;
 pub use leptoskit_plugin_document_picker;
 pub use leptoskit_plugin_filesystem;

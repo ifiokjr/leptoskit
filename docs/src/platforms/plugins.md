@@ -113,6 +113,7 @@ Most runtime names match the crate's suffix: `leptoskit_plugin_clipboard` is `cl
 
 | Crate                                    | Runtime name            |
 | ---------------------------------------- | ----------------------- |
+| `leptoskit_plugin_device_policy`         | `device-policy`         |
 | `leptoskit_plugin_document_picker`       | `document-picker`       |
 | `leptoskit_plugin_keep_awake`            | `keep-awake`            |
 | `leptoskit_plugin_live_activities`       | `live-activities`       |
@@ -150,6 +151,7 @@ An origin allows every path on it. There is no wildcard: plain `http://` and `ws
 - **Image manipulator:** crop, resize, rotate, flip, and re-encode JPEG and PNG, up to 16 steps per request. Images are limited to 4 MiB in and out, four million pixels, and 8,192 pixels per side, and the dimensions are checked before any pixels are decoded.
 - **Screen capture:** on Android, it can block screenshots and recordings (`FLAG_SECURE`) while your app holds a lease, and on Android 14 or newer it reports screenshots. On iOS it reports recording and screenshots but can't block them. It never reads pixels, and it can't undo a screenshot it reports.
 - **Picture-in-picture:** Android can enter activity picture-in-picture when the hosting activity declares `android:supportsPictureInPicture="true"`, and can hold a system overlay window after the user grants `SYSTEM_ALERT_WINDOW` in settings (`request_overlay` opens that screen; declaring the permission never grants it). iOS reports whether system PiP is supported but does not yet enter it without an attached video player, and has no draw-over-apps overlay. Desktop and the browser return `Unavailable`.
+- **Device policy:** Android only. Status never prompts. Activation opens the system device-admin consent UI after you pass an explanation. Lock, password rules, camera disable, wipe, and admin removal each have their own method and need an active admin the user enabled. Wipe needs `WipeRequest::factory_reset()` so an empty payload cannot factory-reset a device. Your app owns the manifest receiver and a least-privilege `res/xml/device_admin.xml`. Google Play restricts Device Admin for many consumer apps; Device Owner / Android Management enrollment is outside this plugin. Every other platform returns `Unavailable`.
 - **Logging:** writes structured JSON lines under the app's `logs` directory, with severity filtering and rotation. In the browser it writes to the console only.
 - **Pedometer:** iOS reports steps for an interval, Android a running count since boot; they aren't the same number. It needs `NSMotionUsageDescription` on iOS and `ACTIVITY_RECOGNITION` on Android.
 - **Live Activities:** iOS only. Start, update, and end ActivityKit activities, and wait for a per-activity push token when remote updates are enabled. Set `NSSupportsLiveActivities` in the iOS `Info.plist`, ship a Widget Extension that renders `LeptosKitLiveActivityAttributes`, and enable Push Notifications for push tokens. Other platforms return `Unavailable`.
