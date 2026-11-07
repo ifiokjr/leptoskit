@@ -1732,7 +1732,7 @@ fn publications_name_tables_and_columns_of_the_schema() {
 #[test]
 fn pack_membership_round_trips_and_format_one_has_no_evidence() {
 	let schema = blog(Dialect::Postgres).with_packs(vec![
-		Pack::new("sample", vec![TableName::new("users")]).builtin(),
+		Pack::new("live", vec![TableName::new("users")]).builtin(),
 		Pack::new(
 			"blog",
 			vec![TableName::new("posts"), TableName::new("tags")],

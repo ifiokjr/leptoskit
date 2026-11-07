@@ -877,7 +877,7 @@ pub(crate) fn check_pack_baselines(
 	drop_packs: &[String],
 	complete: bool,
 ) -> Result<()> {
-	let mut missing = std::collections::BTreeSet::new();
+	let mut missing = BTreeSet::new();
 	for baseline in previous {
 		missing.extend(removed_packs(baseline, target)?);
 	}
