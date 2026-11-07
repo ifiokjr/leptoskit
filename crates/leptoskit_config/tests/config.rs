@@ -1356,3 +1356,41 @@ fn theme_rejects_bad_colors_and_lengths() {
 	assert!(matches!(error, ConfigError::InvalidTheme(_)), "{error}");
 	assert!(error.to_string().contains("px"));
 }
+
+#[test]
+fn backend_selection_is_independent_of_client_rendering() {
+	let mut config = LeptoskitConfig::default();
+	config.app.render = RenderMode::Csr;
+	assert!(!config.backend_enabled(false).unwrap());
+	assert!(config.backend_enabled(true).unwrap());
+	config.build.backend = Some(true);
+	assert!(config.backend_enabled(true).unwrap());
+	assert!(config.backend_enabled(false).is_err());
+	config.build.backend = Some(false);
+	assert!(!config.backend_enabled(true).unwrap());
+	config.app.render = RenderMode::Ssr;
+	assert!(config.validate().is_err());
+	assert!(config.backend_enabled(true).is_err());
+	config.app.render = RenderMode::Csr;
+	config.serve.probes = true;
+	assert!(config.validate().is_err());
+	config.build.backend = None;
+	assert!(config.backend_enabled(false).is_err());
+}
+
+#[test]
+fn explicit_backend_and_probe_contract_roundtrips() {
+	let config = LeptoskitConfig::from_toml(
+		"[app]\nname='api'\nrender='csr'\n[build]\nbackend=true\n[serve]\nprobes=true\n",
+		std::path::Path::new("api"),
+	)
+	.unwrap();
+	assert_eq!(config.build.backend, Some(true));
+	assert!(config.serve.probes);
+	let reloaded = LeptoskitConfig::from_toml(
+		&config.to_toml_string().unwrap(),
+		std::path::Path::new("api"),
+	)
+	.unwrap();
+	assert_eq!(config, reloaded);
+}

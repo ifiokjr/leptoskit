@@ -10,6 +10,8 @@ mod sign_in;
 use __CRATE___app::App;
 use __CRATE___app::shell;
 use leptoskit::rpc::server::Roles;
+use leptoskit::server::GracefulShutdown;
+use leptoskit::server::Readiness;
 use leptoskit::server::leptos_axum::LeptosRoutes;
 use leptoskit::server::leptos_axum::generate_route_list;
 use leptoskit::server::tokio;
@@ -32,6 +34,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let address = options.site_addr;
 	let package_dir = format!("{}/{}", options.site_root, options.site_pkg_dir);
 	let assets_dir = format!("{}/assets", options.site_root);
+	let readiness = Readiness::new();
+	let migrated = readiness.check("migrations");
 	// The database, migrated before the first request.
 	let url = __DATABASE_URL__;
 	let db = leptoskit::db::Db::connect(&url).await?;
@@ -39,6 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	for name in db.migrate(__CRATE___db::MIGRATIONS).await? {
 		println!("applied migration {name}");
 	}
+	migrated.pass();
 
 	// Sign-in, from `[auth]` in leptoskit.toml. Each new account gets a
 	// `User` row.
@@ -69,13 +74,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.with_state(options)
 	} else {
 		leptoskit::server::axum::Router::new()
-	};
+	}
+	.merge(readiness.routes());
 	let listener = tokio::net::TcpListener::bind(address).await?;
 
 	println!("listening on http://{address}");
-	// Serves until Ctrl-C or the SIGTERM a container runtime sends, finishing
-	// the requests in flight first.
-	leptoskit::server::serve_listener(listener, app).await?;
+	// Readiness fails before shutdown drains the requests in flight.
+	let shutdown = GracefulShutdown::new().readiness(&readiness);
+	leptoskit::server::serve_listener_with(listener, app, shutdown).await?;
 
 	Ok(())
 }

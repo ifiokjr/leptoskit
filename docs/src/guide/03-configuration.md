@@ -85,18 +85,20 @@ The server-rendering modes need the server package to declare an `ssr` feature a
 
 ## `[serve]`
 
-| Key       | Default       | Meaning                                                           |
-| --------- | ------------- | ----------------------------------------------------------------- |
-| `address` | `"127.0.0.1"` | The IP address to bind. Use `"0.0.0.0"` to listen on all of them. |
-| `port`    | `3000`        | The port to bind.                                                 |
+| Key       | Default       | Meaning                                                                                                                                                   |
+| --------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `address` | `"127.0.0.1"` | The IP address to bind. Use `"0.0.0.0"` to listen on all of them.                                                                                         |
+| `port`    | `3000`        | The port to bind.                                                                                                                                         |
+| `probes`  | `false`       | Declares that the backend implements `/healthz` and `/readyz` with the readiness lifecycle. New projects set this to `true`; managed releases require it. |
 
 ## `[build]`
 
-| Key              | Default       | Meaning                                                                                                                            |
-| ---------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `client_package` | auto-detected | The wasm client crate. When unset, leptoskit uses the workspace member with a `cdylib` target; set it when there is more than one. |
-| `features`       | `[]`          | Cargo features enabled for app builds.                                                                                             |
-| `rustflags`      | `[]`          | Extra `rustc` flags for app builds.                                                                                                |
+| Key              | Default       | Meaning                                                                                                                                                                                                                 |
+| ---------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend`        | auto-detected | Whether `app.name` supplies a backend binary. Set `true` for an API, including CSR apps, or `false` for static files. When omitted, Cargo binary targets determine backend presence. SSR and islands require a backend. |
+| `client_package` | auto-detected | The wasm client crate. When unset, leptoskit uses the workspace member with a `cdylib` target; set it when there is more than one.                                                                                      |
+| `features`       | `[]`          | Cargo features enabled for app builds.                                                                                                                                                                                  |
+| `rustflags`      | `[]`          | Extra `rustc` flags for app builds.                                                                                                                                                                                     |
 
 ## `[bundle]`
 

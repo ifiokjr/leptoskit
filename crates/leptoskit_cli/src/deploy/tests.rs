@@ -47,8 +47,8 @@ fn write(root: &Path, file: &str, contents: &str) {
 fn project(root: &Path, db: Db) -> LeptoskitConfig {
 	let mut config = String::from(
 		"schema_version = 0\n\n[app]\nname = \"notes\"\nversion = \"0.1.0\"\nrender = \
-		 \"ssr\"\n\n[serve]\naddress = \"127.0.0.1\"\nport = 3000\n\n[build]\nclient_package = \
-		 \"notes_app\"\n",
+		 \"ssr\"\n\n[serve]\naddress = \"127.0.0.1\"\nport = 3000\nprobes = \
+		 true\n\n[build]\nclient_package = \"notes_app\"\n",
 	);
 
 	match db {
@@ -238,11 +238,16 @@ fn a_directory_in_the_way_is_an_error() {
 #[test]
 fn a_server_without_probes_is_told_how_to_add_them() {
 	let root = tempfile::tempdir().unwrap();
-	let config = project(root.path(), Db::None);
-	write(root.path(), "src/main.rs", "fn main() {}\n");
+	let mut config = project(root.path(), Db::None);
+	config.serve.probes = false;
+	write(
+		root.path(),
+		"src/main.rs",
+		"fn main() { /* Readiness readyz */ }\n",
+	);
 	let report = generate(root.path(), &config, Target::Docker, false).unwrap();
 	assert!(
-		report.next[0].starts_with("The server doesn't answer /healthz and /readyz yet"),
+		report.next[0].starts_with("Backend probes are not declared"),
 		"{report}"
 	);
 }
@@ -369,12 +374,16 @@ fn what_is_missing_is_named() {
 	config.app.render = leptoskit_config::RenderMode::Csr;
 	assert!(Project::read(root.path(), &config).is_ok());
 	let client = config.build.client_package.take();
+	assert!(Project::read(root.path(), &config).is_ok());
+	config.build.backend = Some(false);
+	config.serve.probes = false;
 	let error = Project::read(root.path(), &config).unwrap_err().to_string();
 	assert!(
-		error.starts_with("app.render is `csr` without a separate build.client_package"),
+		error.starts_with("build.backend = false selects a static app"),
 		"{error}"
 	);
 
+	config.build.backend = Some(true);
 	config.app.render = leptoskit_config::RenderMode::Islands;
 	config.build.client_package = client;
 	config.build.client_package = Some("missing_app".into());
@@ -401,4 +410,19 @@ fn what_is_missing_is_named() {
 	std::fs::remove_file(root.path().join("Cargo.toml")).unwrap();
 	let error = Project::read(root.path(), &config).unwrap_err().to_string();
 	assert!(error.starts_with("there's no Cargo.toml at "), "{error}");
+}
+
+#[test]
+fn probes_depend_on_the_declared_contract_not_source_spelling() {
+	let root = tempfile::tempdir().unwrap();
+	let mut config = project(root.path(), Db::None);
+	write(root.path(), "src/main.rs", "fn main() { server::run(); }\n");
+	assert!(Project::read(root.path(), &config).unwrap().has_probes);
+	config.serve.probes = false;
+	write(
+		root.path(),
+		"src/main.rs",
+		"// TODO: Readiness /readyz\nfn main() {}\n",
+	);
+	assert!(!Project::read(root.path(), &config).unwrap().has_probes);
 }

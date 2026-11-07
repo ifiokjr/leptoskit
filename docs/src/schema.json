@@ -38,6 +38,7 @@
 			"description": "Build pipeline settings.",
 			"$ref": "#/$defs/BuildConfig",
 			"default": {
+				"backend": null,
 				"client_package": null,
 				"features": [],
 				"rustflags": []
@@ -182,7 +183,8 @@
 			"$ref": "#/$defs/ServeConfig",
 			"default": {
 				"address": "127.0.0.1",
-				"port": 3000
+				"port": 3000,
+				"probes": false
 			}
 		},
 		"theme": {
@@ -708,6 +710,14 @@
 			"description": "Build pipeline settings.",
 			"type": "object",
 			"properties": {
+				"backend": {
+					"description": "Whether `app.name` supplies the backend binary, independently of\nbrowser rendering. Unset detects a binary in that Cargo package;\nfalse selects a static client even if the package has other binaries.",
+					"type": [
+						"boolean",
+						"null"
+					],
+					"default": null
+				},
 				"client_package": {
 					"description": "The wasm client crate's package name. When unset, leptoskit detects\nthe workspace member producing a `cdylib` target.",
 					"type": [
@@ -2766,6 +2776,11 @@
 					"default": 3000,
 					"maximum": 65535,
 					"minimum": 0
+				},
+				"probes": {
+					"description": "The backend implements `/healthz` and `/readyz` using the readiness\nlifecycle. Deployment generation trusts this declaration; it does\nnot inspect Rust source or prove the running server is healthy.",
+					"type": "boolean",
+					"default": false
 				}
 			},
 			"additionalProperties": false

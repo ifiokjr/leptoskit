@@ -11,6 +11,8 @@ const CONFIG: &str = r#"
 [app]
 name = "notes"
 render = "ssr"
+[serve]
+probes = true
 [db]
 dialect = "postgres"
 [infra]
@@ -1756,12 +1758,12 @@ fn generated_dockerignore_keeps_managed_state_out_of_images() {
 
 #[test]
 fn releases_refuse_projects_without_readiness_probes() {
-	let root = project();
-	fs::write(root.path().join("src/main.rs"), "fn main() {}").unwrap();
+	let root = configured(&CONFIG.replace("probes = true", "probes = false"));
+	// The fixture contains a `readyz` comment; only the declaration counts.
 	succeeds(&cli(root.path(), &["infra", "generate"], &[]));
 	fails_with(
 		&cli(root.path(), &["deploy", "--setup", "--version", "v1"], &[]),
-		"managed releases require readiness probes",
+		"declare serve.probes = true",
 	);
 }
 

@@ -338,6 +338,94 @@ fn csr_leaves_both_sides_without_mode_features() {
 }
 
 #[test]
+fn csr_backend_without_a_client_builds_deploys_and_serves() {
+	let scratch = Scratch::new("csr-backend");
+	let root = &scratch.path;
+	std::fs::write(
+		root.join("Cargo.toml"),
+		"[package]\nname='api'\nversion='0.1.0'\nedition='2024'\n[workspace]\n",
+	)
+	.unwrap();
+	std::fs::create_dir(root.join("src")).unwrap();
+	std::fs::write(
+		root.join("src/main.rs"),
+		"fn main() { println!(\"api-backend-ran\"); }\n",
+	)
+	.unwrap();
+	std::fs::write(
+		root.join("leptoskit.toml"),
+		r"[app]
+name='api'
+render='csr'
+platforms=['web','server']
+default_platform='server'
+[build]
+backend=true
+",
+	)
+	.unwrap();
+	let build = leptoskit(root, &["build"]);
+	assert!(build.status.success(), "{}", text(&build.stderr));
+	let deploy = leptoskit(root, &["generate", "deploy", "--target", "docker"]);
+	assert!(deploy.status.success(), "{}", text(&deploy.stderr));
+	let serve = leptoskit(root, &["serve"]);
+	assert!(serve.status.success(), "{}", text(&serve.stderr));
+	assert!(text(&serve.stdout).contains("api-backend-ran"));
+}
+
+#[test]
+fn static_build_does_not_compile_an_unrelated_binary() {
+	let scratch = Scratch::new("static-with-tool");
+	let root = &scratch.path;
+	std::fs::write(
+		root.join("Cargo.toml"),
+		"[package]\nname='site'\nversion='0.1.0'\nedition='2024'\n[workspace]\n",
+	)
+	.unwrap();
+	std::fs::create_dir(root.join("src")).unwrap();
+	std::fs::write(
+		root.join("src/main.rs"),
+		"compile_error!(\"this tool must not be built for the static site\");\nfn main() {}\n",
+	)
+	.unwrap();
+	std::fs::create_dir(root.join("web")).unwrap();
+	std::fs::write(root.join("web/index.html"), "static-only").unwrap();
+	std::fs::write(
+		root.join("leptoskit.toml"),
+		"[app]\nname='site'\nrender='csr'\nplatforms=['web']\n[build]\nbackend=false\n",
+	)
+	.unwrap();
+	let build = leptoskit(root, &["build"]);
+	assert!(build.status.success(), "{}", text(&build.stderr));
+	assert_eq!(
+		std::fs::read_to_string(root.join("dist/index.html")).unwrap(),
+		"static-only"
+	);
+	let deploy = leptoskit(root, &["generate", "deploy", "--target", "docker"]);
+	assert!(!deploy.status.success());
+	assert!(text(&deploy.stderr).contains("build.backend = false"));
+}
+
+#[test]
+fn serving_declared_static_files_needs_no_cargo_manifest() {
+	let scratch = Scratch::new("static-without-cargo");
+	let root = &scratch.path;
+	std::fs::create_dir(root.join("dist")).unwrap();
+	std::fs::write(root.join("leptoskit.toml"), "[build]\nbackend=false\n").unwrap();
+	// Occupy the port so the static server fails deterministically after
+	// dispatch, without leaving a long-running child behind.
+	let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+	let port = listener.local_addr().unwrap().port().to_string();
+	let serve = leptoskit(root, &["serve", "--port", &port]);
+	assert!(!serve.status.success());
+	assert!(
+		text(&serve.stderr).contains("could not bind"),
+		"{}",
+		text(&serve.stderr)
+	);
+}
+
+#[test]
 fn ssr_fails_clearly_when_the_server_has_no_ssr_feature() {
 	let scratch = Scratch::new("missing");
 	let root = &scratch.path;

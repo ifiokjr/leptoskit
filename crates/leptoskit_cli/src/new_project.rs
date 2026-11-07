@@ -139,8 +139,13 @@ pub fn run_with_options(
 	let config = LeptoskitConfig {
 		app,
 		build: BuildConfig {
+			backend: Some(true),
 			client_package: Some(format!("{name}_app")),
 			..BuildConfig::default()
+		},
+		serve: leptoskit_config::ServeConfig {
+			probes: true,
+			..leptoskit_config::ServeConfig::default()
 		},
 		native: NativeConfig {
 			package_id: leptoskit_config::default_package_id(name),

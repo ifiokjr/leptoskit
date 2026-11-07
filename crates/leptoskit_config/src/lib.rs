@@ -720,6 +720,10 @@ pub struct ServeConfig {
 	pub address: String,
 	/// The bind port.
 	pub port: u16,
+	/// The backend implements `/healthz` and `/readyz` using the readiness
+	/// lifecycle. Deployment generation trusts this declaration; it does
+	/// not inspect Rust source or prove the running server is healthy.
+	pub probes: bool,
 }
 
 impl Default for ServeConfig {
@@ -727,6 +731,7 @@ impl Default for ServeConfig {
 		Self {
 			address: "127.0.0.1".to_owned(),
 			port: 3000,
+			probes: false,
 		}
 	}
 }
@@ -736,6 +741,10 @@ impl Default for ServeConfig {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct BuildConfig {
+	/// Whether `app.name` supplies the backend binary, independently of
+	/// browser rendering. Unset detects a binary in that Cargo package;
+	/// false selects a static client even if the package has other binaries.
+	pub backend: Option<bool>,
 	/// The wasm client crate's package name. When unset, leptoskit detects
 	/// the workspace member producing a `cdylib` target.
 	pub client_package: Option<String>,
@@ -2654,6 +2663,13 @@ impl LeptoskitConfig {
 		}
 
 		self.validate_app()?;
+		if self.build.backend == Some(false)
+			&& (self.app.render.renders_on_server() || self.serve.probes)
+		{
+			return Err(ConfigError::InvalidBackend(
+				"build.backend = false cannot serve SSR/islands or backend health probes".into(),
+			));
+		}
 		self.validate_codepush()?;
 		self.validate_native()?;
 		self.validate_rpc()?;
@@ -2686,6 +2702,31 @@ impl LeptoskitConfig {
 		}
 
 		Ok(())
+	}
+
+	/// Resolves backend presence from the explicit choice and the app's
+	/// Cargo binary targets, without inspecting application source text.
+	///
+	/// # Errors
+	/// Returns an error if the configuration requires a backend but the
+	/// package named by `app.name` has no binary target.
+	pub fn backend_enabled(&self, has_binary: bool) -> Result<bool, ConfigError> {
+		let required = self.build.backend == Some(true)
+			|| self.app.render.renders_on_server()
+			|| self.serve.probes;
+		if self.build.backend == Some(false) && required {
+			return Err(ConfigError::InvalidBackend(
+				"build.backend = false cannot serve SSR/islands or backend health probes".into(),
+			));
+		}
+		if required && !has_binary {
+			return Err(ConfigError::InvalidBackend(format!(
+				"app.name `{}` must name a package with a backend binary; add src/main.rs or a \
+				 [[bin]] target",
+				self.app.name
+			)));
+		}
+		Ok(self.build.backend.unwrap_or(has_binary))
 	}
 
 	/// The app's platforms: at least one, no repeats, and a default that's
@@ -2981,6 +3022,9 @@ impl LeptoskitConfig {
 /// Errors raised while loading configuration.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+	/// Backend selection conflicts with rendering or Cargo targets.
+	#[error("invalid backend configuration: {0}")]
+	InvalidBackend(String),
 	/// Managed infrastructure settings cannot produce a safe deployment.
 	#[error("invalid infrastructure configuration: {0}")]
 	InvalidInfra(String),
