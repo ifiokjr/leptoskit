@@ -93,6 +93,7 @@ packages = [
 	"leptoskit_plugin_web_auth",
 	"leptoskit_plugin_filesystem",
 	"leptoskit_plugin_network",
+	"leptoskit_plugin_nfc",
 	"leptoskit_plugin_posture",
 	"leptoskit_plugin_dialog",
 	"leptoskit_plugin_document_picker",
@@ -101,7 +102,9 @@ packages = [
 	"leptoskit_plugin_pedometer",
 	"leptoskit_plugin_accelerometer",
 	"leptoskit_plugin_application",
+	"leptoskit_plugin_app_shortcuts",
 	"leptoskit_plugin_autostart",
+	"leptoskit_plugin_badge",
 	"leptoskit_plugin_barometer",
 	"leptoskit_plugin_brightness",
 	"leptoskit_plugin_gyroscope",
@@ -127,6 +130,7 @@ packages = [
 	"leptoskit_plugin_shell",
 	"leptoskit_plugin_logging",
 	"leptoskit_plugin_notifications",
+	"leptoskit_plugin_nfc",
 	"leptoskit_plugin_local_authentication",
 	"leptoskit_plugin_location",
 	"leptoskit_plugin_global_shortcut",
@@ -321,6 +325,9 @@ path = "crates/leptoskit_plugin_filesystem"
 [package.leptoskit_plugin_network]
 path = "crates/leptoskit_plugin_network"
 
+[package.leptoskit_plugin_nfc]
+path = "crates/leptoskit_plugin_nfc"
+
 [package.leptoskit_plugin_posture]
 path = "crates/leptoskit_plugin_posture"
 
@@ -345,8 +352,14 @@ path = "crates/leptoskit_plugin_accelerometer"
 [package.leptoskit_plugin_application]
 path = "crates/leptoskit_plugin_application"
 
+[package.leptoskit_plugin_app_shortcuts]
+path = "crates/leptoskit_plugin_app_shortcuts"
+
 [package.leptoskit_plugin_autostart]
 path = "crates/leptoskit_plugin_autostart"
+
+[package.leptoskit_plugin_badge]
+path = "crates/leptoskit_plugin_badge"
 
 [package.leptoskit_plugin_barometer]
 path = "crates/leptoskit_plugin_barometer"

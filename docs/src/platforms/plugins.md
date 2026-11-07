@@ -2,7 +2,7 @@
 
 On iOS, Android, and the other native platforms, your app's code runs as WebAssembly inside the host. That keeps it portable and lets [code push](../guide/05-code-push.md) replace it, but WebAssembly can't call UIKit, Android's Java APIs, or any other operating system library directly. A **runtime plugin** bridges that gap: a crate with a Rust API your app calls, and a native implementation that the host runs on its behalf.
 
-leptoskit ships plugins for the clipboard, device and app information, battery and network state, how a foldable is folded, haptics, links, permissions, secure storage, files, SQLite, settings, localization, speech, keeping the screen awake, brightness, orientation, picture-in-picture and Android system overlays, six sensors, cryptography, logging, biometric authentication, location, notifications, home-screen widgets, sharing, store review, tracking transparency, HTTP, WebSockets, and desktop services such as dialogs, menus, and the tray. The [plugin support matrix](plugin-inventory.md) says what each one does on each platform.
+leptoskit ships plugins for the clipboard, device and app information, battery and network state, how a foldable is folded, haptics, links, permissions, secure storage, files, SQLite, settings, localization, speech, keeping the screen awake, brightness, orientation, picture-in-picture and Android system overlays, six sensors, cryptography, logging, biometric authentication, location, notifications, home-screen widgets, sharing, store review, tracking transparency, app shortcuts, icon badges, NFC reads, HTTP, WebSockets, and desktop services such as dialogs, menus, and the tray. The [plugin support matrix](plugin-inventory.md) says what each one does on each platform.
 
 Runtime plugins are different from the `[[plugins]]` table in `leptoskit.toml`, which turns on build plugins.
 
@@ -113,8 +113,10 @@ Most runtime names match the crate's suffix: `leptoskit_plugin_clipboard` is `cl
 
 | Crate                                    | Runtime name            |
 | ---------------------------------------- | ----------------------- |
+| `leptoskit_plugin_app_shortcuts`         | `app-shortcuts`         |
 | `leptoskit_plugin_device_policy`         | `device-policy`         |
 | `leptoskit_plugin_document_picker`       | `document-picker`       |
+| `leptoskit_plugin_home_widgets`          | `home-widgets`          |
 | `leptoskit_plugin_keep_awake`            | `keep-awake`            |
 | `leptoskit_plugin_live_activities`       | `live-activities`       |
 | `leptoskit_plugin_local_authentication`  | `local-authentication`  |

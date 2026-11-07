@@ -1,0 +1,30 @@
+[package]
+name = "leptoskit_plugin_badge"
+version = "0.3.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "App icon badge counts for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "badge"
+apple-module = "LeptosKitBadge"
+apple-type = "BadgePlugin"
+android-type = "dev.leptoskit.plugins.badge.BadgePlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
+dbus = { version = "0.9.12", features = ["vendored"] }
+
+[lints]
+workspace = true

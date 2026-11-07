@@ -167,7 +167,7 @@ Every continuous sensor needs bounded delivery, documented coalescing, unsubscri
 | Expo entry                                                             | LeptosKit destination                       | Status / acceptance scope                                                                    |
 | ---------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | Expo                                                                   | core runtime integration                    | Framework/tooling; no compatibility facade for the JavaScript framework                      |
-| AppIntents                                                             | `app_intents` and host extension generation | Planned; alpha upstream entry; isolate unstable platform configuration                       |
+| AppIntents                                                             | `app_intents` and host extension generation | Planned; alpha upstream entry; isolate unstable platform configuration. Static launcher shortcuts are partial in `app_shortcuts` |
 | BackgroundFetch                                                        | background task migration                   | Migration only; deprecated upstream entry                                                    |
 | BackgroundTask                                                         | `background_task`                           | Planned; OS scheduling, expiration and completion, without guarantees about execution time   |
 | BlurView; Checkbox; GlassEffect; LinearGradient; MeshGradient; Symbols | renderer/components                         | Framework/tooling; native visual components, not system-service ports                        |
@@ -208,7 +208,7 @@ All **30** official entries in the [Tauri catalog](https://v2.tauri.app/plugin/)
 | HTTP Client                  | `http`                                | Partial generated native guest/direct browser requests with exact origin scopes; streamed output remains                    |
 | Localhost                    | host-serving integration              | Planned; only if an application needs a loopback server; bind/authentication/lifetime contract                              |
 | Logging                      | `logging`                             | Partial; native JSONL rotation/flush/close and browser console; remote/platform sinks remain                                |
-| NFC                          | `nfc`                                 | Planned; session ownership, permissions and hardware availability                                                           |
+| NFC                          | `nfc`                                 | Partial; availability and one bounded NDEF text/URI read on iOS/Android; writes and background delivery remain              |
 | Notifications                | `notifications`                       | Partial; immediate Apple/Android/Linux/browser delivery; Windows, scheduling and interaction callbacks remain               |
 | Opener                       | `linking` plus file-opening operation | Partial outbound URLs; reveal/open-file behavior remains                                                                    |
 | OS Information               | `os`                                  | Partial; platform/architecture only                                                                                         |
