@@ -11,6 +11,8 @@ A leptoskit app is one tree of components. The web renders it as HTML through le
 | iOS                | UIKit (`UIView`, `UIButton`, …)     | `leptoskit build --platform ios`       | All built-in controls (see below)               |
 | Android            | Android views (`View`, `Button`, …) | `leptoskit build --platform android`   | Ten (see below)                                 |
 | HarmonyOS          | ArkUI components                    | `leptoskit native build harmonyos`     | Eight, experimental                             |
+| Wear OS            | Watch surfaces (`leptoskit::watch`) | `leptoskit native prepare wearos`      | Experimental stubs (no APK yet)                 |
+| watchOS            | Watch surfaces (`leptoskit::watch`) | `leptoskit native prepare watchos`     | Experimental stubs (no app yet)                 |
 | Terminal           | Characters in the terminal's cells  | `leptoskit build --platform tui`       | All except `Rive`                               |
 | Browser extensions | HTML and CSS, through leptos        | `leptoskit build --platform extension` | All                                             |
 
@@ -40,6 +42,8 @@ The macOS backend crate is the reference. Compared with it:
 | Linux     | Live regions update their text but aren't announced: announcements need GTK 4.14, and leptoskit supports GTK 4.6 and newer. Italic text and per-edge borders paint through GTK.                                                                                                                                                                                                                                                    |
 | Windows   | `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges aren't smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state. A `Vector` with no background takes clicks only where it has ink.                                                                                                                                                       |
 | HarmonyOS | Only `View`, `Text`, `Button`, `TextInput`, `PasswordInput`, `ScrollView`, `Image`, and `Rive`; other components, including `Vector`, stop with an error. Italic text and per-edge borders paint through ArkUI the same way as on Android and GTK. No code push, dark mode, right-to-left layout, horizontal scrolling, public scroll events, native text measurement, or `active:` pressed styles. See [HarmonyOS](harmonyos.md). |
+| Wear OS   | Experimental. Watch apps use `leptoskit::watch` surfaces (pages, tiles, complications), not phone file routes. Host stubs and budget validation land; APK packaging and device install do not. See [Wear OS](wearos.md) and [Watch UIs](watch.md).                                                                                                                                                                                 |
+| watchOS   | Experimental. Watch apps use `leptoskit::watch` surfaces (pages, glances, complications), not phone file routes. Host stubs and budget validation land; Xcode packaging and simulator install do not. See [watchOS](watchos.md) and [Watch UIs](watch.md).                                                                                                                                                                         |
 | Terminal  | The font is the user's terminal font: sizes and weights draw as attributes and colors, not different metrics. `Image` and `Vector` draw a placeholder texture, `Rive` playback is unsupported, and right-to-left text is not reordered. See [Terminal](tui.md).                                                                                                                                                                    |
 
 Some limits apply to every native platform:
@@ -71,6 +75,7 @@ Your screens run as WebAssembly inside a small interpreter that ships in the app
 - [Web](web.md): server rendering, hydration, and serving.
 - [iOS](ios.md), [Android](android.md), [macOS](macos.md), and [Windows and Linux](windows-linux.md): each platform's build, run, and release steps.
 - [HarmonyOS](harmonyos.md): the experimental target and its limits.
+- [Watch UIs](watch.md), [Wear OS](wearos.md), and [watchOS](watchos.md): experimental watch surfaces.
 - [Terminal](tui.md): the same screens in an interactive terminal, for long-lived apps.
 - [Host projects](host-projects.md): the platform folders in your project, their requirements, and plugin registration.
 - [Runtime plugins](plugins.md) and the [plugin support matrix](plugin-inventory.md): operating-system services such as the clipboard, location, and notifications.

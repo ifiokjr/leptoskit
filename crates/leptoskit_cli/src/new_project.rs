@@ -106,6 +106,24 @@ pub fn run_with_options(
 			Some(NativeTarget::Harmonyos),
 		);
 	}
+	if matches!(platform, Platform::Wearos | Platform::Watchos) {
+		anyhow::ensure!(
+			database.is_none() && !auth,
+			"the Wear OS and watchOS starters have no server; create a standard workspace for a \
+			 database or sign-in"
+		);
+		anyhow::ensure!(
+			!extension,
+			"the Wear OS and watchOS starters have no web client; create a standard workspace for \
+			 an extension"
+		);
+		let target = match platform {
+			Platform::Wearos => NativeTarget::Wearos,
+			Platform::Watchos => NativeTarget::Watchos,
+			_ => unreachable!("filtered above"),
+		};
+		return crate::native::scaffold::run_for_target(path, name, sdk, Some(target));
+	}
 
 	let database = database.or(auth.then_some(DbDialect::Sqlite));
 	let sdk = sdk.map(resolve_sdk).transpose()?;

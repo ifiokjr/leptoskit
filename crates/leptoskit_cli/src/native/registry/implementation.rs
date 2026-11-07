@@ -293,8 +293,9 @@ impl HostCapabilities {
 					native: Some(NativeKind::ArkTs),
 				}
 			}
-			// The app-owned runners don't register plugins yet.
-			Target::Windows | Target::Linux | Target::Tui => {
+			// Experimental watch hosts and the app-owned runners don't
+			// register plugins yet.
+			Target::Windows | Target::Linux | Target::Tui | Target::Wearos | Target::Watchos => {
 				Self {
 					sync: false,
 					worker: false,
@@ -425,11 +426,13 @@ impl Plugin {
 		match target {
 			Target::Ios | Target::IosSimulator => self.ios.as_ref(),
 			Target::Macos => self.macos.as_ref(),
-			Target::Android | Target::AndroidX86_64 => self.android.as_ref(),
+			Target::Android | Target::AndroidX86_64 | Target::Wearos => self.android.as_ref(),
 			Target::Harmonyos | Target::HarmonyosX86_64 => self.harmonyos.as_ref(),
 			Target::Windows => self.windows.as_ref(),
 			Target::Linux => self.linux.as_ref(),
 			Target::Tui => self.tui.as_ref(),
+			// watchOS has no plugin registration table yet.
+			Target::Watchos => None,
 		}
 	}
 
@@ -460,7 +463,9 @@ impl Plugin {
 					ty: self.harmonyos_type.as_deref()?,
 				})
 			}
-			Target::Windows | Target::Linux | Target::Tui => None,
+			Target::Windows | Target::Linux | Target::Tui | Target::Wearos | Target::Watchos => {
+				None
+			}
 		}
 	}
 }
@@ -484,6 +489,8 @@ impl MissingPlugin {
 			Target::Macos => ("macOS", "macOS"),
 			Target::Android | Target::AndroidX86_64 => ("Android", "Android"),
 			Target::Harmonyos | Target::HarmonyosX86_64 => ("HarmonyOS", "HarmonyOS"),
+			Target::Wearos => ("Wear OS", "Wear OS"),
+			Target::Watchos => ("watchOS", "watchOS"),
 			Target::Windows => ("Windows", "Windows"),
 			Target::Linux => ("Linux", "Linux"),
 			Target::Tui => ("the terminal", "terminal"),

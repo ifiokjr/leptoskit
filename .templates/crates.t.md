@@ -987,6 +987,31 @@ macOS, Windows, and Linux hosts embed it.
 
 <!-- {/wasmSummary} -->
 
+<!-- {@watchSummary} -->
+
+Watch apps are not phone apps with a smaller viewport. This crate models the surfaces Wear
+OS and watchOS actually give you — interactive pages, tiles, glances, and complications —
+and lets each one carry a leptoskit `Element` tree under a hard layout budget. Phone file
+routes do not map onto these surfaces.
+
+<!-- {/watchSummary} -->
+
+<!-- {@watchosSummary} -->
+
+Experimental watchOS backend for `leptoskit_watch` surfaces. Builds on every host as a
+recording stub so guests and tests compile; the Swift files under `swift/` name the
+`WatchKit` / `WidgetKit` entry points a real device host will bind later.
+
+<!-- {/watchosSummary} -->
+
+<!-- {@wearosSummary} -->
+
+Experimental Wear OS backend for `leptoskit_watch` surfaces. Builds on every host as a
+recording stub so guests and tests compile; the Kotlin files under `android/` name the Wear
+OS services a real device host will bind later.
+
+<!-- {/wearosSummary} -->
+
 <!-- {@windowsSummary} -->
 
 The backend owns its HWNDs on one UI thread and consumes the existing Yoga mutation

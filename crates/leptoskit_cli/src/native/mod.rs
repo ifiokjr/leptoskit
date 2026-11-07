@@ -22,6 +22,7 @@ mod lock;
 mod manifest;
 mod project;
 mod registry;
+mod watch;
 
 mod rust_desktop;
 pub(crate) mod safari;
@@ -77,6 +78,10 @@ pub enum Target {
 	/// HarmonyOS x86-64 emulators.
 	#[value(name = "harmonyos-x86_64")]
 	HarmonyosX86_64,
+	/// Experimental Android Wear OS watch host.
+	Wearos,
+	/// Experimental Apple watchOS watch host.
+	Watchos,
 	/// A native Windows application for this machine's architecture.
 	Windows,
 	/// A native GTK application for this machine's architecture.
@@ -94,10 +99,13 @@ impl Target {
 			Self::IosSimulator if cfg!(target_arch = "x86_64") => "x86_64-apple-ios",
 			Self::IosSimulator => "aarch64-apple-ios-sim",
 			Self::Ios => "aarch64-apple-ios",
-			Self::Android => "aarch64-linux-android",
+			Self::Android | Self::Wearos => "aarch64-linux-android",
 			Self::AndroidX86_64 => "x86_64-linux-android",
 			Self::Harmonyos => "aarch64-unknown-linux-ohos",
 			Self::HarmonyosX86_64 => "x86_64-unknown-linux-ohos",
+			// watchOS packaging is experimental; the stub guest still targets
+			// the device arm64 watchOS triple for future hosts.
+			Self::Watchos => "aarch64-apple-watchos",
 
 			Self::Windows if cfg!(target_arch = "aarch64") => "aarch64-pc-windows-msvc",
 			Self::Windows => "x86_64-pc-windows-msvc",
@@ -115,6 +123,8 @@ impl Target {
 			Self::Ios | Self::IosSimulator => Platform::Ios,
 			Self::Android | Self::AndroidX86_64 => Platform::Android,
 			Self::Harmonyos | Self::HarmonyosX86_64 => Platform::Harmonyos,
+			Self::Wearos => Platform::Wearos,
+			Self::Watchos => Platform::Watchos,
 			Self::Windows => Platform::Windows,
 			Self::Linux => Platform::Linux,
 			Self::Tui => Platform::Tui,
@@ -143,6 +153,8 @@ impl Target {
 			Platform::Windows => Ok(Self::Windows),
 			Platform::Linux => Ok(Self::Linux),
 			Platform::Harmonyos => Ok(Self::Harmonyos),
+			Platform::Wearos => Ok(Self::Wearos),
+			Platform::Watchos => Ok(Self::Watchos),
 			Platform::Tui => Ok(Self::Tui),
 			_ => anyhow::bail!("{platform} is not a concrete native platform"),
 		}
@@ -198,6 +210,24 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	};
 
 	let (config, root) = LeptoskitConfig::load()?;
+	if matches!(target, Target::Wearos | Target::Watchos) {
+		ensure_target_enabled(&config, target)?;
+		let native = match target {
+			Target::Wearos => leptoskit_config::NativeTarget::Wearos,
+			Target::Watchos => leptoskit_config::NativeTarget::Watchos,
+			_ => unreachable!("filtered above"),
+		};
+		watch::scaffold(&root, &config, native)?;
+		if build {
+			return watch::build(target);
+		}
+		println!(
+			"prepared experimental {} host stubs under hosts/{}",
+			target.platform(),
+			target.platform()
+		);
+		return Ok(());
+	}
 	let ohos_ndk = check_host(&config, target, release)?;
 	let _guard = lock::acquire(&root)?;
 	let plugins = crate::build::resolve_plugins(&config)?;
@@ -477,6 +507,7 @@ fn build_application(
 		Target::Macos => desktop::build(root, config, release),
 		Target::Windows | Target::Linux | Target::Tui => unreachable!("desktop hosts built above"),
 		Target::Harmonyos | Target::HarmonyosX86_64 => harmonyos::build(root, release),
+		Target::Wearos | Target::Watchos => watch::build(target),
 		Target::Ios | Target::IosSimulator => {
 			install_ios_pods(root)?;
 			run_tool(&mut ios_build(root, target, release))
@@ -642,6 +673,8 @@ pub(crate) fn legacy_target(root: &Path, config: &LeptoskitConfig) -> Target {
 
 	match config.native.targets.as_slice() {
 		[NativeTarget::Harmonyos] => Target::Harmonyos,
+		[NativeTarget::Wearos] => Target::Wearos,
+		[NativeTarget::Watchos] => Target::Watchos,
 		[NativeTarget::Macos] => Target::Macos,
 		[NativeTarget::Ios] => Target::IosSimulator,
 		[NativeTarget::Android] => Target::Android,
@@ -670,6 +703,8 @@ fn report_application_size(root: &Path, target: Target, release: bool) {
 		| Target::Linux
 		| Target::Harmonyos
 		| Target::HarmonyosX86_64
+		| Target::Wearos
+		| Target::Watchos
 		| Target::Tui => Ok(None),
 	};
 

@@ -230,6 +230,25 @@ pub mod tui {
 	pub use leptoskit_tui::*;
 }
 
+#[cfg(feature = "watch")]
+pub mod watch {
+	//! Watch UI surfaces for Wear OS and watchOS: pages, tiles, glances, and
+	//! complications. Experimental — not a phone screen scaled down.
+	pub use leptoskit_watch::*;
+}
+
+#[cfg(feature = "wearos")]
+pub mod wearos {
+	//! Experimental Wear OS host stubs for [`crate::watch`] surfaces.
+	pub use leptoskit_wearos::*;
+}
+
+#[cfg(feature = "watchos")]
+pub mod watchos {
+	//! Experimental watchOS host stubs for [`crate::watch`] surfaces.
+	pub use leptoskit_watchos::*;
+}
+
 #[cfg(feature = "wasm")]
 pub mod wasm {
 	//! The on-device wasm runtime host.

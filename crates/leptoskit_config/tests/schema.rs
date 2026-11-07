@@ -85,7 +85,7 @@ fn rejects_unknown_keys_enums_versions_and_out_of_range_numbers() {
 		"[serve]\nport = 65536",
 		"[serve]\nport = -1",
 		"[build]\nwasm_opt = true",
-		"[native]\ntargets = ['watchos']",
+		"[native]\ntargets = ['fitbit']",
 		"[native]\npackage_id = 'bad'",
 		"[codepush]\nenabled = true",
 		"[codepush]\npublic_keys = ['bad']",

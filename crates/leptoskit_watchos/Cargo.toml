@@ -1,0 +1,25 @@
+[package]
+name = "leptoskit_watchos"
+version = "0.3.0"
+authors.workspace = true
+categories = ["gui", "os", "rendering"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["watchos", "apple", "watch", "native", "leptos"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Experimental watchOS host and backend stubs for leptoskit watch surfaces."
+
+[package.metadata.leptoskit.native-support]
+watchos = true
+
+[dependencies]
+leptoskit_watch = { workspace = true }
+
+[dev-dependencies]
+leptoskit_native = { workspace = true }
+
+[lints]
+workspace = true

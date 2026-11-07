@@ -67,6 +67,9 @@ pub fn generate(
 		Target::Harmonyos | Target::HarmonyosX86_64 => {
 			super::harmonyos::generate(root, config, registry, target)
 		}
+		Target::Wearos | Target::Watchos => {
+			unreachable!("watch hosts are scaffolded before project::generate")
+		}
 	}
 }
 

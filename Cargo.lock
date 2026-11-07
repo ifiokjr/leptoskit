@@ -4840,6 +4840,9 @@ dependencies = [
  "leptoskit_use",
  "leptoskit_virtual",
  "leptoskit_wasm",
+ "leptoskit_watch",
+ "leptoskit_watchos",
+ "leptoskit_wearos",
  "leptoskit_windows",
  "leptoskit_yoga",
  "monosecret",
@@ -6546,6 +6549,30 @@ dependencies = [
  "thiserror 2.0.21",
  "wasmi",
  "wasmi_core",
+]
+
+[[package]]
+name = "leptoskit_watch"
+version = "0.3.0"
+dependencies = [
+ "leptoskit_native",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_watchos"
+version = "0.3.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_watch",
+]
+
+[[package]]
+name = "leptoskit_wearos"
+version = "0.3.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_watch",
 ]
 
 [[package]]
