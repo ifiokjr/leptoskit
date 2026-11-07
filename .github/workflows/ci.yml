@@ -658,6 +658,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev pkg-config xvfb dbus-x11 at-spi2-core fonts-dejavu-core xdotool
 
+      # The canvas renderer's GPU tests skip when no Vulkan ICD is present, so
+      # its paths go unmeasured. Mesa's lavapipe gives the coverage suite a
+      # software adapter the wgpu Vulkan backend can use.
+      - name: install Mesa's Vulkan driver for the canvas renderer tests
+        if: matrix.suite == 'workspace'
+        run: sudo apt-get install -y mesa-vulkan-drivers
+
       # The geospatial and vector database tests apply PostGIS and pgvector
       # migrations to the runner's preinstalled Postgres, so it gets the
       # matching packages; the test step requires both rather than skipping.
