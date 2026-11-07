@@ -442,6 +442,7 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 		.into_iter()
 		.map(|(name, tables)| {
 			let pack = leptoskit_db_schema::Pack::new(name, tables);
+
 			if name == LIVE_PACK || name == AUDIT_PACK {
 				pack.builtin()
 			} else {
@@ -455,6 +456,7 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 		.with_routines(sequences, functions, triggers)
 		.with_packs(packs);
 	let mut problems = expected_pack_problems(schema.pack_membership().unwrap_or_default());
+
 	for entry in &entries {
 		if matches!(entry.pack, Some(LIVE_PACK | AUDIT_PACK)) {
 			problems.push(leptoskit_db_schema::Problem {
@@ -463,8 +465,22 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 			});
 		}
 	}
+
 	problems.extend(schema.problems());
 
+	problems.extend(pack_portability_problems(&entries));
+
+	if problems.is_empty() {
+		Ok(schema)
+	} else {
+		Err(SchemaError::Invalid(problems))
+	}
+}
+
+/// Check pack portability alongside dependency packs, reporting each problem
+/// only under the pack that owns its table.
+fn pack_portability_problems(entries: &[&TableEntry]) -> Vec<leptoskit_db_schema::Problem> {
+	let mut problems = Vec::new();
 	let mut packs: Vec<&str> = entries.iter().filter_map(|entry| entry.pack).collect();
 	packs.sort_unstable();
 	packs.dedup();
@@ -510,11 +526,7 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 		}
 	}
 
-	if problems.is_empty() {
-		Ok(schema)
-	} else {
-		Err(SchemaError::Invalid(problems))
-	}
+	problems
 }
 
 /// Problems with the packs an app declared in `packs!`, checked against the
@@ -556,18 +568,7 @@ fn expected_pack_problems_of(
 			});
 		}
 
-		for entry in pack.identity.tables {
-			if entry.pack != Some(pack.identity.name) {
-				problems.push(leptoskit_db_schema::Problem {
-					location: format!("pack `{}`", pack.identity.name),
-					message: format!(
-						"declares the table `{}` as its own, but that table belongs to pack `{}`",
-						(entry.name)(),
-						entry.pack.unwrap_or("none")
-					),
-				});
-			}
-		}
+		problems.extend(pack_identity_problems(&pack.identity));
 
 		declared.insert(pack.identity.name, &pack.identity);
 	}
@@ -608,31 +609,12 @@ fn expected_pack_problems_of(
 		let empty = declared
 			.get(name)
 			.is_some_and(|pack| pack.tables.is_empty());
+
 		if actual_names.contains(name) && !empty {
 			continue;
 		}
-		let message = if empty {
-			format!(
-				"packs! declares the `{name}` schema pack, but it owns no tables; check that the \
-				 pack's feature set exports its tables"
-			)
-		} else {
-			match required_by {
-				Some(by) => {
-					format!(
-						"the `{by}` schema pack requires the `{name}` pack, but no `{name}` \
-						 tables are linked; add the `{name}` pack's crate to packs!"
-					)
-				}
-				None => {
-					format!(
-						"packs! declares the `{name}` schema pack, but no `{name}` tables are \
-						 linked; check that the pack's crate is a dependency with its server and \
-						 database features, and that it exports its pack with schema_pack!"
-					)
-				}
-			}
-		};
+
+		let message = missing_pack_message(name, required_by, empty);
 
 		problems.push(leptoskit_db_schema::Problem {
 			location: format!("pack `{name}`"),
@@ -641,6 +623,52 @@ fn expected_pack_problems_of(
 	}
 
 	problems
+}
+
+/// A pack cannot claim a table another pack owns.
+fn pack_identity_problems(pack: &PackIdentity) -> Vec<leptoskit_db_schema::Problem> {
+	let mut problems = Vec::new();
+
+	for entry in pack.tables {
+		if entry.pack != Some(pack.name) {
+			problems.push(leptoskit_db_schema::Problem {
+				location: format!("pack `{}`", pack.name),
+				message: format!(
+					"declares the table `{}` as its own, but that table belongs to pack `{}`",
+					(entry.name)(),
+					entry.pack.unwrap_or("none")
+				),
+			});
+		}
+	}
+
+	problems
+}
+
+/// Explain which link in the declared pack graph is missing.
+fn missing_pack_message(name: &str, required_by: Option<&str>, empty: bool) -> String {
+	if empty {
+		format!(
+			"packs! declares the `{name}` schema pack, but it owns no tables; check that the \
+			 pack's feature set exports its tables"
+		)
+	} else {
+		match required_by {
+			Some(by) => {
+				format!(
+					"the `{by}` schema pack requires the `{name}` pack, but no `{name}` tables \
+					 are linked; add the `{name}` pack's crate to packs!"
+				)
+			}
+			None => {
+				format!(
+					"packs! declares the `{name}` schema pack, but no `{name}` tables are linked; \
+					 check that the pack's crate is a dependency with its server and database \
+					 features, and that it exports its pack with schema_pack!"
+				)
+			}
+		}
+	}
 }
 
 /// [`schema`], with every table's access policy also enforced by Postgres

@@ -263,6 +263,7 @@ impl Schema {
 		for pack in packs {
 			let location = format!("pack `{}`", pack.name);
 			problems.identifier(&location, "pack name", &pack.name);
+
 			if pack.builtin != matches!(pack.name.as_str(), "live" | "audit") {
 				problems.push(
 					&location,

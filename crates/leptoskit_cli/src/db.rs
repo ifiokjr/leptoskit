@@ -878,9 +878,11 @@ pub(crate) fn check_pack_baselines(
 	complete: bool,
 ) -> Result<()> {
 	let mut missing = BTreeSet::new();
+
 	for baseline in previous {
 		missing.extend(removed_packs(baseline, target)?);
 	}
+
 	let requested: HashSet<&str> = drop_packs.iter().map(String::as_str).collect();
 
 	ensure!(
