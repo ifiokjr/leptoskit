@@ -172,4 +172,16 @@ mod tests {
 	fn reports_a_document_that_never_parses() {
 		assert!(parse("<Card title=\"x").is_err());
 	}
+
+	#[test]
+	fn repairs_a_document_with_tags_that_are_already_closed() {
+		let parsed = parse("Intro\n\n<Card>\n\nInside\n\n</Card>\n\n<Other title=\"x").unwrap();
+		assert!(parsed.partial);
+		let children = parsed.root.children().unwrap();
+		assert_eq!(children.len(), 2);
+		let Node::MdxJsxFlowElement(card) = &children[1] else {
+			panic!("expected the card");
+		};
+		assert_eq!(card.name.as_deref(), Some("Card"));
+	}
 }

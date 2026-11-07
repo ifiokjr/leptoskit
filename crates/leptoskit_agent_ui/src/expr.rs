@@ -1225,7 +1225,7 @@ mod tests {
 
 	use super::*;
 
-	fn eval(source: &str) -> Result<Value, FormulaError> {
+	fn fixed() -> Fixed {
 		let mut scope = Fixed::default();
 		scope.0.insert("rent".to_owned(), Value::Number(1800.0));
 		scope
@@ -1234,7 +1234,27 @@ mod tests {
 		let mut fields = BTreeMap::new();
 		fields.insert("groceries".to_owned(), Value::Number(600.0));
 		scope.0.insert("budget".to_owned(), Value::Record(fields));
-		Expr::parse(source)?.eval(&scope, &mut Budget::new(10_000, 1000))
+		let rows = vec![
+			BTreeMap::from([
+				("a".to_owned(), Value::Number(1.0)),
+				("b".to_owned(), Value::Number(2.0)),
+			]),
+			BTreeMap::from([("a".to_owned(), Value::Number(3.0))]),
+		];
+		scope.0.insert("rows".to_owned(), Value::from(rows));
+		scope
+	}
+
+	fn eval(source: &str) -> Result<Value, FormulaError> {
+		eval_in(&fixed(), source, Budget::new(10_000, 1000))
+	}
+
+	fn eval_in(scope: &Fixed, source: &str, mut budget: Budget) -> Result<Value, FormulaError> {
+		Expr::parse(source)?.eval(scope, &mut budget)
+	}
+
+	fn error(source: &str) -> String {
+		eval(source).unwrap_err().to_string()
 	}
 
 	#[test]
@@ -1336,5 +1356,328 @@ mod tests {
 		assert!(Expr::parse("[1, 2] * 3").unwrap().is_constant());
 		assert!(!Expr::parse("rent * 3").unwrap().is_constant());
 		assert_eq!(Expr::parse("rent").unwrap().as_variable(), Some("rent"));
+		assert_eq!(Expr::parse("1").unwrap().as_variable(), None);
+	}
+
+	// --- Parsing ------------------------------------------------------------
+
+	#[test]
+	fn rejects_formulas_over_the_byte_limit() {
+		let long = "0".repeat(MAX_SOURCE + 1);
+		assert_eq!(
+			Expr::parse(&long).unwrap_err().to_string(),
+			format!("a formula is limited to {MAX_SOURCE} bytes")
+		);
+	}
+
+	#[test]
+	fn names_the_unexpected_token_by_kind() {
+		// Each branch of `Token`'s `Display`.
+		assert_eq!(error("1 2"), "unexpected `2`");
+		assert_eq!(error("\"a\" \"b\""), "unexpected `\"b\"`");
+		assert_eq!(error("rent extra"), "unexpected `extra`");
+		assert_eq!(error("1 )"), "unexpected `)`");
+		assert_eq!(error(")"), "unexpected `)`");
+	}
+
+	#[test]
+	fn reports_what_an_operator_or_group_is_missing() {
+		assert_eq!(error("(1"), "expected `)` at the end");
+		assert_eq!(error("(1 2"), "expected `)`, found `2`");
+		assert_eq!(error("1 ? 2"), "expected `:` at the end");
+		assert_eq!(error("1 ? 2 3"), "expected `:`, found `3`");
+		assert_eq!(error("[1"), "expected `]` at the end");
+		assert_eq!(error("if(1, 2"), "expected `)` at the end");
+		assert_eq!(error("if(1, 2 3"), "expected `)`, found `3`");
+	}
+
+	#[test]
+	fn reports_a_field_that_is_not_a_name() {
+		assert_eq!(error("rent."), "expected a field name after `.`");
+		assert_eq!(error("rent.)"), "expected a field name after `.`");
+	}
+
+	#[test]
+	fn reports_an_empty_formula() {
+		assert_eq!(error(""), "the formula ends too early");
+		assert_eq!(error("[1,"), "the formula ends too early");
+	}
+
+	#[test]
+	fn reads_numbers_with_underscores_and_rejects_dotted_ones() {
+		assert_eq!(eval("1_000").unwrap(), Value::Number(1000.0));
+		assert_eq!(error("1.2.3"), "`1.2.3` is not a number");
+		assert_eq!(error("1..2"), "`1..2` is not a number");
+	}
+
+	#[test]
+	fn reads_escapes_in_both_quote_styles() {
+		assert_eq!(eval("\"a\\nb\"").unwrap(), Value::from("a\nb"));
+		assert_eq!(eval("'a\\'b'").unwrap(), Value::from("a'b"));
+		assert_eq!(eval("\"a\\tb\"").unwrap(), Value::from("atb"));
+		assert_eq!(error("\"open\\"), "text is missing its closing quote");
+		assert_eq!(error("'open"), "text is missing its closing quote");
+	}
+
+	#[test]
+	fn reads_keywords_and_literals() {
+		assert_eq!(eval("true").unwrap(), Value::Bool(true));
+		assert_eq!(eval("false").unwrap(), Value::Bool(false));
+		assert_eq!(eval("null").unwrap(), Value::Null);
+	}
+
+	#[test]
+	fn reports_the_operator_that_needs_a_number() {
+		assert_eq!(error("1 * \"a\""), "`*` needs a number, not the text \"a\"");
+		assert_eq!(error("1 + null"), "`+` needs a number, not nothing");
+		assert_eq!(error("(true)[0]"), "cannot index into a boolean");
+		assert_eq!(error("sum([[1]])"), "`sum` needs a number, not a list");
+		assert_eq!(error("-\"a\""), "`-` needs a number, not the text \"a\"");
+	}
+
+	// --- Evaluation ---------------------------------------------------------
+
+	#[test]
+	fn compares_and_negates() {
+		assert_eq!(eval("1 != 2").unwrap(), Value::Bool(true));
+		assert_eq!(eval("1 == 2").unwrap(), Value::Bool(false));
+		assert_eq!(eval("1 < 2").unwrap(), Value::Bool(true));
+		assert_eq!(eval("2 <= 2").unwrap(), Value::Bool(true));
+		assert_eq!(eval("3 > 2").unwrap(), Value::Bool(true));
+		assert_eq!(eval("3 >= 3").unwrap(), Value::Bool(true));
+		assert_eq!(eval("5 % 0").unwrap(), Value::Null);
+		assert_eq!(eval("-[1, 2]").unwrap(), Value::from(vec![-1.0, -2.0]));
+	}
+
+	#[test]
+	fn short_circuits_conditions() {
+		assert_eq!(eval("false && missing").unwrap(), Value::Bool(false));
+		assert_eq!(eval("0 || 1").unwrap(), Value::Number(1.0));
+		assert_eq!(eval("1 ? 2 : missing").unwrap(), Value::Number(2.0));
+		assert_eq!(eval("0 ? missing : 3").unwrap(), Value::Number(3.0));
+	}
+
+	#[test]
+	fn reads_fields_and_indexes_only_where_they_exist() {
+		assert_eq!(eval("names.length").unwrap(), Value::Number(2.0));
+		assert_eq!(eval("budget.missing").unwrap(), Value::Null);
+		assert_eq!(error("(1).x"), "a number has no field `x`");
+		assert_eq!(eval("names[-1]").unwrap(), Value::Null);
+		assert_eq!(eval("names[0.5]").unwrap(), Value::Null);
+		assert_eq!(error("1[0]"), "cannot index into a number");
+		assert_eq!(eval("budget[\"groceries\"]").unwrap(), Value::Number(600.0));
+	}
+
+	#[test]
+	fn fails_a_list_whose_item_fails() {
+		assert_eq!(error("[1, missing]"), "there is no variable `missing`");
+		assert!(eval_in(&fixed(), "[1, 2, 3]", Budget::new(100, 2)).is_err());
+		assert!(eval_in(&fixed(), "[1] + [2]", Budget::new(100, 0)).is_err());
+	}
+
+	#[test]
+	fn combines_lists_and_reports_item_failures() {
+		assert!(eval("[1, \"a\"] * [1, 2]").is_err());
+		assert!(eval("[1, \"a\"] * 1").is_err());
+		assert!(eval("1 * [1, \"a\"]").is_err());
+	}
+
+	// --- Functions ----------------------------------------------------------
+
+	#[test]
+	fn checks_argument_counts() {
+		assert_eq!(error("len()"), "`len` takes 1 arguments, not 0");
+		assert_eq!(
+			error("round(1, 2, 3)"),
+			"`round` takes 1 to 2 arguments, not 3"
+		);
+		assert_eq!(error("floor(1, 2)"), "`floor` takes 1 arguments, not 2");
+		assert_eq!(error("slice([1])"), "`slice` takes 2 to 3 arguments, not 1");
+	}
+
+	#[test]
+	fn measures_lists_and_text() {
+		assert_eq!(eval("len([1, 2, 3])").unwrap(), Value::Number(3.0));
+		assert_eq!(eval("len(\"héllo\")").unwrap(), Value::Number(5.0));
+		assert_eq!(error("len(1)"), "`len` needs a list or text, not a number");
+		assert_eq!(
+			error("len(null)"),
+			"`len` needs a list or text, not nothing"
+		);
+	}
+
+	#[test]
+	fn does_math() {
+		assert_eq!(eval("round(2.345, 2)").unwrap(), Value::Number(2.35));
+		assert_eq!(eval("round(2.5)").unwrap(), Value::Number(3.0));
+		assert_eq!(eval("floor(1.8)").unwrap(), Value::Number(1.0));
+		assert_eq!(eval("ceil(1.2)").unwrap(), Value::Number(2.0));
+		assert_eq!(eval("abs(-3)").unwrap(), Value::Number(3.0));
+		assert_eq!(eval("clamp(5, 1, 3)").unwrap(), Value::Number(3.0));
+		assert_eq!(eval("pow(2, 10)").unwrap(), Value::Number(1024.0));
+		// A result that cannot be shown is nothing, not infinity.
+		assert_eq!(eval("pow(10, 400)").unwrap(), Value::Null);
+		assert_eq!(error("round(1, 9)"), "digits must be between 0 and 6");
+		assert_eq!(error("pow(1)"), "`pow` takes 2 arguments, not 1");
+		assert_eq!(
+			error("abs(\"x\")"),
+			"`abs` needs a number, not the text \"x\""
+		);
+	}
+
+	#[test]
+	fn formats_values() {
+		assert_eq!(eval("text(1800)").unwrap(), Value::from("1800"));
+		assert_eq!(eval("text(\"May\")").unwrap(), Value::from("May"));
+		assert_eq!(eval("number(\"1,800\")").unwrap(), Value::Number(1800.0));
+		assert_eq!(eval("number(42)").unwrap(), Value::Number(42.0));
+		assert_eq!(eval("number(\"abc\")").unwrap(), Value::Null);
+		assert_eq!(eval("money(1, \"€\")").unwrap(), Value::from("€1"));
+		assert_eq!(eval("money(1, 2)").unwrap(), Value::from("21"));
+		assert_eq!(eval("format(1234.5)").unwrap(), Value::from("1,234"));
+		assert_eq!(error("percent(0.5, 9)"), "digits must be between 0 and 6");
+		assert_eq!(error("text()"), "`text` takes 1 arguments, not 0");
+	}
+
+	#[test]
+	fn builds_sequences() {
+		assert_eq!(
+			eval("range(2, 5)").unwrap(),
+			Value::from(vec![2.0, 3.0, 4.0])
+		);
+		assert_eq!(eval("range(0)").unwrap(), Value::from(Vec::<f64>::new()));
+		assert_eq!(eval("range(-3)").unwrap(), Value::from(Vec::<f64>::new()));
+		assert_eq!(
+			error("range(0, 100000)"),
+			"`range` makes at most 1000 items"
+		);
+		assert_eq!(
+			eval("repeat(\"x\", 2)").unwrap(),
+			Value::from(vec!["x", "x"])
+		);
+		assert_eq!(error("repeat(1, -1)"), "`repeat` makes at most 1000 items");
+		let Value::List(growth) = eval("growth(100, 0.1, 2)").unwrap() else {
+			panic!("expected a list");
+		};
+		assert!((growth[0].as_number().unwrap() - 100.0).abs() < 1e-9);
+		assert!((growth[1].as_number().unwrap() - 110.0).abs() < 1e-9);
+		assert_eq!(
+			eval("cumsum([1, 2, 3])").unwrap(),
+			Value::from(vec![1.0, 3.0, 6.0])
+		);
+	}
+
+	#[test]
+	fn reads_lists_and_records() {
+		assert_eq!(eval("get(names, 1)").unwrap(), Value::from("b"));
+		assert_eq!(
+			eval("get(budget, \"groceries\")").unwrap(),
+			Value::Number(600.0)
+		);
+		assert_eq!(
+			eval("pluck(rows, \"a\")").unwrap(),
+			Value::from(vec![1.0, 3.0])
+		);
+		assert_eq!(
+			eval("pluck([1], \"a\")").unwrap(),
+			Value::from(vec![Value::Null])
+		);
+		assert_eq!(eval("contains(names, \"a\")").unwrap(), Value::Bool(true));
+		assert_eq!(eval("contains(\"abc\", \"b\")").unwrap(), Value::Bool(true));
+		assert_eq!(
+			eval("contains(budget, \"groceries\")").unwrap(),
+			Value::Bool(true)
+		);
+		assert_eq!(eval("contains(1, 2)").unwrap(), Value::Bool(false));
+		assert_eq!(eval("join(names)").unwrap(), Value::from("a, b"));
+		assert_eq!(eval("join(names, \"-\")").unwrap(), Value::from("a-b"));
+		assert_eq!(eval("reverse(names)").unwrap(), Value::from(vec!["b", "a"]));
+		assert_eq!(eval("slice(names, 1)").unwrap(), Value::from(vec!["b"]));
+		assert_eq!(eval("slice(names, 1, 2)").unwrap(), Value::from(vec!["b"]));
+		assert_eq!(
+			eval("slice(names, -1, 9)").unwrap(),
+			Value::from(vec!["a", "b"])
+		);
+		assert_eq!(error("slice(1, 0)"), "`slice` needs a list, not a number");
+		assert_eq!(error("join(1)"), "`join` needs a list, not a number");
+		assert_eq!(error("reverse(1)"), "`reverse` needs a list, not a number");
+		assert_eq!(
+			error("pluck(1, \"a\")"),
+			"`pluck` needs a list, not a number"
+		);
+	}
+
+	#[test]
+	fn chooses_a_branch() {
+		assert_eq!(eval("if(true, 1, 2)").unwrap(), Value::Number(1.0));
+		assert_eq!(eval("if(false, 1, 2)").unwrap(), Value::Number(2.0));
+		assert_eq!(error("if(1, 2)"), "`if` takes 3 arguments, not 2");
+	}
+
+	#[test]
+	fn aggregates_edge_cases() {
+		assert_eq!(eval("sum([])").unwrap(), Value::Number(0.0));
+		assert_eq!(eval("avg([])").unwrap(), Value::Null);
+		assert_eq!(eval("max([])").unwrap(), Value::Null);
+		assert_eq!(eval("min(4, 2)").unwrap(), Value::Number(2.0));
+		assert_eq!(eval("max([4, 2])").unwrap(), Value::Number(4.0));
+		assert_eq!(
+			error("sum([1, \"a\"])"),
+			"`sum` needs a number, not the text \"a\""
+		);
+	}
+
+	#[test]
+	fn reports_an_unknown_function_when_one_is_built_directly() {
+		let scope = Fixed::default();
+		let expr = Expr::Call("nope".to_owned(), Vec::new());
+		assert_eq!(
+			expr.eval(&scope, &mut Budget::new(100, 10))
+				.unwrap_err()
+				.to_string(),
+			"there is no function `nope`"
+		);
+	}
+
+	#[test]
+	fn shows_an_unrepresentable_number_as_a_dash() {
+		assert_eq!(grouped(f64::NAN, 0), "—");
+		assert_eq!(grouped(f64::INFINITY, 2), "—");
+		assert_eq!(grouped(0.0, 2), "0.00");
+		assert_eq!(grouped(-0.004, 2), "0.00");
+		assert_eq!(money(0.0, "$"), "$0");
+	}
+
+	#[test]
+	fn knows_constants_through_every_operator() {
+		for source in [
+			"1",
+			"[1, 2]",
+			"sum([1])",
+			"-1",
+			"[1].length",
+			"1 + 2",
+			"true && false",
+			"true || false",
+			"[1][0]",
+			"true ? 1 : 2",
+		] {
+			assert!(Expr::parse(source).unwrap().is_constant(), "{source}");
+		}
+
+		for source in [
+			"rent",
+			"[rent]",
+			"sum([rent])",
+			"-rent",
+			"budget.rent",
+			"1 + rent",
+			"true && rent",
+			"false || rent",
+			"[1][rent]",
+			"rent ? 1 : 2",
+		] {
+			assert!(!Expr::parse(source).unwrap().is_constant(), "{source}");
+		}
 	}
 }

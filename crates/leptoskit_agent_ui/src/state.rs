@@ -294,5 +294,82 @@ mod tests {
 			store.declare_input("b", Value::Null, 1),
 			Declare::Refused(_)
 		));
+
+		assert!(matches!(
+			store.declare_formula("c", Expr::parse("1").unwrap(), 1),
+			Declare::Refused(_)
+		));
+	}
+
+	#[test]
+	fn a_formula_can_become_an_input_and_back() {
+		let store = Store::default();
+		store.declare_formula("x", Expr::parse("1 + 1").unwrap(), 10);
+		assert_eq!(eval(&store, "x").unwrap(), Value::Number(2.0));
+
+		store.declare_input("x", Value::Number(5.0), 10);
+		assert_eq!(eval(&store, "x").unwrap(), Value::Number(5.0));
+
+		store.declare_formula("x", Expr::parse("x * 2").unwrap(), 10);
+		assert!(eval(&store, "x").is_err());
+	}
+
+	#[test]
+	fn application_data_cannot_be_a_formula() {
+		let store = Store::default();
+		store.set_data("income", Value::Number(5000.0));
+		assert!(matches!(
+			store.declare_formula("income", Expr::parse("1").unwrap(), 10),
+			Declare::Refused(_)
+		));
+	}
+
+	#[test]
+	fn setting_data_again_updates_the_same_variable() {
+		let store = Store::default();
+		store.set_data("income", Value::Number(5000.0));
+		store.set_data("income", Value::Number(6000.0));
+		assert_eq!(eval(&store, "income").unwrap(), Value::Number(6000.0));
+		assert_eq!(
+			store.data_summary().get("income"),
+			Some(&Value::Number(6000.0))
+		);
+	}
+
+	#[test]
+	fn only_inputs_can_be_written() {
+		let store = Store::default();
+		store.declare_formula("yearly", Expr::parse("12").unwrap(), 10);
+		assert_eq!(
+			store.write("yearly", Value::Null).unwrap_err(),
+			"`yearly` is a formula and cannot be set"
+		);
+		assert_eq!(
+			store.write("missing", Value::Null).unwrap_err(),
+			"there is no variable `missing`; declare it with <Var>"
+		);
+	}
+
+	#[test]
+	fn snapshots_and_inputs_only_hold_what_they_should() {
+		let store = Store::default();
+		store.set_data("income", Value::Number(5000.0));
+		store.declare_input("rent", Value::Number(1800.0), 10);
+		store.declare_formula("left", Expr::parse("income - rent").unwrap(), 10);
+
+		assert_eq!(
+			store.inputs(),
+			BTreeMap::from([("rent".to_owned(), Value::Number(1800.0))])
+		);
+		let snapshot = store.snapshot(10_000, 1000);
+		assert_eq!(snapshot.get("income"), Some(&Value::Number(5000.0)));
+		assert_eq!(snapshot.get("left"), Some(&Value::Number(3200.0)));
+
+		store.clear_document();
+		assert!(store.inputs().is_empty());
+		assert_eq!(
+			store.data_summary().get("income"),
+			Some(&Value::Number(5000.0))
+		);
 	}
 }
