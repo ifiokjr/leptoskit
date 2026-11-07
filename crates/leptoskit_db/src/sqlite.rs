@@ -4,6 +4,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::sync::Weak;
+use std::time::Duration;
 
 use rusqlite::ErrorCode;
 use rusqlite::types::ValueRef;
@@ -39,7 +42,12 @@ struct Shared {
 	permits: Arc<Semaphore>,
 	/// Wakes live readers when a commit gets a version.
 	live: Arc<crate::live::Hub>,
+	/// Set once something watches the file for other processes' commits.
+	watching: OnceLock<()>,
 }
+
+/// How often a file's watcher looks for other processes' commits.
+const WATCH_INTERVAL: Duration = Duration::from_millis(250);
 
 enum Target {
 	/// One connection, kept for the pool's life: each in-memory connection
@@ -72,6 +80,7 @@ impl Pool {
 			permits: Arc::new(Semaphore::new(size)),
 			target,
 			live,
+			watching: OnceLock::new(),
 		};
 
 		// Open one connection now, so a bad path fails at startup.
@@ -80,6 +89,26 @@ impl Pool {
 		Ok(Self {
 			shared: Arc::new(shared),
 		})
+	}
+
+	/// Wakes live readers when another process, such as a second server or
+	/// a migration run, commits to this pool's file: its own commits wake
+	/// them as they happen, but nothing else would. A connection of its own
+	/// reads `PRAGMA data_version`, which changes when any other connection
+	/// commits, every [`WATCH_INTERVAL`], until the pool is gone. Starts
+	/// once; an in-memory database has no other process.
+	pub(crate) fn watch_other_processes(&self) {
+		let Target::File(path) = &self.shared.target else {
+			return;
+		};
+
+		self.shared.watching.get_or_init(|| {
+			let path = path.clone();
+			let live = Arc::downgrade(&self.shared.live);
+			let _ = std::thread::Builder::new()
+				.name("leptoskit-sqlite-watch".to_owned())
+				.spawn(move || watch(&path, &live));
+		});
 	}
 
 	pub(crate) async fn fetch(&self, statement: Statement) -> Result<Vec<Vec<Value>>> {
@@ -156,6 +185,35 @@ impl Pool {
 			result
 		})
 		.await
+	}
+}
+
+/// Wakes `live`'s readers whenever `path`'s data version changes, until
+/// the hub is dropped. Without a connection it stops, and readers hear only
+/// this process's commits, as before.
+fn watch(path: &std::path::Path, live: &Weak<crate::live::Hub>) {
+	let Ok(connection) = rusqlite::Connection::open(path) else {
+		return;
+	};
+	let _ = connection.busy_timeout(Duration::from_secs(5));
+	let version = || {
+		connection
+			.query_row("PRAGMA data_version", [], |row| row.get::<_, i64>(0))
+			.ok()
+	};
+	let mut seen = version();
+
+	loop {
+		std::thread::sleep(WATCH_INTERVAL);
+		let Some(live) = live.upgrade() else {
+			return;
+		};
+
+		let now = version();
+		if now != seen {
+			seen = now;
+			live.wake();
+		}
 	}
 }
 

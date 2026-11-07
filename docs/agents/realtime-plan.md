@@ -586,7 +586,7 @@ CREATE TRIGGER live_capture AFTER INSERT OR UPDATE OR DELETE ON public.messages
 
 - **Triggers.** There are three per live table (insert, update and delete), generated with explicit `json_object('id', NEW.id, …)` column lists, because SQLite has no generic row-to-JSON function. They insert into `live_changes` with `version = NULL`.
 - **The version.** The `leptoskit_db` SQLite pool already funnels writes through one connection. Just before `COMMIT`, it runs `UPDATE live_changes SET version = ? WHERE version IS NULL` with the next version, inserts the `live_commits` row, and after commit wakes the in-process hub through a `tokio::sync::watch`.
-- **Writes from another process,** such as the `sqlite3` shell, are captured by the triggers and get their version from the next commit through the pool. The docs say so.
+- **Writes from another process,** such as the `sqlite3` shell, are captured by the triggers and get their version from the next commit through the pool. The docs say so. Another leptoskit process stamps its own commits, and each pool's watcher (`PRAGMA data_version`, every 250 ms) wakes this process's feeds for them.
 
 ### 4.4 What the schema crate and the diff learn
 

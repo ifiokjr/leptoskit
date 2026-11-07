@@ -26,9 +26,10 @@ use crate::policy::Access;
 
 /// Wakes a database's readers when the change log may have grown: a
 /// `NOTIFY` from any server sharing a Postgres database, a commit through
-/// this process's SQLite pool, or the listening connection coming back,
-/// after which readers catch up on what they missed. Readers always read
-/// the log itself; a wake only says when.
+/// this process's SQLite pool or, within a quarter second, another
+/// process's commit to the same file, or the listening connection coming
+/// back, after which readers catch up on what they missed. Readers always
+/// read the log itself; a wake only says when.
 pub(crate) struct Hub {
 	pulse: watch::Sender<u64>,
 	/// Whether the database has the `live` pack, once it's been seen.
@@ -508,12 +509,15 @@ impl Db {
 	}
 
 	/// Makes sure something hears commits: on Postgres, the connection that
-	/// listens for them.
+	/// listens for them; on SQLite, the watch for other processes' commits.
 	#[cfg_attr(
 		not(feature = "postgres"),
 		expect(clippy::unused_async, reason = "only Postgres listens before reading")
 	)]
 	pub(crate) async fn listen(&self) -> Result<()> {
+		#[cfg(feature = "sqlite")]
+		self.watch_other_processes();
+
 		#[cfg(feature = "postgres")]
 		if let Some(url) = self.postgres_url() {
 			self.live

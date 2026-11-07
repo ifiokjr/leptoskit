@@ -139,6 +139,40 @@ impl rpc::Job for GhostJob {
 	}
 }
 
+/// A job only the `elsewhere` service's workers run, and which fails there:
+/// to these workers, one they don't know.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ElsewhereJob;
+
+impl rpc::Job for ElsewhereJob {
+	type Output = ();
+
+	const NAME: &'static str = "elsewhere";
+	const OPTIONS: rpc::JobOptions = rpc::JobOptions {
+		retries: 0,
+		..rpc::JobOptions::DEFAULT
+	};
+	const SERVICE: Option<&'static str> = Some("elsewhere");
+
+	fn run(self, cx: &rpc::JobCx) -> impl Future<Output = rpc::Result<()>> + Send {
+		let _ = cx;
+		std::future::ready(Err(rpc::Error::retry("no")))
+	}
+}
+
+#[allow(deprecated)]
+const _: () = {
+	rpc::__private::inventory::submit! {
+		rpc::server::jobs::JobRegistration {
+			name: "elsewhere",
+			options: <ElsewhereJob as rpc::Job>::OPTIONS,
+			handler: rpc::__private::run_job::<ElsewhereJob>,
+			on_failure: None,
+			service: Some("elsewhere"),
+		}
+	}
+};
+
 async fn row(db: &Db, id: Id<JobRow>) -> JobRow {
 	JobRow::query()
 		.filter(|job| job.id.eq(id))
@@ -303,25 +337,20 @@ async fn a_cancelled_running_job_is_refused_by_the_next_worker() {
 	jobs.shutdown().await;
 }
 
-/// A claimed job with no registration fails, and a long error is cut to its
-/// column without splitting a character.
+/// A job with no registration here waits, untouched, for workers that know
+/// it, and a long error is cut to its column without splitting a character.
 #[tokio::test(flavor = "multi_thread")]
-async fn unknown_jobs_and_long_errors_are_recorded() {
+async fn unknown_jobs_wait_and_long_errors_are_recorded() {
 	let db = leptoskit_db::testing::sqlite().await;
 	let jobs = TestJobs::new(&db);
 
 	let unknown = rpc::enqueue(&db, GhostJob).await.unwrap();
-	jobs.run_jobs_until_idle().await;
-	let failed = row(&db, unknown).await;
-	assert_eq!(failed.state, JobState::Failed, "{failed:?}");
-	assert!(
-		failed
-			.error
-			.as_deref()
-			.is_some_and(|error| error.contains("no job is named `ghost`")),
-		"{:?}",
-		failed.error
-	);
+	assert_eq!(jobs.run_jobs_until_idle().await, 0);
+	jobs.advance(Duration::from_secs(3600)).await;
+	assert_eq!(jobs.run_jobs_until_idle().await, 0);
+	let waiting = row(&db, unknown).await;
+	assert_eq!(waiting.state, JobState::Pending, "{waiting:?}");
+	assert_eq!(waiting.attempts, 0, "no attempt was spent on it");
 
 	let long = rpc::enqueue(&db, WorkerLongError {}).await.unwrap();
 	jobs.run_jobs_until_idle().await;
@@ -377,8 +406,13 @@ async fn on_failure_sweeps_finish_permanent_and_missing_handlers() {
 	assert_eq!(failed.state, JobState::Failed, "{failed:?}");
 	assert!(!failed.failure_pending, "the permanent on_failure ran");
 
-	let missing = rpc::enqueue(&db, GhostJob).await.unwrap();
-	jobs.run_jobs_until_idle().await;
+	// One that other workers, which know it, failed.
+	let missing = rpc::enqueue(&db, ElsewhereJob).await.unwrap();
+	TestJobs::new(&db)
+		.service(Some("elsewhere"))
+		.run_jobs_until_idle()
+		.await;
+	assert_eq!(row(&db, missing).await.state, JobState::Failed);
 	jobs.sweep_again(missing).await;
 	assert!(row(&db, missing).await.failure_pending);
 	jobs.run_jobs_until_idle().await;

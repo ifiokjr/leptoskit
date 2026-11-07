@@ -127,6 +127,14 @@ impl Settings {
 	pub(crate) fn job(&self, name: &str) -> Option<&'static JobRegistration> {
 		super::job_registration_in(self.service, name)
 	}
+
+	/// The names of the jobs registered in these workers' scope.
+	fn names(&self) -> Vec<&'static str> {
+		inventory::iter::<JobRegistration>()
+			.filter(|registration| registration.service == self.service)
+			.map(|registration| registration.name)
+			.collect()
+	}
 }
 
 /// Whose jobs a [`Jobs`] runs.
@@ -435,6 +443,9 @@ async fn waker(db: Db, wake: Arc<Notify>, shutdown: Arc<AtomicBool>) {
 		// Without a feed the workers poll, which is slower but complete.
 		return;
 	};
+	// The feed starts at the newest version, so a job enqueued after a
+	// worker's first look but before now would wait for the next poll.
+	wake.notify_waiters();
 
 	let table = match JobRow::NAMESPACE {
 		Some(namespace) => format!("{namespace}.{}", JobRow::NAME),
@@ -535,10 +546,15 @@ fn lease_for(settings: &Settings, name: &str) -> Duration {
 async fn claim(db: &Db, settings: &Settings) -> Result<Option<JobRow>, DbError> {
 	let system = db.system("claim jobs");
 	let now = settings.clock.now();
+	// Only jobs these workers can run: one another build registers, such as
+	// a newer one mid-deploy, waits for that build's workers rather than
+	// spending its attempts here.
+	let names = settings.names();
 	let candidates = JobRow::query()
 		.filter(|job| {
-			(job.state.eq(JobState::Pending) & job.run_at.lte(now))
-				| (job.state.eq(JobState::Running) & job.locked_until.lt(now))
+			((job.state.eq(JobState::Pending) & job.run_at.lte(now))
+				| (job.state.eq(JobState::Running) & job.locked_until.lt(now)))
+				& job.name.in_list(names.iter().copied())
 		})
 		.order_by(|job| job.priority.desc())
 		.order_by(|job| job.run_at.asc())
