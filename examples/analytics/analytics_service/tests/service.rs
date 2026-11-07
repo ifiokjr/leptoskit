@@ -1,5 +1,6 @@
 //! The service on a real port: anonymous capture, the public summary, the
-//! app-only list, and a live summary that updates when an event arrives.
+//! app-only list, a live summary that updates when an event arrives, and a
+//! signed-in person's own events, which the app forwards them to read.
 
 use std::time::Duration;
 
@@ -25,7 +26,9 @@ async fn start() -> std::net::SocketAddr {
 	let (router, live) = analytics_service::routes_with(
 		db,
 		Some(ORIGIN),
-		ServiceCallers::new(Anonymous).caller(TOKEN, rpc::server::APP_CALLER),
+		ServiceCallers::new(Anonymous)
+			.caller(TOKEN, rpc::server::APP_CALLER)
+			.forwarded_identity(analytics_service::SERVICE, TOKEN),
 	);
 	live.start().await.expect("live starts");
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -95,6 +98,113 @@ async fn browsers_capture_and_read_the_summary_but_only_the_app_reads_events() {
 		.unwrap()
 		.status();
 	assert_eq!(status, 404);
+}
+
+/// The token the app's server would mint for `person`, as it does when a
+/// signed-in browser asks for one.
+fn signed_in(person: uuid::Uuid) -> String {
+	rpc::server::IdentityKey::new(analytics_service::SERVICE, TOKEN)
+		.expect("a key")
+		.mint(
+			person,
+			std::time::SystemTime::now(),
+			rpc::server::IDENTITY_LIFETIME,
+		)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_signed_in_person_reads_their_own_events_and_nobody_elses() {
+	let address = start().await;
+	let ada = uuid::Uuid::from_u128(0xada);
+	let grace = uuid::Uuid::from_u128(0x9ace);
+	assert_eq!(
+		analytics_service::PERSON_PREFIX,
+		rpc::server::PERSON_CALLER_PREFIX
+	);
+
+	// Ada's events are recorded under her, whatever visitor id the browser
+	// sent; an anonymous visitor's stay theirs.
+	for (event, token) in [
+		("signup", Some(signed_in(ada))),
+		("clicked_buy", Some(signed_in(ada))),
+		("signup", Some(signed_in(grace))),
+		("signup", None),
+	] {
+		let (status, body) = post(address, "capture", capture(event), token.as_deref()).await;
+		assert_eq!(status, 200, "{body}");
+	}
+
+	let (status, body) = post(
+		address,
+		"mine",
+		json!({ "limit": 10 }),
+		Some(&signed_in(ada)),
+	)
+	.await;
+	assert_eq!(status, 200, "{body}");
+	let mine: Vec<analytics_service::RecentEvent> = serde_json::from_str(&body).unwrap();
+	assert_eq!(
+		mine.iter()
+			.map(|event| event.name.as_str())
+			.collect::<Vec<_>>(),
+		["clicked_buy", "signup"],
+		"only Ada's, newest first"
+	);
+	assert!(
+		mine.iter()
+			.all(|event| event.distinct_id == format!("person:{ada}"))
+	);
+
+	// Nobody signed in, the app itself, and a token that isn't this
+	// service's own, read nobody's.
+	let (status, _) = post(address, "mine", json!({ "limit": 10 }), None).await;
+	assert_eq!(status, 403);
+	let (status, _) = post(address, "mine", json!({ "limit": 10 }), Some(TOKEN)).await;
+	assert_eq!(status, 403);
+	let elsewhere = rpc::server::IdentityKey::new("other", TOKEN).unwrap().mint(
+		ada,
+		std::time::SystemTime::now(),
+		rpc::server::IDENTITY_LIFETIME,
+	);
+	let (status, _) = post(address, "mine", json!({ "limit": 10 }), Some(&elsewhere)).await;
+	assert_eq!(status, 401, "the client fetches a new token");
+
+	// Nobody can write to a signed-in person's events by naming them.
+	let forged = json!({ "event": "signup", "distinct_id": format!("person:{ada}") });
+	let (status, _) = post(address, "capture", forged, None).await;
+	assert_eq!(status, 400);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_signed_in_persons_live_events_update_when_they_capture() {
+	let address = start().await;
+	let ada = uuid::Uuid::from_u128(0xada);
+	let mut request = format!("ws://{address}{PREFIX}/live")
+		.into_client_request()
+		.unwrap();
+	request
+		.headers_mut()
+		.insert("origin", ORIGIN.parse().unwrap());
+	let (mut socket, _) = connect_async(request).await.expect("the live socket opens");
+	let send = |frame: Value| tungstenite::Message::Text(frame.to_string().into());
+	// The browser's socket signs in with its token for the service.
+	socket
+		.send(send(json!({ "type": "auth", "token": signed_in(ada) })))
+		.await
+		.unwrap();
+	socket.send(send(json!({ "type": "hello" }))).await.unwrap();
+	socket
+		.send(send(
+			json!({ "type": "sub", "id": 1, "query": "mine", "args": { "limit": 10 } }),
+		))
+		.await
+		.unwrap();
+	// The first value: nothing of Ada's yet.
+	wait_for(&mut socket, "\"ok\":[]").await;
+
+	let (status, _) = post(address, "capture", capture("signup"), Some(&signed_in(ada))).await;
+	assert_eq!(status, 200);
+	wait_for(&mut socket, &format!("person:{ada}")).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

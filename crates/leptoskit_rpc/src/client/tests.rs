@@ -369,6 +369,64 @@ async fn a_server_calls_a_service_at_its_url_anonymously_unless_as_the_app() {
 	assert_eq!(script.sent().len(), 0, "nothing is sent without a URL");
 }
 
+/// What the browser and a native app sign a service's calls with: the
+/// person's token for that service, from the app, kept until the sign-in
+/// changes. One test, because the sign-in's generation is the process's.
+#[tokio::test]
+async fn a_service_is_signed_with_the_persons_token_for_it_until_the_sign_in_changes() {
+	use super::services::IdentityToken;
+	use super::services::forget_identities;
+
+	let app = Script::default()
+		.answer(200, r#"{"token":"lkid1.first","expires_in":300}"#)
+		.answer(200, r#"{"token":"lkid1.second","expires_in":300}"#)
+		.answer(200, "null")
+		.answer(500, "ServerError|the app is down");
+	let api: Arc<dyn Api> = Arc::new(remote(
+		&app,
+		ClientConfig::new().origin("https://app.example"),
+	));
+	let token = IdentityToken::new("analytics", move || Arc::clone(&api));
+	let first = Some("Bearer lkid1.first".to_owned());
+
+	// The first call asks the app, through the app's own client, for this
+	// service's token; the next one uses what it kept.
+	assert_eq!(token.authorization().await, Ok(first.clone()));
+	assert_eq!(token.authorization().await, Ok(first.clone()));
+	let sent = app.sent();
+	assert_eq!(sent.len(), 1);
+	assert_eq!(sent[0].url, "https://app.example/api/rpc.service_token");
+	assert_eq!(
+		serde_json::from_str::<serde_json::Value>(&sent[0].body).unwrap(),
+		json!({ "service": "analytics" })
+	);
+
+	// The service refused it, or its live connection asked for a new one:
+	// the app is asked again, and the call is worth sending again.
+	assert_eq!(token.refused(first.clone()).await, Ok(true));
+	assert_eq!(
+		token.authorization().await,
+		Ok(Some("Bearer lkid1.second".to_owned()))
+	);
+	// Another call refused with the old token just sends again.
+	assert_eq!(token.refused(first).await, Ok(true));
+	assert_eq!(app.sent().len(), 2);
+
+	// Signing out forgets it, and the app has nothing for nobody: calls go
+	// anonymously, without asking each time.
+	forget_identities();
+	assert_eq!(token.authorization().await, Ok(None));
+	assert_eq!(token.authorization().await, Ok(None));
+	assert_eq!(app.sent().len(), 3);
+
+	// When the app can't be asked, calls go anonymously too: never more
+	// than anonymous, and never a failure of the service's call.
+	assert_eq!(token.refused(None).await, Ok(false));
+	assert_eq!(app.sent().len(), 4);
+	assert_eq!(token.authorization().await, Ok(None));
+	assert_eq!(app.sent().len(), 4);
+}
+
 #[tokio::test]
 async fn a_browser_or_native_app_calls_a_service_on_the_apps_origin() {
 	use super::services::at_service;

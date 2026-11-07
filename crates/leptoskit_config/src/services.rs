@@ -97,6 +97,13 @@ pub struct ServiceConfig {
 	/// `isolated` for anything installed or remote.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub trust: Option<ServiceTrust>,
+	/// Whether the app's server tells the service who is signed in: browsers,
+	/// native apps, and server rendering then sign each call to the service
+	/// with a short-lived token naming the person, which only this service
+	/// accepts. Defaults to `true` for `first-party` services, which already
+	/// get the app's cookies, and `false` for `isolated` ones.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub forward_identity: Option<bool>,
 	/// Plain values set on the service.
 	#[serde(skip_serializing_if = "BTreeMap::is_empty")]
 	pub env: BTreeMap<String, String>,
@@ -262,6 +269,8 @@ pub struct ResolvedService {
 	pub pool: Option<u32>,
 	/// How far the app trusts it with its origin.
 	pub trust: ServiceTrust,
+	/// Whether the app tells it who is signed in.
+	pub forward_identity: bool,
 	/// Plain values set on it.
 	pub env: BTreeMap<String, String>,
 	/// Variables passed through to it.
@@ -343,6 +352,11 @@ impl ResolvedService {
 			database: config.database.or(manifest.database).unwrap_or(false),
 			pool: config.pool.or(manifest.pool),
 			trust,
+			// Only the app decides who a service may know, so a manifest
+			// can't ask for it.
+			forward_identity: config
+				.forward_identity
+				.unwrap_or(trust == ServiceTrust::FirstParty),
 			env,
 			secrets: pick(&config.secrets, &manifest.secrets),
 			volumes: pick(&config.volumes, &manifest.volumes),
@@ -525,7 +539,8 @@ impl ServiceConfig {
 			if let Some((key, _)) = process_only.iter().find(|(_, set)| *set) {
 				return Some(format!(
 					"services.{name} is remote (`url`), so `leptoskit` runs nothing for it and \
-					 `{key}` has no meaning; remote services take `url`, `bind`, and `trust`"
+					 `{key}` has no meaning; remote services take `url`, `bind`, `trust`, and \
+					 `forward_identity`"
 				));
 			}
 
@@ -1073,6 +1088,40 @@ mod tests {
 		assert_eq!(
 			trust("package = 'a'\ntrust = 'isolated'"),
 			ServiceTrust::Isolated
+		);
+	}
+
+	#[test]
+	fn identity_is_forwarded_to_first_party_services_unless_the_table_says_otherwise() {
+		let forwards = |raw: &str| {
+			ResolvedService::merge("a", &table(raw), None)
+				.expect("merged")
+				.forward_identity
+		};
+		assert!(forwards("package = 'a'"));
+		assert!(!forwards("crate = 'a'"));
+		assert!(!forwards("url = 'https://a.example'"));
+		// It follows the trust the table settles on, and the table can
+		// override it either way.
+		assert!(!forwards("package = 'a'\ntrust = 'isolated'"));
+		assert!(forwards("crate = 'a'\ntrust = 'first-party'"));
+		assert!(forwards("crate = 'a'\nforward_identity = true"));
+		assert!(!forwards("package = 'a'\nforward_identity = false"));
+		assert!(forwards(
+			"url = 'https://a.example'\nforward_identity = true"
+		));
+		assert!(
+			problem(
+				&services("[a]\nurl = 'https://a.example'\nforward_identity = true"),
+				3000
+			)
+			.is_none()
+		);
+
+		// A manifest can't ask for it: only the app decides.
+		assert!(
+			toml::from_str::<ServiceManifest>("forward_identity = true").is_err(),
+			"the manifest has no such key"
 		);
 	}
 

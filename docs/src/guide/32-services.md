@@ -66,26 +66,27 @@ Each table has exactly one source: `package`, `path`, `crate` (with an optional 
 
 Building an installed service resolves its exact version once and records it in `services.lock` at the root of your project. Commit that file: release builds use it with `--locked`, so the same commit always builds the same service, and they fail if it's missing.
 
-A remote service takes only `url`, `public`, `routes`, `bind`, and `trust`. Its token comes from your environment as `LEPTOSKIT_SERVICE_<NAME>_TOKEN`, such as `LEPTOSKIT_SERVICE_BILLING_TOKEN`.
+A remote service takes only `url`, `public`, `routes`, `bind`, `trust`, and `forward_identity`. Its token comes from your environment as `LEPTOSKIT_SERVICE_<NAME>_TOKEN`, such as `LEPTOSKIT_SERVICE_BILLING_TOKEN`.
 
 ### Settings
 
 The service's `[package.metadata.leptoskit.service]` sets its defaults, and `[services.<name>]` in your `leptoskit.toml` can override any of them. A value in `leptoskit.toml` replaces the service's, and `env` and `bind` merge key by key, with `leptoskit.toml` winning.
 
-| Key        | Meaning                                                                                                                                                                                                 |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bin`      | Which binary to run, when the package has several.                                                                                                                                                      |
-| `features` | Cargo features to turn on when building the service.                                                                                                                                                    |
-| `port`     | Where it listens. Required for every service that runs as a process. Unique, and not `serve.port`.                                                                                                      |
-| `public`   | Whether browsers and native apps can reach it at `/_leptoskit/services/<name>/` on the app's origin. Off by default: a private service only answers the app's server.                                   |
-| `routes`   | Extra public path prefixes, such as `/_analytics`. Needs `public`. Can't be `/`, overlap another service's, or cover the app's own `/pkg`, `/api`, `/live`, or `/_leptoskit`.                           |
-| `database` | Whether the service gets a database of its own: on the engine your `[db]` names, or SQLite when the app has no `[db]`.                                                                                  |
-| `pool`     | How many connections the service's database pool should hold.                                                                                                                                           |
-| `env`      | Plain values set on the service.                                                                                                                                                                        |
-| `secrets`  | Names of variables the service needs from your environment.                                                                                                                                             |
-| `volumes`  | Named directories the service keeps between runs.                                                                                                                                                       |
-| `bind`     | Variables set on the **app** when this service is present. `{url}`, `{token}`, and `{public_path}` are filled in, so `ANALYTICS_PATH = "{public_path}"` gives the app `/_leptoskit/services/analytics`. |
-| `trust`    | Only in `leptoskit.toml`: `"first-party"` or `"isolated"`. See [Trusting a service](#trusting-a-service).                                                                                               |
+| Key                | Meaning                                                                                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bin`              | Which binary to run, when the package has several.                                                                                                                                                      |
+| `features`         | Cargo features to turn on when building the service.                                                                                                                                                    |
+| `port`             | Where it listens. Required for every service that runs as a process. Unique, and not `serve.port`.                                                                                                      |
+| `public`           | Whether browsers and native apps can reach it at `/_leptoskit/services/<name>/` on the app's origin. Off by default: a private service only answers the app's server.                                   |
+| `routes`           | Extra public path prefixes, such as `/_analytics`. Needs `public`. Can't be `/`, overlap another service's, or cover the app's own `/pkg`, `/api`, `/live`, or `/_leptoskit`.                           |
+| `database`         | Whether the service gets a database of its own: on the engine your `[db]` names, or SQLite when the app has no `[db]`.                                                                                  |
+| `pool`             | How many connections the service's database pool should hold.                                                                                                                                           |
+| `env`              | Plain values set on the service.                                                                                                                                                                        |
+| `secrets`          | Names of variables the service needs from your environment.                                                                                                                                             |
+| `volumes`          | Named directories the service keeps between runs.                                                                                                                                                       |
+| `bind`             | Variables set on the **app** when this service is present. `{url}`, `{token}`, and `{public_path}` are filled in, so `ANALYTICS_PATH = "{public_path}"` gives the app `/_leptoskit/services/analytics`. |
+| `trust`            | Only in `leptoskit.toml`: `"first-party"` or `"isolated"`. See [Trusting a service](#trusting-a-service).                                                                                               |
+| `forward_identity` | Only in `leptoskit.toml`: whether the service learns who is signed in. On by default for `first-party` services, off for `isolated` ones. See [Knowing who is signed in](#knowing-who-is-signed-in).    |
 
 ## Write the service's operations
 
@@ -289,7 +290,7 @@ On every platform this screen runs on:
 
 - **`capture`** goes straight to the service. On the web it's a `POST /_leptoskit/services/analytics/api/capture` on the page's own origin. Native apps send it to the origin they configured.
 - **`use_live`** opens a second live connection, at `/_leptoskit/services/analytics/live`, beside the app's own. It's opened the first time a screen watches one of the service's queries. Updates arrive the way they do for the app's own [live queries](24-real-time.md): when a write to `events` commits, the service re-runs the counts it affects and sends what changed.
-- **While the server renders the page,** the first count comes from the app's server calling the service over HTTP, at the address `leptoskit dev` gave it. The page arrives with the number already in it. The server calls as an anonymous visitor, the same as the browser would, so a page only ever shows what the browser could fetch for itself.
+- **While the server renders the page,** the first count comes from the app's server calling the service over HTTP, at the address `leptoskit dev` gave it. The page arrives with the number already in it. The server calls as whoever the browser would: the signed-in person, when the service [knows who is signed in](#knowing-who-is-signed-in), and an anonymous visitor otherwise. So a page only ever shows what that person's browser could fetch for itself.
 
 Server code calls a service with the same `call`:
 
@@ -301,7 +302,7 @@ That needs `leptoskit_rpc`'s `services` feature on the app's server (`rpc-servic
 
 ### Calling as the app
 
-`call`, and every query hook (`use_rpc_query`, `use_live`, and the rest), reach a service as an anonymous caller, even on the server, which holds the service's token. That's deliberate: what the server renders goes into the page's HTML, so a hook that read an app-only operation there would hand its result to every visitor.
+`call`, and every query hook (`use_rpc_query`, `use_live`, and the rest), reach a service as the browser would, as the signed-in person or anonymously, even on the server, which holds the service's token. That's deliberate: what the server renders goes into the page's HTML, so a hook that read an app-only operation there would hand its result to every visitor.
 
 To call an operation only the app may call, such as `recent`, use `call_as_app` in server code:
 
@@ -313,7 +314,7 @@ It presents the service's token, so the service identifies the call as `"app"`. 
 
 ### Native apps and credentials
 
-A native app signs its own calls with the credentials it configured, such as `leptoskit_auth`'s access token. Those don't go to services: a service gets no credentials unless you name it, and a service refusing a request never renews the app's token. To trust a service with them, say so:
+A native app signs its own calls with the credentials it configured, such as `leptoskit_auth`'s access token. Those don't go to services: a service gets only the short-lived token that [says who is signed in](#knowing-who-is-signed-in), when it should know, and a service refusing a request never renews the app's token. To trust a service with the app's own credentials instead, say so:
 
 ```rust
 rpc::client::configure(
@@ -360,7 +361,55 @@ Public service paths share your app's origin, so browsers send them the app's co
 
 Set `trust = "first-party"` on an installed service only if you'd trust its code with your users' sessions. A service serving HTML or JavaScript from your origin runs with your app's privileges, so only first-party services should.
 
-Services see browsers as anonymous, and the app's server as `"app"`. The person signed in to your app isn't passed on to a service yet, so per-person data in a service can only be reached through the app's server.
+## Knowing who is signed in
+
+An analytics dashboard that shows each person their own activity needs the service to know who is asking. But the service never sees your app's session: an isolated service gets no cookies, and a native app's access token stays with the app. Instead, your app vouches for the person, one service at a time.
+
+A service you write in your workspace is told by default. For an installed or remote one, turn it on in its table:
+
+```toml
+[services.search]
+crate = "acme-search-service"
+forward_identity = true
+```
+
+The service's operations then see the person. Here is the analytics example's `mine`, which returns the signed-in person's own events:
+
+```rust
+/// The signed-in person's own latest events, newest first.
+#[rpc::query(service = "analytics")]
+pub async fn mine(cx: &rpc::QueryCx, limit: u32) -> rpc::Result<Vec<RecentEvent>> {
+	let Some(me) = cx.identity().context.get::<rpc::server::ForwardedIdentity>() else {
+		return Err(rpc::Error::forbidden("sign in to see your own events"));
+	};
+	// `me.person` is the person's id: their account's, with `leptoskit_auth`.
+	// …
+}
+```
+
+A screen watches it like any other live query, on every platform, and gets only that person's events:
+
+```rust
+let mine = use_live(|| Mine { limit: 20 });
+```
+
+Who the service sees, depending on where the call comes from:
+
+- **In the browser and in native apps,** before the first call to the service, the client asks your app's server for a token for that service, signed in the way the app already is (its cookie, or a native app's access token). The token names the person and lasts five minutes. The client sends it with that service's calls and on its live connection, and nowhere else, and fetches a new one before it runs out.
+- **While the server renders a page,** the server signs the service's calls with a token for the person it's rendering for, so the page holds what that person's browser would fetch.
+- **When nobody is signed in,** calls go anonymously, as before.
+
+The operation sees the caller `person:<id>`, apart from the app's own `"app"`, and the person's `Actor`, so `#[db(created_by)]` columns and policies on the service's own tables work as they do in the app.
+
+What the service learns, and what it can't do with it:
+
+- It learns the person's id and nothing else: not their session, email, or roles.
+- A token for one service doesn't work at any other service, or at your app.
+- When someone signs out, `leptoskit_auth`'s client forgets their tokens and the client stops asking for more. A token already handed out keeps working until it expires, at most five minutes later. If you don't use `leptoskit_auth`'s client, call `rpc::client::reauthenticate()` after signing in or out.
+
+It needs two things you probably already have: your app's server serves `rpc::server::Server` with your sign-in as its `Identify`, which answers the client's request for a token, and the service builds its server with `ServiceCallers::for_service`, which accepts tokens made for it.
+
+Without `forward_identity`, services see browsers as anonymous, and the app's server as `"app"` when it uses `call_as_app`.
 
 ## Running it
 
@@ -389,11 +438,12 @@ plus its `env` values. `ServiceEnv` reads all of these for you.
 
 The app receives, for each service:
 
-| Variable                         | Value                                                  |
-| -------------------------------- | ------------------------------------------------------ |
-| `LEPTOSKIT_SERVICE_<NAME>_URL`   | the service's private address                          |
-| `LEPTOSKIT_SERVICE_<NAME>_TOKEN` | the service's token                                    |
-| each `bind` entry                | with `{url}`, `{token}`, and `{public_path}` filled in |
+| Variable                            | Value                                                  |
+| ----------------------------------- | ------------------------------------------------------ |
+| `LEPTOSKIT_SERVICE_<NAME>_URL`      | the service's private address                          |
+| `LEPTOSKIT_SERVICE_<NAME>_TOKEN`    | the service's token                                    |
+| `LEPTOSKIT_SERVICE_<NAME>_IDENTITY` | `forward`, when the service knows who is signed in     |
+| each `bind` entry                   | with `{url}`, `{token}`, and `{public_path}` filled in |
 
 `<NAME>` is the service's name in capitals, with `-` written `_`.
 

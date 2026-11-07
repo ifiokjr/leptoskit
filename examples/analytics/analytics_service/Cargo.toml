@@ -40,6 +40,8 @@ leptoskit_axum = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }
+# The signed-in people the tests forward.
+uuid = { workspace = true }
 
 [features]
 default = []

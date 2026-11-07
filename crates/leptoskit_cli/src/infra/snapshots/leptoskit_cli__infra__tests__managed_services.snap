@@ -147,8 +147,10 @@ expression: yaml
       "env": {
         "clear": {
           "ANALYTICS_PUBLIC_PATH": "/_leptoskit/services/analytics",
+          "LEPTOSKIT_SERVICE_ANALYTICS_IDENTITY": "forward",
           "LEPTOSKIT_SERVICE_ANALYTICS_URL": "http://notes-production-analytics:3100",
           "LEPTOSKIT_SERVICE_BILLING_URL": "https://billing.internal.example",
+          "LEPTOSKIT_SERVICE_CARDS_IDENTITY": "forward",
           "LEPTOSKIT_SERVICE_CARDS_URL": "http://notes-production-cards:3200",
           "LEPTOS_ENV": "PROD",
           "LEPTOS_OUTPUT_NAME": "notes_app",

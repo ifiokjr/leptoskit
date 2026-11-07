@@ -162,6 +162,8 @@ spec:
               value: "0.0.0.0:3000"
             - name: LEPTOSKIT_SERVICE_ANALYTICS_URL
               value: "http://notes-analytics:3100"
+            - name: LEPTOSKIT_SERVICE_ANALYTICS_IDENTITY
+              value: "forward"
             - name: ANALYTICS_AUTHORIZATION
               value: "Bearer $(LEPTOSKIT_SERVICE_ANALYTICS_TOKEN)"
             - name: ANALYTICS_PUBLIC_PATH
@@ -170,6 +172,8 @@ spec:
               value: "https://billing.internal.example"
             - name: LEPTOSKIT_SERVICE_CARDS_URL
               value: "http://notes-cards:3200"
+            - name: LEPTOSKIT_SERVICE_CARDS_IDENTITY
+              value: "forward"
           envFrom:
             - secretRef:
                 name: notes

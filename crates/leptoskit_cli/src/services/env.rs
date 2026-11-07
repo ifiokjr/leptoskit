@@ -44,6 +44,18 @@ pub fn token(service: &str) -> String {
 	format!("LEPTOSKIT_SERVICE_{}_TOKEN", env_segment(service))
 }
 
+/// The app's variable saying whether it tells `service` who is signed in:
+/// set to [`IDENTITY_FORWARDED`] when `forward_identity` is on, and absent
+/// otherwise. The app's server reads it before minting a token for the
+/// service.
+#[must_use]
+pub fn identity(service: &str) -> String {
+	format!("LEPTOSKIT_SERVICE_{}_IDENTITY", env_segment(service))
+}
+
+/// The value of [`identity`] that lets the app forward identity.
+pub const IDENTITY_FORWARDED: &str = "forward";
+
 /// `value` with `{url}`, `{token}`, and `{public_path}` filled in.
 #[must_use]
 pub fn substitute(value: &str, url: &str, token: &str, public_path: &str) -> String {

@@ -1603,8 +1603,13 @@ pub(crate) fn install_client(client: LiveClient) -> bool {
 /// Has the app's live connection read as whoever its credentials now say:
 /// call it after signing in, signing out, or renewing a token.
 /// `leptoskit_auth`'s client calls it itself, with its `rpc` feature on.
-/// Does nothing without a live client.
+/// It also forgets the tokens that told services who was signed in, so
+/// their next calls and connections ask the app for the new person's, or
+/// go anonymously after a sign-out.
 pub fn reauthenticate() {
+	// A service's token names whoever was signed in: ask for a new one.
+	super::services::forget_identities();
+
 	if let Some(live) = CLIENT.get() {
 		live.reauthenticate();
 	}

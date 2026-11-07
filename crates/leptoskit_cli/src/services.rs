@@ -892,6 +892,10 @@ fn print_entry(entry: &Entry) {
 		anstream::println!("  {DIM}public{DIM:#}    {}", entry.public_paths.join(", "));
 	}
 
+	if entry.forward_identity {
+		anstream::println!("  {DIM}identity{DIM:#}  the signed-in person is forwarded");
+	}
+
 	if let Some(database) = &entry.database {
 		let pool = database
 			.pool
@@ -928,6 +932,8 @@ pub struct Entry {
 	pub port: Option<u16>,
 	/// `first-party` or `isolated`.
 	pub trust: &'static str,
+	/// Whether the app tells it who is signed in.
+	pub forward_identity: bool,
 	/// The paths browsers reach it at on the app's origin.
 	pub public_paths: Vec<String>,
 	/// Its database, when it has one.
@@ -1038,6 +1044,7 @@ pub fn listing(services: &[Service], config: &LeptoskitConfig, root: &Path) -> L
 				.collect();
 			let bindings = [env::url(&name), env::token(&name)]
 				.into_iter()
+				.chain(settings.forward_identity.then(|| env::identity(&name)))
 				.chain(settings.bind.keys().cloned())
 				.collect();
 
@@ -1048,6 +1055,7 @@ pub fn listing(services: &[Service], config: &LeptoskitConfig, root: &Path) -> L
 				},
 				port: settings.port,
 				trust: settings.trust.as_str(),
+				forward_identity: settings.forward_identity,
 				public_paths: settings.public_prefixes(),
 				database,
 				volumes,

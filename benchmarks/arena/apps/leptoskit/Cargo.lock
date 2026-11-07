@@ -3180,8 +3180,10 @@ version = "0.3.0"
 dependencies = [
  "any_spawner",
  "axum",
+ "base64 0.22.1",
  "chrono",
  "futures",
+ "hmac 0.12.1",
  "http",
  "inventory",
  "leptos",
@@ -3203,6 +3205,7 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.21",
  "tokio",
+ "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

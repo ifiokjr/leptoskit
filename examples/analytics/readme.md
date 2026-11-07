@@ -7,10 +7,11 @@ It targets the **web**: a server-rendered page that hydrates in the browser.
 ## What's in it
 
 - **`analytics_service`** is the service, and a service plugin other apps could add.
-  - Its library defines an `events` table and three operations, each marked `service = "analytics"`:
-    - `capture` records an event, and anyone may call it;
+  - Its library defines an `events` table and four operations, each marked `service = "analytics"`:
+    - `capture` records an event, and anyone may call it. A signed-in person's events are recorded under them;
     - `summary` counts events per name and per day, and anyone may watch it live;
-    - `recent` lists individual events, and only the app may call it.
+    - `recent` lists individual events, and only the app may call it;
+    - `mine` lists the signed-in person's own events, and they may watch it live.
   - Its binary opens and migrates its own database, then serves those operations under `/_leptoskit/services/analytics/`.
   - Its `Cargo.toml` tells leptoskit how to run it, in `[package.metadata.leptoskit.service]`: its port, that browsers may reach it, and that it needs a database.
 - **`analytics_app`** is a leptoskit app with one line of setup:
@@ -34,6 +35,8 @@ Where that call goes depends on where it runs:
 - **On the app's server**, while it renders the page, it goes straight to the service, with the service's secret token. That token is what lets the app read `recent`.
 
 The app's server never runs the operations itself: the bodies are compiled only into the service.
+
+`mine` needs to know who is signed in. The service is in the app's workspace, so the app tells it: each call from a signed-in browser or native app, and each call the server makes while rendering a page for them, carries a short-lived token that names the person and that only the analytics service accepts. This app has no sign-in of its own, so its page doesn't show `mine`; an app with `leptoskit_auth` can watch it with `use_live(|| Mine { limit: 20 })`. The service's tests sign people in with tokens the way the app's server makes them.
 
 ## Run it
 
@@ -71,5 +74,5 @@ Repeat with `dialect = "postgres"` and `migrations = "migrations-postgres"`, the
 
 ## Tests
 
-- `cargo test -p analytics_service --features service` runs the service on a real port. It checks who may call what, and that a live summary updates when an event arrives.
+- `cargo test -p analytics_service --features service` runs the service on a real port. It checks who may call what, that a live summary updates when an event arrives, and that a signed-in person reads, and watches live, only their own events.
 - `cargo test -p analytics_app --features ssr` builds the app with the service's code linked in, as `cargo test --workspace` and `leptoskit build` do. It checks that the app doesn't serve the service's operations itself, and that calling one reaches the service.

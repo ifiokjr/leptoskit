@@ -124,6 +124,16 @@ impl Server {
 		&self.inner.db
 	}
 
+	/// Who `parts` is from, as this server's routes would identify them:
+	/// how a page rendered for someone signs that person's calls to a
+	/// service.
+	pub(crate) fn identify_request<'a>(
+		&'a self,
+		parts: &'a http::request::Parts,
+	) -> leptoskit_query::BoxFuture<'a, crate::Result<super::Identity>> {
+		self.inner.identify.identify(parts)
+	}
+
 	/// The live server for these operations: the same database and the same
 	/// way of telling callers apart. Configure it, then merge its
 	/// [`router`](super::Live::router).
