@@ -58,3 +58,5 @@ Passed with Podman 6.1.4, a disposable libkrun VM (2 CPUs, 2 GiB RAM, 10 GiB spa
 - Descriptor SHA-256: `c72a5752f11ae8971e200015913e1feaf87195add5161b88bea89fdd4a04b690`.
 
 The final output was `REAL ENGINE ACCEPTANCE PASSED; local fixture transport, no public provenance claim`. The false-label substitution failed with `image executable bytes differ`. No registry push or deployment occurred. This accepts the local backend packaging slice; it does not complete A04 across websites, services, and approvals.
+
+The final CLI library run passed 560 tests (5 ignored). Full-workspace validation also exposed two pre-existing RPC test setup issues: the offline status test needed a reactive owner with sandboxed arenas, and the slow-reader test relied on a fixed sleep instead of observing each transition. The follow-up scopes the owner and synchronizes backpressure generation against the server counter; it preserves the full-transition assertion.
