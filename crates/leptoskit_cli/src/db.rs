@@ -865,7 +865,22 @@ pub(crate) fn removed_packs(previous: &Schema, target: &Schema) -> Result<Vec<St
 /// removing a pack by accident is far likelier than meaning to delete every
 /// table a library owns.
 pub(crate) fn check_packs(previous: &Schema, target: &Schema, drop_packs: &[String]) -> Result<()> {
-	let missing = removed_packs(previous, target)?;
+	check_pack_baselines(&[previous], target, drop_packs, true)
+}
+
+/// Validate removal intent against every schema an operation may replace.
+/// Before reading push state, only missing-pack refusal is final; unknown
+/// flags are checked once the complete set of baselines is available.
+pub(crate) fn check_pack_baselines(
+	previous: &[&Schema],
+	target: &Schema,
+	drop_packs: &[String],
+	complete: bool,
+) -> Result<()> {
+	let mut missing = std::collections::BTreeSet::new();
+	for baseline in previous {
+		missing.extend(removed_packs(baseline, target)?);
+	}
 	let requested: HashSet<&str> = drop_packs.iter().map(String::as_str).collect();
 
 	ensure!(
@@ -873,7 +888,12 @@ pub(crate) fn check_packs(previous: &Schema, target: &Schema, drop_packs: &[Stri
 		"--drop-pack names each pack once"
 	);
 
-	if previous.pack_membership().is_none() && !drop_packs.is_empty() {
+	if complete
+		&& previous
+			.iter()
+			.all(|schema| schema.pack_membership().is_none())
+		&& !drop_packs.is_empty()
+	{
 		bail!(
 			"the recorded schema predates schema-pack membership, so there is no pack to drop; \
 			 remove --drop-pack"
@@ -886,7 +906,7 @@ pub(crate) fn check_packs(previous: &Schema, target: &Schema, drop_packs: &[Stri
 		.filter(|name| !missing.iter().any(|pack| pack == name))
 		.collect();
 
-	if !unexpected.is_empty() {
+	if complete && !unexpected.is_empty() {
 		bail!(
 			"--drop-pack names {} but the recorded schema doesn't lose it: a pack can only be \
 			 dropped when it is absent from the exported tables",
@@ -971,6 +991,17 @@ pub(crate) fn create(
 	options: &CreateOptions,
 	renames: &mut dyn RenameResolver,
 ) -> Result<Created> {
+	create_from(project, name, target, options, renames, None)
+}
+
+fn create_from(
+	project: &Project,
+	name: &str,
+	target: &Schema,
+	options: &CreateOptions,
+	renames: &mut dyn RenameResolver,
+	pushed: Option<&Schema>,
+) -> Result<Created> {
 	let directory = project.migrations_dir();
 	let history = History::read(&directory, project.dialect())?;
 
@@ -980,11 +1011,12 @@ pub(crate) fn create(
 		&& !options.empty
 		&& history.names.len() > history.published
 	{
-		return amend_latest(project, &history, target, options, renames);
+		return amend_latest(project, &history, target, options, renames, pushed);
 	}
 
 	let slug = slug(name)?;
-	check_packs(&history.latest, target, &options.drop_packs)?;
+	let baselines: Vec<&Schema> = std::iter::once(&history.latest).chain(pushed).collect();
+	check_pack_baselines(&baselines, target, &options.drop_packs, true)?;
 	let plan = leptoskit_db_schema::diff(&history.latest, target, renames)?;
 
 	if options.empty {
@@ -1130,7 +1162,14 @@ pub(crate) fn create_squashing(
 		None => None,
 	};
 
-	let created = create(project, name, target, options, renames)?;
+	let created = create_from(
+		project,
+		name,
+		target,
+		options,
+		renames,
+		squash.as_ref().map(|squash| &squash.previous),
+	)?;
 
 	if let Some(squash) = squash {
 		let sql = fs::read_to_string(created.directory.join("migration.sql"))?;
@@ -1155,18 +1194,12 @@ pub(crate) fn create_squashing(
 
 /// Fails when `target` differs from the latest snapshot, listing what changed.
 pub(crate) fn check(history: &History, target: &Schema) -> Result<()> {
-	check_with_drops(history, target, &[])
+	check_packs(&history.latest, target, &[])?;
+	check_database(history, target)
 }
 
-/// [`check`], with the packs the developer named as deliberate removals.
-pub(crate) fn check_with_drops(
-	history: &History,
-	target: &Schema,
-	drop_packs: &[String],
-) -> Result<()> {
+fn check_database(history: &History, target: &Schema) -> Result<()> {
 	let target = target.without_rename_hints();
-
-	check_packs(&history.latest, &target, drop_packs)?;
 
 	if target.same_database(&history.latest) {
 		return Ok(());
@@ -1655,6 +1688,7 @@ fn amend_latest(
 	target: &Schema,
 	options: &CreateOptions,
 	renames: &mut dyn RenameResolver,
+	pushed: Option<&Schema>,
 ) -> Result<Created> {
 	let name = history
 		.names
@@ -1674,7 +1708,11 @@ fn amend_latest(
 			.with_context(|| format!("{} isn't a valid snapshot", path.display()))?
 	};
 
-	check_packs(&previous, target, &options.drop_packs)?;
+	let baselines: Vec<&Schema> = [&history.latest, &previous]
+		.into_iter()
+		.chain(pushed)
+		.collect();
+	check_pack_baselines(&baselines, target, &options.drop_packs, true)?;
 	let plan = leptoskit_db_schema::diff(&previous, target, renames)?;
 	ensure!(
 		!plan.is_empty(),
@@ -1735,11 +1773,12 @@ fn consolidate(
 
 	// The tables must match the latest migration, so the consolidated
 	// migration covers exactly what the folded ones did.
-	check_with_drops(&history, target, drop_packs)?;
+	check_database(&history, target)?;
 
 	let unreleased = &history.names[history.published..];
 
 	if unreleased.len() < 2 {
+		check_packs(&history.latest, target, drop_packs)?;
 		println!(
 			"{} migration(s) since {} — nothing to consolidate",
 			unreleased.len(),
@@ -1756,6 +1795,10 @@ fn consolidate(
 	let kept = if keep.is_empty() {
 		0
 	} else {
+		ensure!(
+			keep.len() <= unreleased.len(),
+			"--keep lists more migrations than the unreleased draft contains"
+		);
 		let suffix = &unreleased[unreleased.len() - keep.len()..];
 		ensure!(
 			suffix.iter().zip(keep).all(|(name, kept)| name == kept),
@@ -1769,6 +1812,11 @@ fn consolidate(
 		keep.len()
 	};
 	let folded = &unreleased[..unreleased.len() - kept];
+	if folded.is_empty() {
+		check_packs(&history.latest, target, drop_packs)?;
+		println!("all unreleased migrations are kept — nothing to consolidate");
+		return Ok(());
+	}
 
 	// The baseline the release ended at: the snapshot of the last frozen
 	// migration, or the empty schema before any.
@@ -1788,7 +1836,7 @@ fn consolidate(
 	// The release baseline may still carry a pack that the drafts removed;
 	// consolidating writes that removal into fresh SQL, so it needs the same
 	// explicit intent.
-	check_packs(&baseline, target, drop_packs)?;
+	check_pack_baselines(&[&history.latest, &baseline], target, drop_packs, true)?;
 
 	// A folded migration whose SQL no longer matches what the diff of its
 	// snapshots generates carries hand-written statements; folding it would
@@ -1813,9 +1861,12 @@ fn consolidate(
 		previous = snapshot;
 	}
 
-	let plan = leptoskit_db_schema::diff(&baseline, target, renames)?;
-	let migration = leptoskit_db_schema::render(&plan, &baseline, target);
-	let down = reverse_sql(&baseline, target, &plan, false)?;
+	// Kept migrations run afterwards. Folding through the final target would
+	// apply their schema changes twice and record the wrong intermediate state.
+	let folded_target = &previous;
+	let plan = leptoskit_db_schema::diff(&baseline, folded_target, renames)?;
+	let migration = leptoskit_db_schema::render(&plan, &baseline, folded_target);
+	let down = reverse_sql(&baseline, folded_target, &plan, false)?;
 	let name = format!(
 		"{}_consolidated",
 		chrono::Utc::now().format("%Y%m%dT%H%M%S")
@@ -1832,7 +1883,7 @@ fn consolidate(
 	fs::write(migration_dir.join("down.sql"), down)?;
 	fs::write(
 		migration_dir.join("schema.json"),
-		target.without_rename_hints().to_json(),
+		folded_target.without_rename_hints().to_json(),
 	)?;
 	fs::write(
 		migration_dir.join("replaces.json"),

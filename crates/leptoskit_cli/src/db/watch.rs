@@ -319,14 +319,14 @@ fn write_steps(message: &mut String, steps: &[String]) {
 pub(crate) fn classify(history: &History, target: &Schema) -> Change {
 	let target_without_hints = target.without_rename_hints();
 
-	if target_without_hints.same_database(&history.latest) {
-		return Change::Unchanged;
-	}
-
 	match super::removed_packs(&history.latest, &target_without_hints) {
 		Ok(missing) if !missing.is_empty() => return Change::MissingPacks(missing),
 		Ok(_) => {}
 		Err(error) => return Change::Unresolved(error.to_string()),
+	}
+
+	if target_without_hints.same_database(&history.latest) {
+		return Change::Unchanged;
 	}
 
 	let plan = match leptoskit_db_schema::diff(&history.latest, target, &mut RequireHints) {

@@ -217,6 +217,7 @@ pub trait Table: Sized + 'static {
 /// without listing tables by hand.
 #[doc(hidden)]
 pub struct TableEntry {
+	type_id: fn() -> std::any::TypeId,
 	pub(crate) name: fn() -> TableName,
 	pub(crate) definition: fn() -> leptoskit_db_schema::Table,
 	pack: Option<&'static str>,
@@ -252,6 +253,7 @@ type VisibleImages = fn(
 impl TableEntry {
 	pub const fn of<T: Table>() -> Self {
 		Self {
+			type_id: std::any::TypeId::of::<T>,
 			name: T::table_name,
 			definition: T::definition,
 			pack: T::PACK,
@@ -346,20 +348,23 @@ inventory::collect!(ExpectedPack);
 /// in the export even when nothing else in the app mentions the pack's
 /// symbols.
 fn registered_entries() -> Vec<&'static TableEntry> {
-	let mut by_name: std::collections::BTreeMap<TableName, &'static TableEntry> =
-		std::collections::BTreeMap::new();
+	deduplicate_entries(
+		inventory::iter::<TableEntry>().into_iter().chain(
+			inventory::iter::<ExpectedPack>()
+				.into_iter()
+				.flat_map(|expected| expected.identity.tables),
+		),
+	)
+}
 
-	for entry in inventory::iter::<TableEntry>() {
-		by_name.insert((entry.name)(), entry);
-	}
-
-	for expected in inventory::iter::<ExpectedPack>() {
-		for entry in expected.identity.tables {
-			by_name.entry((entry.name)()).or_insert(entry);
-		}
-	}
-
-	by_name.into_values().collect()
+fn deduplicate_entries<'a>(entries: impl Iterator<Item = &'a TableEntry>) -> Vec<&'a TableEntry> {
+	let mut types = std::collections::HashSet::new();
+	// A pack may also link its ordinary inventory registration. Deduplicate
+	// that Rust type, not its SQL name: two types claiming one name must reach
+	// schema validation and be rejected, never silently replace one another.
+	entries
+		.filter(|entry| types.insert((entry.type_id)()))
+		.collect()
 }
 
 /// Every registered table, by name.
@@ -453,6 +458,14 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 		.with_routines(sequences, functions, triggers)
 		.with_packs(packs);
 	let mut problems = expected_pack_problems(schema.pack_membership().unwrap_or_default());
+	for entry in &entries {
+		if matches!(entry.pack, Some(LIVE_PACK | AUDIT_PACK)) {
+			problems.push(leptoskit_db_schema::Problem {
+				location: format!("table `{}`", (entry.name)()),
+				message: "the `live` and `audit` pack names are reserved for leptoskit".into(),
+			});
+		}
+	}
 	problems.extend(schema.problems());
 
 	let mut packs: Vec<&str> = entries.iter().filter_map(|entry| entry.pack).collect();
@@ -598,13 +611,12 @@ fn expected_pack_problems_of(
 	}
 
 	for (name, required_by) in required {
-		if actual_names.contains(name) {
-			continue;
-		}
-
 		let empty = declared
 			.get(name)
 			.is_some_and(|pack| pack.tables.is_empty());
+		if actual_names.contains(name) && !empty {
+			continue;
+		}
 		let message = if empty {
 			format!(
 				"packs! declares the `{name}` schema pack, but it owns no tables; check that the \
@@ -1291,14 +1303,21 @@ mod tests {
 
 		let actual = [Pack::new("idp", vec![TableName::new("clients")])];
 		let found = messages(&declared, &actual);
-		assert_eq!(found.len(), 1, "{found:#?}");
-		assert!(found[0].contains("requires the `auth` pack"), "{found:#?}");
+		assert_eq!(found.len(), 2, "{found:#?}");
+		assert!(
+			found
+				.iter()
+				.any(|message| message.contains("requires the `auth` pack")),
+			"{found:#?}"
+		);
 
 		let actual = [
 			Pack::new("idp", vec![TableName::new("clients")]),
 			Pack::new("auth", vec![TableName::new("accounts")]),
 		];
-		assert!(messages(&declared, &actual).is_empty());
+		let found = messages(&declared, &actual);
+		assert_eq!(found.len(), 1, "{found:#?}");
+		assert!(found[0].contains("owns no tables"), "{found:#?}");
 	}
 
 	#[test]
@@ -1320,7 +1339,27 @@ mod tests {
 			&[&live],
 			&[Pack::new("live", vec![TableName::new("changes")]).builtin()],
 		);
-		assert_eq!(found.len(), 1, "{found:#?}");
-		assert!(found[0].contains("reserved"), "{found:#?}");
+		assert!(
+			found.iter().any(|message| message.contains("reserved")),
+			"{found:#?}"
+		);
+	}
+
+	#[test]
+	fn registration_deduplicates_rust_types_without_hiding_sql_name_collisions() {
+		let first = super::TableEntry::of::<crate::AuditEntry>();
+		let repeated = super::TableEntry::of::<crate::AuditEntry>();
+		let mut conflicting = super::TableEntry::of::<crate::AuditEntry>();
+		conflicting.type_id = std::any::TypeId::of::<()>;
+		let entries = super::deduplicate_entries([&first, &repeated, &conflicting].into_iter());
+		assert_eq!(entries.len(), 2);
+		let schema = leptoskit_db_schema::Schema::new(
+			leptoskit_db_schema::Dialect::Sqlite,
+			entries.iter().map(|entry| (entry.definition)()).collect(),
+		);
+		assert!(
+			schema.validate().is_err(),
+			"distinct types claiming one SQL table must be rejected"
+		);
 	}
 }

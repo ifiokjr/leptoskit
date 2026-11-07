@@ -568,9 +568,7 @@ macro_rules! packs {
 /// ```
 ///
 /// `requires = ["auth"]` names the packs this one builds on, so an app that
-/// links only this pack is told to link the ones it needs. Not part of the
-/// public API.
-#[doc(hidden)]
+/// links only this pack is told to link the ones it needs.
 #[macro_export]
 macro_rules! schema_pack {
 	(

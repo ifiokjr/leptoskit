@@ -1388,6 +1388,8 @@ The pack's tables join your schema, in the pack's own namespace (`auth.sessions`
 
 Snapshots written by older leptoskit versions use format 1, which has no pack membership. They remain readable, and the next migration writes format 2. A pack that had already vanished before such a snapshot existed cannot be detected from it; the limitation is the missing evidence, not an inference from the pack's namespace.
 
+Push mode records changes to pack membership even when the tables stay the same. That record protects a newly linked pack on the next push. To commit a membership change that needs no SQL, use `db migration create record_packs --empty`; migration creation also checks the pack membership in any development push it adopts. Amending or consolidating a draft checks both the schema being replaced and its earlier migration baseline.
+
 To write a pack, give its tables a `pack`, and declare the pack's identity and tables once, so `packs!` can link every one of them even when the app never names a pack type:
 
 ```rust

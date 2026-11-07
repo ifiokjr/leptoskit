@@ -108,7 +108,7 @@ pub(crate) fn push(
 	// Check the migration baseline before even connecting: removing a pack
 	// whose tables the latest migration recorded must not depend on a
 	// database being reachable, and must not apply pending migrations first.
-	super::check_packs(&history.latest, target, drop_packs)?;
+	super::check_pack_baselines(&[&history.latest], target, drop_packs, false)?;
 	let migrations = if history.names.is_empty() {
 		Vec::new()
 	} else {
@@ -120,11 +120,16 @@ pub(crate) fn push(
 
 		// Pushes record the schema they left, so a pack that only exists in
 		// push state is caught before the pending migrations run.
-		if let Some(json) = db.pushed_schema().await? {
-			let pushed = Schema::from_json(&json)
-				.context("the development database's pushed schema is invalid")?;
-			super::check_packs(&pushed, target, drop_packs)?;
-		}
+		let pushed = db
+			.pushed_schema()
+			.await?
+			.map(|json| Schema::from_json(&json))
+			.transpose()
+			.context("the development database's pushed schema is invalid")?;
+		let baselines: Vec<&Schema> = std::iter::once(&history.latest)
+			.chain(pushed.as_ref())
+			.collect();
+		super::check_pack_baselines(&baselines, target, drop_packs, true)?;
 
 		db.migrate(&migrations).await?;
 		push_to(&db, &history, target, allow_destructive, drop_packs).await
@@ -140,10 +145,23 @@ async fn push_to(
 ) -> Result<Pushed> {
 	let target = target.without_rename_hints();
 	let current = holds(db, history).await?;
-	super::check_packs(&current, &target, drop_packs)?;
+	super::check_pack_baselines(&[&history.latest, &current], &target, drop_packs, true)?;
 	let plan = leptoskit_db_schema::diff(&current, &target, &mut RequireHints)?;
 
 	if plan.is_empty() {
+		if target.pack_membership() != current.pack_membership() {
+			db.push(
+				&Migration::new(
+					"push",
+					"-- Record schema-pack membership without changing tables.",
+				),
+				&target.to_json(),
+			)
+			.await?;
+			return Ok(Pushed::Applied(vec![
+				"record schema-pack membership".into(),
+			]));
+		}
 		return Ok(Pushed::Unchanged);
 	}
 
@@ -158,7 +176,7 @@ async fn push_to(
 		.await?;
 
 	// Back where the latest migration left it: nothing is pushed any more.
-	if target.same_database(&history.latest) {
+	if target == history.latest {
 		db.run_script(&format!(
 			"DELETE FROM {}",
 			leptoskit_db_schema::quote_identifier(leptoskit_db::PUSH_TABLE)
@@ -173,6 +191,8 @@ async fn push_to(
 /// migration.
 pub(crate) struct Squash {
 	db: Db,
+	/// Membership in push state is also a baseline for migration creation.
+	pub(super) previous: Schema,
 	/// What the database still needs to match the tables.
 	rest: Option<Migration>,
 	runtime: tokio::runtime::Runtime,
@@ -190,18 +210,19 @@ pub(crate) fn prepare_squash(
 	drop_packs: &[String],
 ) -> Result<Option<Squash>> {
 	let history = History::read(&project.migrations_dir(), project.dialect())?;
-	super::check_packs(&history.latest, target, drop_packs)?;
+	super::check_pack_baselines(&[&history.latest], target, drop_packs, false)?;
 	let runtime = super::runtime()?;
 	let target = target.without_rename_hints();
 	let prepared = runtime.block_on(async {
 		let db = Db::connect(url).await?;
 
 		if db.pushed_schema().await?.is_none() {
+			super::check_packs(&history.latest, &target, drop_packs)?;
 			return anyhow::Ok(None);
 		}
 
 		let current = holds(&db, &history).await?;
-		super::check_packs(&current, &target, drop_packs)?;
+		super::check_pack_baselines(&[&history.latest, &current], &target, drop_packs, true)?;
 		let plan = leptoskit_db_schema::diff(&current, &target, &mut RequireHints)?;
 
 		anyhow::ensure!(
@@ -220,10 +241,17 @@ pub(crate) fn prepare_squash(
 				leptoskit_db_schema::render(&plan, &current, &target).sql(),
 			)
 		});
-		Ok(Some((db, rest)))
+		Ok(Some((db, rest, current)))
 	})?;
 
-	Ok(prepared.map(|(db, rest)| Squash { db, rest, runtime }))
+	Ok(prepared.map(|(db, rest, previous)| {
+		Squash {
+			db,
+			rest,
+			previous,
+			runtime,
+		}
+	}))
 }
 
 impl Squash {

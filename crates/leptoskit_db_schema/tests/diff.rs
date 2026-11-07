@@ -1779,6 +1779,21 @@ fn malformed_pack_membership_is_refused() {
 }
 
 #[test]
+fn only_reserved_pack_names_can_be_builtin() {
+	for pack in [
+		Pack::new("custom", vec![TableName::new("users")]).builtin(),
+		Pack::new("live", vec![TableName::new("users")]),
+	] {
+		let schema = blog(Dialect::Postgres).with_packs(vec![pack]);
+		let error = schema.validate().unwrap_err().to_string();
+		assert!(
+			error.contains("only the reserved `live` and `audit` packs are builtin"),
+			"{error}"
+		);
+	}
+}
+
+#[test]
 fn a_format_two_snapshot_must_record_its_pack_membership() {
 	let mut json: serde_json::Value =
 		serde_json::from_str(&blog(Dialect::Sqlite).to_json()).unwrap();

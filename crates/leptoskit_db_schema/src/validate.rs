@@ -263,6 +263,12 @@ impl Schema {
 		for pack in packs {
 			let location = format!("pack `{}`", pack.name);
 			problems.identifier(&location, "pack name", &pack.name);
+			if pack.builtin != matches!(pack.name.as_str(), "live" | "audit") {
+				problems.push(
+					&location,
+					"only the reserved `live` and `audit` packs are builtin",
+				);
+			}
 
 			if !names.insert(pack.name.as_str()) {
 				problems.push(&location, "another pack already has this name");

@@ -2085,6 +2085,56 @@ fn consolidation_refuses_hand_edits_and_keeps_the_newest() {
 	let history = History::read(&project.migrations_dir(), project.dialect()).unwrap();
 	assert_eq!(history.names.len(), 3, "released, consolidated, kept");
 	assert_eq!(history.names[2], kept.name, "the kept migration runs last");
+	let intermediate = Schema::from_json(
+		&std::fs::read_to_string(
+			project
+				.migrations_dir()
+				.join(&history.names[1])
+				.join("schema.json"),
+		)
+		.unwrap(),
+	)
+	.unwrap();
+	assert_eq!(
+		intermediate, second,
+		"the kept migration owns the final column addition"
+	);
+	let migrations = leptoskit_db::load_migrations(&project.migrations_dir()).unwrap();
+	super::runtime().unwrap().block_on(async {
+		let db = leptoskit_db::Db::connect("sqlite::memory:").await.unwrap();
+		db.migrate(&migrations).await.unwrap();
+	});
+}
+
+#[test]
+fn consolidation_rejects_excess_keep_names_and_leaves_all_kept_history_unchanged() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let first = users(project.dialect(), Vec::new());
+	create(&project, "users", &first, &options(), &mut RequireHints).unwrap();
+	let second = users(
+		project.dialect(),
+		vec![Column::new("bio", ColumnType::TEXT).nullable()],
+	);
+	create(&project, "bio", &second, &options(), &mut RequireHints).unwrap();
+	let before = History::read(&project.migrations_dir(), project.dialect()).unwrap();
+	let mut too_many = before.names.clone();
+	too_many.push("extra".into());
+	let error = super::consolidate(&project, &second, &too_many, &[], &mut RequireHints)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("more migrations"), "{error}");
+	super::consolidate(&project, &second, &before.names, &[], &mut RequireHints).unwrap();
+	let after = History::read(&project.migrations_dir(), project.dialect()).unwrap();
+	assert_eq!(before.names, after.names);
+	assert_eq!(
+		std::fs::read_dir(project.migrations_dir())
+			.unwrap()
+			.filter_map(Result::ok)
+			.filter(|entry| entry.path().is_dir())
+			.count(),
+		2
+	);
 }
 
 #[test]
@@ -2433,6 +2483,199 @@ fn pushes_refuse_a_missing_pack_and_keep_its_pushed_state() {
 
 		// Naming the pack lets the push remove it.
 		super::push::push(&project, &url, &without, true, &["sample".into()]).unwrap();
-		assert!(!applied_and_pushed(&url).1);
+		assert!(
+			applied_and_pushed(&url).1,
+			"the database still differs from migration history"
+		);
+		assert_eq!(pushed_schema(&url).pack_membership(), Some([].as_slice()));
 	}
+}
+
+fn pushed_schema(url: &str) -> Schema {
+	super::runtime().unwrap().block_on(async {
+		let db = leptoskit_db::Db::connect(url).await.unwrap();
+		Schema::from_json(&db.pushed_schema().await.unwrap().unwrap()).unwrap()
+	})
+}
+
+#[test]
+fn push_preserves_membership_without_sql_changes_and_accepts_explicit_removal() {
+	let root = tempfile::tempdir().unwrap();
+	for (project, url, _server) in push_databases(root.path()) {
+		let baseline = users(project.dialect(), Vec::new());
+		create(&project, "users", &baseline, &options(), &mut RequireHints).unwrap();
+		make_latest_format_one(&project);
+		let packed = sample_pack(&baseline);
+		let result = super::push::push(&project, &url, &packed, false, &[]).unwrap();
+		assert!(matches!(result, super::push::Pushed::Applied(_)));
+		assert_eq!(
+			pushed_schema(&url).pack_membership(),
+			packed.pack_membership()
+		);
+		assert_eq!(
+			super::push::push(&project, &url, &packed, false, &[]).unwrap(),
+			super::push::Pushed::Unchanged
+		);
+		assert!(pushed_schema(&url).pack("sample").is_some());
+
+		// The pack exists only in push state, and losing ownership still needs
+		// consent even when every table and column remains exactly the same.
+		let error = super::push::push(&project, &url, &baseline, true, &[])
+			.unwrap_err()
+			.to_string();
+		assert!(error.contains("--drop-pack sample"), "{error}");
+		assert!(pushed_schema(&url).pack("sample").is_some());
+		super::push::push(&project, &url, &baseline, false, &["sample".into()]).unwrap();
+		assert_eq!(pushed_schema(&url).pack_membership(), Some([].as_slice()));
+	}
+}
+
+#[test]
+fn squashing_accepts_removal_of_a_pack_known_only_to_push_state() {
+	let root = tempfile::tempdir().unwrap();
+	for (project, url, _server) in push_databases(root.path()) {
+		let baseline = users(project.dialect(), Vec::new());
+		create(&project, "users", &baseline, &options(), &mut RequireHints).unwrap();
+		super::push::push(&project, &url, &sample_pack(&baseline), false, &[]).unwrap();
+		let target = users(
+			project.dialect(),
+			vec![Column::new("bio", ColumnType::TEXT).nullable()],
+		);
+		let error = super::create_squashing(
+			&project,
+			"bio",
+			&target,
+			&options(),
+			&mut RequireHints,
+			Some(&url),
+		)
+		.unwrap_err()
+		.to_string();
+		assert!(error.contains("--drop-pack sample"), "{error}");
+		assert!(pushed_schema(&url).pack("sample").is_some());
+		let explicit = CreateOptions {
+			drop_packs: vec!["sample".into()],
+			..options()
+		};
+		super::create_squashing(
+			&project,
+			"bio",
+			&target,
+			&explicit,
+			&mut RequireHints,
+			Some(&url),
+		)
+		.unwrap();
+		assert!(!applied_and_pushed(&url).1);
+		assert!(
+			History::read(&project.migrations_dir(), project.dialect())
+				.unwrap()
+				.latest
+				.pack("sample")
+				.is_none()
+		);
+	}
+}
+
+#[test]
+fn amending_cannot_forget_a_pack_introduced_in_the_current_draft() {
+	let root = tempfile::tempdir().unwrap();
+	let mut project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	project.config.draft = leptoskit_config::DbDraft::Amend;
+	let baseline = users(project.dialect(), Vec::new());
+	create(&project, "users", &baseline, &options(), &mut RequireHints).unwrap();
+	super::record_release(&project, "1.4.0", None).unwrap();
+	let target = users(
+		project.dialect(),
+		vec![Column::new("bio", ColumnType::TEXT).nullable()],
+	);
+	let draft = create(
+		&project,
+		"bio",
+		&sample_pack(&target),
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+	let error = create(
+		&project,
+		"remove pack",
+		&target,
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap_err()
+	.to_string();
+	assert!(error.contains("--drop-pack sample"), "{error}");
+	let explicit = CreateOptions {
+		drop_packs: vec!["sample".into()],
+		..options()
+	};
+	let amended = create(
+		&project,
+		"remove pack",
+		&target,
+		&explicit,
+		&mut RequireHints,
+	)
+	.unwrap();
+	assert_eq!(amended.name, draft.name);
+}
+
+#[test]
+fn consolidating_checks_the_release_and_latest_membership_together() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let baseline = sample_pack(&users(project.dialect(), Vec::new()));
+	create(&project, "users", &baseline, &options(), &mut RequireHints).unwrap();
+	super::record_release(&project, "1.4.0", None).unwrap();
+	let explicit = CreateOptions {
+		drop_packs: vec!["sample".into()],
+		..options()
+	};
+	let second = users(
+		project.dialect(),
+		vec![Column::new("bio", ColumnType::TEXT).nullable()],
+	);
+	create(&project, "bio", &second, &explicit, &mut RequireHints).unwrap();
+	let third = users(
+		project.dialect(),
+		vec![
+			Column::new("bio", ColumnType::TEXT).nullable(),
+			Column::new("karma", ColumnType::Int32).nullable(),
+		],
+	);
+	create(&project, "karma", &third, &options(), &mut RequireHints).unwrap();
+	let error = super::consolidate(&project, &third, &[], &[], &mut RequireHints)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("--drop-pack sample"), "{error}");
+	super::consolidate(&project, &third, &[], &["sample".into()], &mut RequireHints).unwrap();
+	assert_eq!(
+		History::read(&project.migrations_dir(), project.dialect())
+			.unwrap()
+			.names
+			.len(),
+		2
+	);
+}
+
+#[test]
+fn watch_detects_membership_loss_even_when_tables_stay_the_same() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let target = users(project.dialect(), Vec::new());
+	create(
+		&project,
+		"users",
+		&sample_pack(&target),
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+	let history = History::read(&project.migrations_dir(), project.dialect()).unwrap();
+	assert_eq!(
+		super::watch::classify(&history, &target),
+		super::watch::Change::MissingPacks(vec!["sample".into()])
+	);
 }
