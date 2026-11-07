@@ -32,6 +32,7 @@ leptoskit_plugin_filesystem = { path = "../../crates/leptoskit_plugin_filesystem
 leptoskit_plugin_global_shortcut = { path = "../../crates/leptoskit_plugin_global_shortcut" }
 leptoskit_plugin_gyroscope = { path = "../../crates/leptoskit_plugin_gyroscope" }
 leptoskit_plugin_haptics = { path = "../../crates/leptoskit_plugin_haptics" }
+leptoskit_plugin_home_widgets = { path = "../../crates/leptoskit_plugin_home_widgets" }
 leptoskit_plugin_http = { path = "../../crates/leptoskit_plugin_http" }
 leptoskit_plugin_image_manipulator = { path = "../../crates/leptoskit_plugin_image_manipulator" }
 leptoskit_plugin_keep_awake = { path = "../../crates/leptoskit_plugin_keep_awake" }

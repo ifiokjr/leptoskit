@@ -1,0 +1,27 @@
+[package]
+name = "leptoskit_plugin_home_widgets"
+version = "0.3.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Home-screen and desktop widget snapshots for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "home-widgets"
+apple-module = "LeptosKitHomeWidgets"
+apple-type = "HomeWidgetsPlugin"
+android-type = "dev.leptoskit.plugins.homewidgets.HomeWidgetsPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[lints]
+workspace = true

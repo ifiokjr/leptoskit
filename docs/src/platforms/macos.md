@@ -55,6 +55,10 @@ let lease = macos::ApplicationMenu::install(definition, &application)?;
 
 Keep the lease for as long as the menu should stay installed; dropping it restores the previous menu when nothing else replaced the slot. Status-item / tray menus reuse the same `DesktopMenu` through `leptoskit_plugin_tray::TrayHost::set_menu` and do not take this lease. Menu is a host-owned desktop API, not a guest plugin: list it as a host dependency, not under `native.plugins`. See the [plugin inventory](plugin-inventory.md) for Windows and Linux parity.
 
+## Desktop widgets
+
+The [`home-widgets`](plugin-inventory.md) plugin works on macOS the same way as on iOS: it publishes a snapshot and asks WidgetKit to reload timelines. Your app still owns the Widget extension and needs an App Group for a shared suite. macOS Notification Center widgets are not generated for you.
+
 ## See more screens
 
 The [examples](../examples.md) page shows seven screens rendered with AppKit. To open them yourself, clone the leptoskit repository and run the gallery:

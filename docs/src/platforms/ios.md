@@ -92,3 +92,7 @@ leptoskit codepush release --from dist/ios --platform ios --channel production
 The app downloads the release when the user asks for an update, tries it, and keeps it only if it renders. Anything that needs new native code, such as a new plugin or permission, still needs an App Store release. [Code push](../guide/05-code-push.md) covers signing, publishing, and rollback, and [host projects](host-projects.md#code-push-in-the-generated-apps) the update flow inside the app.
 
 A `focused(true)` request takes effect when the property changes. After the user dismisses the keyboard, unrelated renders do not focus the field again. Set focus to false and then true to request focus again.
+
+## Home-screen widgets
+
+The [`home-widgets`](plugin-inventory.md) plugin publishes a bounded text snapshot and asks WidgetKit to reload timelines. Your app still owns the Widget extension target and its SwiftUI views. Share an App Group between the host and the extension so the extension can read the snapshot the plugin wrote; without that group, capability reports that the shared store is not ready. WidgetKit cannot say whether a kind is pinned, so `installed` always answers `Unknown`.
