@@ -28,10 +28,7 @@ pub fn book() -> PathBuf {
 pub fn site(root: impl Into<PathBuf>) -> Site {
 	let mut site = Site::new(root)
 		.title("leptoskit")
-		.description(
-			"One leptos tree for the web and real native widgets on every platform, updated over \
-			 the air.",
-		)
+		.description("One leptos tree for the web and real native widgets on every platform.")
 		.url(URL)
 		.repository(REPOSITORY)
 		.edit_url(format!("{REPOSITORY}/edit/main/docs/src/{{path}}"))

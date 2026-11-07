@@ -41,7 +41,7 @@ One dependency, one CLI, every target:
 
 - **Web** — SSR, hydration, and wasm builds, served by Axum.
 - **Native** — real native widgets driven by a wasm bundle, no web view: the React Native architecture, rewritten in Rust.
-- **Over the air** — code push for the wasm bundle, with binary deltas.
+- **Over the air updates** — code push for the wasm bundle, with binary deltas.
 - **Server functions** — leptos fns with an ergonomic retrying API.
 
 Build shared screens with the built-in Rust components and Tailwind classes.
