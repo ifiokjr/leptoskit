@@ -30,7 +30,13 @@ pub(super) fn history(ip: &str, c: &InfraConfig) -> Result<Vec<Release>> {
 		serde_json::from_slice(&remote::read(ip, &c.name, "releases.json")?)
 			.context("invalid shared release history; refusing to overwrite")?;
 	let mut verified = false;
+	let mut approved = false;
 	for release in &history {
+		ensure!(
+			!approved || release.authorization.is_some(),
+			"shared history discarded backend authorization"
+		);
+		approved |= release.authorization.is_some();
 		if let Some(evidence) = &release.evidence {
 			evidence.validate()?;
 			ensure!(
@@ -137,6 +143,12 @@ fn prepare_recorded(
 	env: &BTreeMap<String, String>,
 	reservation: &Reservation,
 ) -> Result<()> {
+	super::approvals::authorize(
+		dir,
+		&c.domain,
+		release.evidence.as_ref(),
+		release.authorization.as_ref(),
+	)?;
 	let expected = release
 		.image_digest
 		.as_ref()
@@ -606,6 +618,46 @@ fn ensure_restore_ready(ip: &str, name: &str) -> Result<()> {
 	Ok(())
 }
 
+fn check_evidence(
+	evidence: Option<&super::verified::Descriptor>,
+	hosts: &[String],
+	image: &str,
+) -> Result<()> {
+	if let Some(evidence) = evidence {
+		for host in hosts {
+			evidence.check_remote(host, image, &evidence.migrations)?;
+		}
+	}
+	Ok(())
+}
+
+fn authorize_release(
+	dir: &Path,
+	c: &InfraConfig,
+	args: &ReleaseArgs,
+	evidence: Option<&super::verified::Descriptor>,
+	target: Option<&Release>,
+	history: &[Release],
+) -> Result<Option<super::approvals::Evidence>> {
+	let authorization = super::approvals::authorize(
+		dir,
+		&c.domain,
+		evidence,
+		target.and_then(|release| release.authorization.as_ref()),
+	)?;
+	ensure!(
+		!history
+			.iter()
+			.any(|release| release.authorization.is_some())
+			|| authorization.is_some(),
+		"approved history cannot downgrade to operator pin mode"
+	);
+	if let (Some(authorization), Some(pin)) = (&authorization, &args.descriptor_sha256) {
+		authorization.check_pin(pin)?;
+	}
+	Ok(authorization)
+}
+
 pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let c = managed_settings(&config)?;
@@ -635,6 +687,8 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	if evidence.is_some() {
 		super::verified::backend_only(&root, &config)?;
 	}
+	let authorization =
+		authorize_release(&dir, c, args, evidence.as_ref(), target.as_ref(), &history)?;
 	let env = runtime_files(&dir, c, &root, &config, &hosts, &private)?;
 	if c.backups.enabled && args.setup {
 		super::recovery::credentials()?;
@@ -662,15 +716,11 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 		)?;
 		verify_schema_labels(&hosts, c, version, &local_hash)?;
 	}
-	if let Some(evidence) = &evidence {
-		for host in &hosts {
-			evidence.check_remote(
-				host,
-				&format!("{}:{version}", image(c)),
-				&evidence.migrations,
-			)?;
-		}
-	}
+	check_evidence(
+		evidence.as_ref(),
+		&hosts,
+		&format!("{}:{version}", image(c)),
+	)?;
 	execute(&dir, &["proxy", "boot"], &env, &reservation)?;
 	if !args.setup && target.is_none() {
 		let actual = remote_history(ip, &c.name)?;
@@ -717,16 +767,14 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 		.as_ref()
 		.map_or(&local_hash, |target| &target.migrations);
 	let verified = (|| {
+		super::approvals::authorize(&dir, &c.domain, evidence.as_ref(), authorization.as_ref())?;
 		let digest = verify_release(&hosts, c, version, expected, target.as_ref())?;
-		if let Some(evidence) = &evidence {
-			for host in &hosts {
-				evidence.check_remote(host, &digest, expected)?;
-			}
-		}
+		check_evidence(evidence.as_ref(), &hosts, &digest)?;
 		anyhow::Ok(digest)
 	})();
 	let image = flight.checked(verified, &hosts)?;
 	history.push(Release {
+		authorization,
 		evidence,
 		version: version.clone(),
 		migrations: expected.clone(),
@@ -910,6 +958,7 @@ mod tests {
 
 	fn recorded(version: &str, migrations: &str) -> Release {
 		Release {
+			authorization: None,
 			evidence: None,
 			version: version.into(),
 			migrations: migrations.into(),

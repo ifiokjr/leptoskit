@@ -19,7 +19,7 @@ use sha2::Digest as _;
 use sha2::Sha256;
 
 pub(crate) mod build;
-mod deployment;
+pub(crate) mod deployment;
 
 const FORMAT_VERSION: u32 = 1;
 const KIND: &str = "leptoskit-backend-bundle-inventory";
@@ -29,6 +29,8 @@ const MAX_ENTRIES: usize = 100_000;
 /// Backend bundle checks, with no claim about a live deployment.
 #[derive(Debug, clap::Subcommand)]
 pub enum VerifyCommand {
+	/// Independently approve the exact bytes of a backend image descriptor.
+	ApproveBackend(crate::infra::approvals::ApproveArgs),
 	/// Builds a backend bundle from a Git commit in a container without network
 	/// access, twice, and requires identical executables.
 	Build(build::BuildArgs),
@@ -112,6 +114,7 @@ pub(crate) enum Entry {
 /// Runs an offline inventory command.
 pub fn run(command: VerifyCommand) -> Result<()> {
 	match command {
+		VerifyCommand::ApproveBackend(args) => crate::infra::approvals::sign_file(&args)?,
 		VerifyCommand::Build(args) => build::build(&args)?,
 		VerifyCommand::Reproduce(args) => {
 			build::reproduce(&args)?;

@@ -2297,3 +2297,149 @@ fn verified_deploy_rejects_websites_and_services() {
 		);
 	}
 }
+
+fn backend_authorization(root: &Path, descriptor: &str, pin: &str) {
+	use leptoskit_codepush::ed25519_dalek::SigningKey;
+	let public = |seed| {
+		hex::encode(
+			SigningKey::from_bytes(&[seed; 32])
+				.verifying_key()
+				.as_bytes(),
+		)
+	};
+	let dir = root.join("infra/notes-production");
+	fs::create_dir_all(&dir).unwrap();
+	fs::write(root.join("reviewer.key"), hex::encode([1_u8; 32])).unwrap();
+	fs::write(root.join("deployment.key"), hex::encode([2_u8; 32])).unwrap();
+	succeeds(&cli(
+		root,
+		&[
+			"verify",
+			"approve-backend",
+			"--descriptor",
+			descriptor,
+			"--key",
+			"reviewer.key",
+			"--out",
+			"approval.json",
+		],
+		&[],
+	));
+	let approval: serde_json::Value =
+		serde_json::from_slice(&fs::read(root.join("approval.json")).unwrap()).unwrap();
+	let bytes = fs::read_to_string(descriptor).unwrap();
+	let parsed: serde_json::Value = serde_json::from_str(&bytes).unwrap();
+	let trust = serde_json::json!({"format_version":1,"repository":"https://github.com/example/backend","deployment":"production","publisher":public(3),"approvers":[public(1)],"threshold":1,"deployment_keys":[public(2)]});
+	fs::write(
+		dir.join("backend-trust.json"),
+		serde_json::to_vec(&trust).unwrap(),
+	)
+	.unwrap();
+	let evidence = serde_json::json!({"format_version":1,"descriptor":bytes,"approvals":[approval],"deployment_policy":""});
+	fs::write(
+		dir.join("backend-authorization.json"),
+		serde_json::to_vec(&evidence).unwrap(),
+	)
+	.unwrap();
+	let now = chrono::Utc::now().timestamp();
+	let policy = serde_json::json!({"format_version":2,"kind":"leptoskit-deployment-policy","repository":"https://github.com/example/backend","deployment":"production","origins":["https://app.example.com"],"sequence":1,"issued_at":now-60,"expires_at":now+3600,"releases":[{"commit":parsed["recipe"]["commit"],"inventory_sha256":parsed["inventory_sha256"],"executable_sha256":parsed["executable_sha256"],"backend":{"descriptor_sha256":pin,"engine_image_id":parsed["engine_image_id"]}}]});
+	fs::write(
+		root.join("policy.json"),
+		serde_json::to_vec(&policy).unwrap(),
+	)
+	.unwrap();
+	succeeds(&cli(
+		root,
+		&[
+			"verify",
+			"sign",
+			"--policy",
+			"policy.json",
+			"--key",
+			"deployment.key",
+			"--out",
+			"infra/notes-production/backend-deployment.json",
+		],
+		&[],
+	));
+}
+
+#[test]
+fn backend_approvals_gate_release_reuse_rollback_and_recovery() {
+	let root = project();
+	let (path, pin) = verified_descriptor(root.path());
+	backend_authorization(root.path(), &path, &pin);
+	fails_with(
+		&cli(
+			root.path(),
+			&["deploy", "--setup", "--version", "unsigned"],
+			&[],
+		),
+		"prohibit unsigned/legacy releases",
+	);
+	let dir = root.path().join("infra/notes-production");
+	let flags = [
+		"deploy",
+		"--setup",
+		"--version",
+		"v1",
+		"--verified-descriptor",
+		&path,
+		"--descriptor-sha256",
+		&pin,
+	];
+	succeeds(&cli(root.path(), &flags, &[]));
+	let policy = fs::read(dir.join("backend-deployment.json")).unwrap();
+	for flags in [
+		vec!["deploy", "--rollback", "v1"],
+		vec!["deploy", "--recover", "--version", "v1"],
+	] {
+		fs::write(dir.join("backend-deployment.json"), "{}").unwrap();
+		fs::write(dir.join("kamal-calls"), "").unwrap();
+		fails_with(
+			&cli(root.path(), &flags, &[]),
+			"invalid signed deployment policy",
+		);
+		let calls = fs::read_to_string(dir.join("kamal-calls")).unwrap();
+		assert!(!calls.contains("app boot") && !calls.contains("proxy boot"));
+		fs::write(dir.join("backend-deployment.json"), &policy).unwrap();
+		succeeds(&cli(root.path(), &flags, &[]));
+	}
+
+	let history_path = root
+		.path()
+		.join("remote/state/notes-production/control/releases.json");
+	let mut history: serde_json::Value =
+		serde_json::from_slice(&fs::read(&history_path).unwrap()).unwrap();
+	history.as_array_mut().unwrap().last_mut().unwrap()["authorization"]["approvals"][0]
+		["signature"] = serde_json::json!("00".repeat(64));
+	fs::write(&history_path, serde_json::to_vec(&history).unwrap()).unwrap();
+	fs::write(root.path().join("remote/ssh-calls"), "").unwrap();
+	fails_with(
+		&cli(
+			root.path(),
+			&[
+				"deploy",
+				"--version",
+				"v2",
+				"--verified-descriptor",
+				&path,
+				"--descriptor-sha256",
+				&pin,
+			],
+			&[("MOCK_KAMAL_FAIL_VERSION", "v2")],
+		),
+		"Automatic recovery did not complete",
+	);
+	let calls = fs::read_to_string(root.path().join("remote/ssh-calls")).unwrap();
+	assert!(calls.contains("docker stop"));
+	fs::remove_file(dir.join("backend-trust.json")).unwrap();
+	fails_with(
+		&cli(
+			root.path(),
+			&["deploy", "--recover", "--version", "v1"],
+			&[],
+		),
+		"requires operator backend-trust.json",
+	);
+}
