@@ -117,10 +117,10 @@ pub fn run_with_options(
 			"the Wear OS and watchOS starters have no web client; create a standard workspace for \
 			 an extension"
 		);
-		let target = match platform {
-			Platform::Wearos => NativeTarget::Wearos,
-			Platform::Watchos => NativeTarget::Watchos,
-			_ => unreachable!("filtered above"),
+		let target = if platform == Platform::Wearos {
+			NativeTarget::Wearos
+		} else {
+			NativeTarget::Watchos
 		};
 		return crate::native::scaffold::run_for_target(path, name, sdk, Some(target));
 	}
@@ -1370,6 +1370,67 @@ mod tests {
 
 			let without = host_manifest("demo", platform, None, false).unwrap();
 			assert!(!without.contains("leptoskit_plugin_"), "{without}");
+		}
+	}
+
+	#[test]
+	fn watch_platforms_use_the_experimental_starter() {
+		use leptoskit_config::DbDialect;
+		use leptoskit_config::Platform;
+
+		for platform in [Platform::Wearos, Platform::Watchos] {
+			let root = std::env::temp_dir().join(format!(
+				"leptoskit-new-watch-{}-{}",
+				platform,
+				std::process::id()
+			));
+			let _ = std::fs::remove_dir_all(&root);
+			super::run_with_options(
+				root.to_str().unwrap(),
+				platform,
+				Some("steps"),
+				None,
+				None,
+				false,
+				false,
+			)
+			.unwrap();
+			assert!(root.join("leptoskit.toml").is_file());
+			let _ = std::fs::remove_dir_all(&root);
+
+			let blocked = std::env::temp_dir().join(format!(
+				"leptoskit-new-watch-blocked-{}-{}",
+				platform,
+				std::process::id()
+			));
+			let _ = std::fs::remove_dir_all(&blocked);
+			let database_error = super::run_with_options(
+				blocked.to_str().unwrap(),
+				platform,
+				Some("steps"),
+				None,
+				Some(DbDialect::Sqlite),
+				false,
+				false,
+			)
+			.unwrap_err()
+			.to_string();
+			assert!(database_error.contains("no server"), "{database_error}");
+			let extension_error = super::run_with_options(
+				blocked.to_str().unwrap(),
+				platform,
+				Some("steps"),
+				None,
+				None,
+				true,
+				false,
+			)
+			.unwrap_err()
+			.to_string();
+			assert!(
+				extension_error.contains("no web client"),
+				"{extension_error}"
+			);
 		}
 	}
 }

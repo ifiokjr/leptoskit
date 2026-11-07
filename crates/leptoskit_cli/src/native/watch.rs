@@ -84,10 +84,11 @@ fn scaffold_watchos(root: &Path, config: &LeptoskitConfig) -> Result<()> {
 }
 
 fn write(path: &Path, content: impl AsRef<[u8]>) -> Result<()> {
-	if let Some(parent) = path.parent() {
-		std::fs::create_dir_all(parent)
-			.with_context(|| format!("could not create {}", parent.display()))?;
-	}
+	let parent = path
+		.parent()
+		.with_context(|| format!("could not create parent for {}", path.display()))?;
+	std::fs::create_dir_all(parent)
+		.with_context(|| format!("could not create {}", parent.display()))?;
 	std::fs::write(path, content).with_context(|| format!("could not write {}", path.display()))
 }
 
@@ -186,5 +187,25 @@ mod tests {
 		let watch = build(Target::Watchos).unwrap_err().to_string();
 		assert!(watch.contains("watchOS"), "{watch}");
 		assert!(build(Target::Android).is_err());
+	}
+
+	#[test]
+	fn write_reports_when_a_parent_directory_cannot_be_created() {
+		let root =
+			std::env::temp_dir().join(format!("leptoskit-watch-write-{}", std::process::id()));
+		let _ = std::fs::remove_dir_all(&root);
+		std::fs::create_dir_all(&root).unwrap();
+		let blocker = root.join("blocked");
+		std::fs::write(&blocker, b"not a directory").unwrap();
+		let error = write(&blocker.join("child.kt"), "fn")
+			.unwrap_err()
+			.to_string();
+		assert!(error.contains("could not create"), "{error}");
+		let root_error = write(Path::new("/"), "fn").unwrap_err().to_string();
+		assert!(
+			root_error.contains("could not create parent"),
+			"{root_error}"
+		);
+		let _ = std::fs::remove_dir_all(&root);
 	}
 }

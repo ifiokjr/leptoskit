@@ -64,10 +64,10 @@ fn watch(path: &str, name: Option<&str>, sdk: Option<&str>, target: NativeTarget
 		destination.display()
 	);
 	let sdk = sdk.map(crate::new_project::resolve_sdk).transpose()?;
-	let platform = match target {
-		NativeTarget::Wearos => Platform::Wearos,
-		NativeTarget::Watchos => Platform::Watchos,
-		_ => unreachable!("watch starter only"),
+	let platform = if target == NativeTarget::Wearos {
+		Platform::Wearos
+	} else {
+		Platform::Watchos
 	};
 	let config = LeptoskitConfig {
 		app: AppConfig {
@@ -86,10 +86,10 @@ fn watch(path: &str, name: Option<&str>, sdk: Option<&str>, target: NativeTarget
 	super::watch::validate(&config)?;
 	let watch_dep = crate::new_project::sdk_dependency("leptoskit_watch", sdk.as_deref(), &[])?;
 	let native_dep = crate::new_project::sdk_dependency("leptoskit_native", sdk.as_deref(), &[])?;
-	let platform_crate = match target {
-		NativeTarget::Wearos => "leptoskit_wearos",
-		NativeTarget::Watchos => "leptoskit_watchos",
-		_ => unreachable!("watch starter only"),
+	let platform_crate = if target == NativeTarget::Wearos {
+		"leptoskit_wearos"
+	} else {
+		"leptoskit_watchos"
 	};
 	let platform_dep = crate::new_project::sdk_dependency(platform_crate, sdk.as_deref(), &[])?;
 	let manifest = format!(
@@ -105,9 +105,9 @@ leptoskit_watch = {watch_dep}
 {platform_crate} = {platform_dep}
 "#
 	);
-	std::fs::create_dir_all(destination)?;
-	let root = Utf8PathBuf::from_path_buf(std::fs::canonicalize(destination)?)
-		.map_err(|_| anyhow::anyhow!("destination path is not UTF-8"))?;
+	let root = Utf8PathBuf::from(path);
+	std::fs::create_dir_all(root.as_std_path())?;
+	let root = root.canonicalize_utf8()?;
 	crate::new_project::write_new(&root.join("Cargo.toml"), &manifest)?;
 	crate::new_project::write_new(&root.join("leptoskit.toml"), &config.to_toml_string()?)?;
 	crate::new_project::write_new(&root.join(".gitignore"), "/target\n/.leptoskit\n")?;
@@ -240,4 +240,85 @@ serde_json = "1"
 		 harmonyos"
 	);
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn watch_starters_write_host_stubs_for_each_kind() {
+		for target in [NativeTarget::Wearos, NativeTarget::Watchos] {
+			let root = std::env::temp_dir().join(format!(
+				"leptoskit-scaffold-watch-{}-{}",
+				target,
+				std::process::id()
+			));
+			let _ = std::fs::remove_dir_all(&root);
+			run_for_target(root.to_str().unwrap(), Some("steps"), None, Some(target)).unwrap();
+			let host = match target {
+				NativeTarget::Wearos => root.join("hosts/wearos/android/WatchActivity.kt"),
+				NativeTarget::Watchos => root.join("hosts/watchos/swift/WatchApp.swift"),
+				_ => unreachable!("watch targets only"),
+			};
+			assert!(host.is_file(), "missing {}", host.display());
+			assert!(root.join("leptoskit.toml").is_file());
+			assert!(root.join("Cargo.toml").is_file());
+			let _ = std::fs::remove_dir_all(&root);
+		}
+	}
+
+	#[test]
+	fn watch_starter_rejects_an_existing_destination() {
+		let root = std::env::temp_dir().join(format!(
+			"leptoskit-scaffold-watch-exists-{}",
+			std::process::id()
+		));
+		let _ = std::fs::remove_dir_all(&root);
+		std::fs::create_dir_all(&root).unwrap();
+		let error = run_for_target(
+			root.to_str().unwrap(),
+			Some("steps"),
+			None,
+			Some(NativeTarget::Wearos),
+		)
+		.unwrap_err()
+		.to_string();
+		assert!(error.contains("already exists"), "{error}");
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[test]
+	fn watch_starter_derives_the_name_and_rejects_uppercase() {
+		let parent = std::env::temp_dir().join(format!(
+			"leptoskit-scaffold-watch-name-{}",
+			std::process::id()
+		));
+		let _ = std::fs::remove_dir_all(&parent);
+		let derived = parent.join("steps");
+		run_for_target(
+			derived.to_str().unwrap(),
+			None,
+			None,
+			Some(NativeTarget::Watchos),
+		)
+		.unwrap();
+		assert!(derived.join("hosts/watchos/guest.rs").is_file());
+		let _ = std::fs::remove_dir_all(&parent);
+
+		let bad = std::env::temp_dir().join(format!(
+			"leptoskit-scaffold-watch-case-{}",
+			std::process::id()
+		));
+		let _ = std::fs::remove_dir_all(&bad);
+		let error = run_for_target(
+			bad.to_str().unwrap(),
+			Some("Steps"),
+			None,
+			Some(NativeTarget::Wearos),
+		)
+		.unwrap_err()
+		.to_string();
+		assert!(error.contains("lowercase"), "{error}");
+	}
 }

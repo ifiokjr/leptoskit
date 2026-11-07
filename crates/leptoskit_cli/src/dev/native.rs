@@ -1294,6 +1294,8 @@ mod tests {
 		let reason = |platform| tools.support(platform).unwrap_err();
 		assert!(reason(Platform::Android).contains("ANDROID_HOME"));
 		assert!(reason(Platform::Harmonyos).contains("HarmonyOS"));
+		assert!(reason(Platform::Wearos).contains("Wear OS"));
+		assert!(reason(Platform::Watchos).contains("watchOS"));
 
 		if cfg!(target_os = "macos") {
 			assert!(reason(Platform::Ios).contains("Xcode"));

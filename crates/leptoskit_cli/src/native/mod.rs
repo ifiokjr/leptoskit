@@ -212,10 +212,10 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	if matches!(target, Target::Wearos | Target::Watchos) {
 		ensure_target_enabled(&config, target)?;
-		let native = match target {
-			Target::Wearos => leptoskit_config::NativeTarget::Wearos,
-			Target::Watchos => leptoskit_config::NativeTarget::Watchos,
-			_ => unreachable!("filtered above"),
+		let native = if target == Target::Wearos {
+			leptoskit_config::NativeTarget::Wearos
+		} else {
+			leptoskit_config::NativeTarget::Watchos
 		};
 		watch::scaffold(&root, &config, native)?;
 		if build {
@@ -1844,5 +1844,73 @@ mod tests {
 		assert!(pods.contains(&"-quiet".to_owned()));
 		assert!(pods.contains(&"-workspace".to_owned()));
 		assert!(!pods.contains(&"-project".to_owned()));
+	}
+
+	#[test]
+	fn watch_targets_map_triples_platforms_and_legacy_layouts() {
+		assert_eq!(Target::Wearos.rust(), "aarch64-linux-android");
+		assert_eq!(Target::Watchos.rust(), "aarch64-apple-watchos");
+		assert_eq!(Target::Wearos.platform(), Platform::Wearos);
+		assert_eq!(Target::Watchos.platform(), Platform::Watchos);
+		assert_eq!(
+			Target::from_platform(Platform::Wearos).unwrap(),
+			Target::Wearos
+		);
+		assert_eq!(
+			Target::from_platform(Platform::Watchos).unwrap(),
+			Target::Watchos
+		);
+
+		let root =
+			std::env::temp_dir().join(format!("leptoskit-legacy-watch-{}", std::process::id()));
+		let _ = std::fs::remove_dir_all(&root);
+		std::fs::create_dir_all(&root).unwrap();
+		let mut config = LeptoskitConfig::default();
+		config.native.targets = vec![leptoskit_config::NativeTarget::Wearos];
+		assert_eq!(legacy_target(&root, &config), Target::Wearos);
+		config.native.targets = vec![leptoskit_config::NativeTarget::Watchos];
+		assert_eq!(legacy_target(&root, &config), Target::Watchos);
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[test]
+	fn watch_prepare_and_build_use_the_experimental_host_path() {
+		let previous = std::env::current_dir().unwrap();
+		for (native, target) in [
+			(leptoskit_config::NativeTarget::Wearos, Target::Wearos),
+			(leptoskit_config::NativeTarget::Watchos, Target::Watchos),
+		] {
+			let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+				"leptoskit-watch-run-{}-{}",
+				target.platform(),
+				std::process::id()
+			));
+			let _ = std::fs::remove_dir_all(&root);
+			scaffold::run_for_target(root.to_str().unwrap(), Some("steps"), None, Some(native))
+				.unwrap();
+			std::env::set_current_dir(&root).unwrap();
+			run(NativeCommand::Prepare {
+				target,
+				release: false,
+			})
+			.unwrap();
+			assert!(
+				root.join(format!("hosts/{}/guest.rs", target.platform()))
+					.is_file()
+			);
+			let build_error = run(NativeCommand::Build {
+				target,
+				release: false,
+			})
+			.unwrap_err()
+			.to_string();
+			assert!(build_error.contains("experimental"), "{build_error}");
+			let packaging = build_application(&root, &LeptoskitConfig::default(), target, false)
+				.unwrap_err()
+				.to_string();
+			assert!(packaging.contains("experimental"), "{packaging}");
+			std::env::set_current_dir(&previous).unwrap();
+			let _ = std::fs::remove_dir_all(&root);
+		}
 	}
 }
