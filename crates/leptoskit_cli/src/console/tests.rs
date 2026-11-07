@@ -142,18 +142,24 @@ pub(crate) mod loopback {
 		stop: &AtomicBool,
 		deadline: Instant,
 	) {
+		let mut next = replies.next();
 		while !stop.load(Ordering::SeqCst) {
-			let Some(reply) = replies.next() else {
+			let Some(reply) = next.take() else {
 				break;
 			};
 			let Some(mut stream) = accept(listener, stop, deadline) else {
 				break;
 			};
 			stream.set_nonblocking(false).expect("blocking request");
-			if let Some(request) = read_request(&mut stream) {
-				requests.lock().unwrap().push(request);
-			}
+			// A connection that sends no request, such as another test's
+			// probe of a port this server now has, doesn't use up a reply.
+			let Some(request) = read_request(&mut stream) else {
+				next = Some(reply);
+				continue;
+			};
+			requests.lock().unwrap().push(request);
 			write_reply(&mut stream, reply);
+			next = replies.next();
 		}
 	}
 
