@@ -334,4 +334,57 @@ mod tests {
 		assert_eq!(reply, Ok(json!(null)));
 		assert!(futures::executor::block_on(simulate("alarms", json!({}))).is_err());
 	}
+
+	fn connect_worker(background: &Background) {
+		background.on_connect(|port, sender| {
+			CONNECT_SEEN.with(|seen| seen.set(seen.get() + 1));
+			match port.id() {
+				Some(11) => {
+					assert_eq!(port.name(), "probe");
+					assert_eq!(sender.url.as_deref(), Some("https://example.org/"));
+				}
+				Some(12) => {
+					assert_eq!(port.name(), "anon");
+					assert_eq!(sender, PortSender::default());
+				}
+				other => panic!("unexpected port id {other:?}"),
+			}
+		});
+	}
+
+	thread_local! {
+		static CONNECT_SEEN: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+	}
+
+	#[test]
+	fn on_connect_runs_the_handler() {
+		CONNECT_SEEN.with(|seen| seen.set(0));
+		start(connect_worker);
+		let reply = futures::executor::block_on(simulate(
+			"runtime.connect",
+			json!({
+				"id": 11,
+				"name": "probe",
+				"sender": { "url": "https://example.org/" },
+			}),
+		));
+		assert_eq!(reply, Ok(json!(null)));
+		// Connect without a sender still builds a default PortSender.
+		let reply = futures::executor::block_on(simulate(
+			"runtime.connect",
+			json!({ "id": 12, "name": "anon" }),
+		));
+		assert_eq!(reply, Ok(json!(null)));
+		assert_eq!(CONNECT_SEEN.with(std::cell::Cell::get), 2);
+
+		// A connect after the handler is cleared is ignored rather than
+		// panicked.
+		CONNECT_HANDLER.with_borrow_mut(|slot| *slot = None);
+		let reply = futures::executor::block_on(simulate(
+			"runtime.connect",
+			json!({ "id": 13, "name": "gone" }),
+		));
+		assert_eq!(reply, Ok(json!(null)));
+		assert_eq!(CONNECT_SEEN.with(std::cell::Cell::get), 2);
+	}
 }

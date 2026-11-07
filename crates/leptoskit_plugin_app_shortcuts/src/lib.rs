@@ -162,7 +162,7 @@ fn validate_text(value: &str, max: usize, allow_empty: bool) -> Result<(), Error
 	if (!allow_empty && value.is_empty()) || value.len() > max {
 		return Err(Error::InvalidArgument);
 	}
-	if value.chars().any(|ch| ch.is_control()) {
+	if value.chars().any(char::is_control) {
 		return Err(Error::InvalidArgument);
 	}
 	Ok(())
@@ -268,23 +268,17 @@ impl leptoskit_bridge::Plugin for Registry {
 		METHODS
 	}
 
-	fn invoke(
-		&mut self,
-		method: MethodId,
-		payload: Bytes,
-	) -> Result<Bytes, Error> {
+	fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, Error> {
 		validate(method, &payload)?;
-		match method {
-			SET => {
-				self.set(ShortcutList::decode(&payload)?);
-				Ok(Bytes::new())
-			}
-			CLEAR => {
-				self.clear();
-				Ok(Bytes::new())
-			}
-			CONSUME_LAUNCH => encode_launch_id(self.consume_launch().as_deref()),
-			_ => Err(Error::Unavailable),
+		if method == SET {
+			self.set(ShortcutList::decode(&payload)?);
+			Ok(Bytes::new())
+		} else if method == CLEAR {
+			self.clear();
+			Ok(Bytes::new())
+		} else {
+			// CONSUME_LAUNCH — `validate` already rejected anything else.
+			encode_launch_id(self.consume_launch().as_deref())
 		}
 	}
 }
@@ -350,21 +344,26 @@ mod tests {
 
 	#[test]
 	fn shortcut_list_round_trips_and_rejects_bounds() {
-		let list = ShortcutList::new([
-			Shortcut::new("compose", "Compose", "New note").unwrap(),
-			Shortcut::new("search", "Search", "").unwrap(),
-		])
-		.unwrap();
+		let shortcut = Shortcut::new("compose", "Compose", "New note").unwrap();
+		assert_eq!(shortcut.id(), "compose");
+		assert_eq!(shortcut.title(), "Compose");
+		assert_eq!(shortcut.subtitle(), "New note");
+		let list =
+			ShortcutList::new([shortcut, Shortcut::new("search", "Search", "").unwrap()]).unwrap();
+		assert_eq!(list.items().len(), 2);
 		let bytes = list.encode().unwrap();
 		assert_eq!(ShortcutList::decode(&bytes).unwrap(), list);
 
 		assert!(Shortcut::new("", "x", "").is_err());
 		assert!(Shortcut::new("bad id", "x", "").is_err());
 		assert!(Shortcut::new("ok", "", "").is_err());
-		assert!(ShortcutList::new((0..9).map(|i| {
-			Shortcut::new(format!("id{i}"), "t", "").unwrap()
-		}))
-		.is_err());
+		assert!(Shortcut::new("ok", "bad\u{7}title", "").is_err());
+		assert!(
+			ShortcutList::new(
+				(0..9).map(|i| { Shortcut::new(format!("id{i}"), "t", "").unwrap() })
+			)
+			.is_err()
+		);
 		assert!(
 			ShortcutList::new([
 				Shortcut::new("a", "A", "").unwrap(),
@@ -372,14 +371,32 @@ mod tests {
 			])
 			.is_err()
 		);
+
+		let mut oversized = Encoder::with_capacity(4);
+		oversized.u32((MAX_SHORTCUTS + 1) as u32);
+		assert_eq!(
+			ShortcutList::decode(&oversized.finish()),
+			Err(Error::TooLarge)
+		);
+		assert_eq!(require_empty(&[]), Ok(()));
+		assert_eq!(require_empty(&[1]), Err(Error::InvalidArgument));
+		assert_eq!(validate(CLEAR, &[0]), Err(Error::InvalidArgument));
+		assert_eq!(validate(CONSUME_LAUNCH, &[0]), Err(Error::InvalidArgument));
+		assert_eq!(validate(MethodId(99), &[]), Err(Error::Unavailable));
 	}
 
 	#[test]
 	fn registry_publishes_and_consumes_launch_ids() {
 		let mut plugin = Registry::default();
 		assert_eq!(plugin.name(), NAME);
+		assert_eq!(plugin.methods(), METHODS);
 		let list = ShortcutList::new([Shortcut::new("inbox", "Inbox", "").unwrap()]).unwrap();
-		assert!(plugin.invoke(SET, list.encode().unwrap()).unwrap().is_empty());
+		assert!(
+			plugin
+				.invoke(SET, list.encode().unwrap())
+				.unwrap()
+				.is_empty()
+		);
 		assert_eq!(plugin.items().len(), 1);
 		plugin.note_launch("inbox").unwrap();
 		let reply = plugin.invoke(CONSUME_LAUNCH, Bytes::new()).unwrap();
@@ -387,6 +404,10 @@ mod tests {
 		let reply = plugin.invoke(CONSUME_LAUNCH, Bytes::new()).unwrap();
 		assert_eq!(decode_launch_id(&reply).unwrap(), None);
 		assert!(plugin.invoke(CLEAR, Bytes::new()).unwrap().is_empty());
-		assert!(plugin.items().is_empty());
+		assert_eq!(plugin.items(), []);
+		assert_eq!(
+			plugin.invoke(MethodId(99), Bytes::new()),
+			Err(Error::Unavailable)
+		);
 	}
 }

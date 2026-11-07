@@ -398,4 +398,76 @@ mod tests {
 				.all(|item| !matches!(item, Item::Submenu { .. }))
 		);
 	}
+
+	#[test]
+	fn builders_cover_batch_helpers_and_optional_fields() {
+		let definition = Menu()
+			.items([
+				Command("save")
+					.label("Save")
+					.enabled(false)
+					.accelerator("CmdOrCtrl+S"),
+				Command("open").label("Open").enabled(true),
+			])
+			.item(
+				Check("pin")
+					.label("Pin")
+					.enabled(false)
+					.checked(true)
+					.accelerator("CmdOrCtrl+P"),
+			)
+			.submenu(
+				Submenu("view")
+					.label("View")
+					.enabled(false)
+					.items([Command("zoom-in").label("Zoom In")])
+					.separator()
+					.submenu(Submenu("more").label("More").item(Command("extra"))),
+			)
+			.build()
+			.unwrap();
+		assert_eq!(definition.items().len(), 4);
+		match &definition.items()[0] {
+			Item::Command {
+				enabled,
+				accelerator,
+				..
+			} => {
+				assert!(!enabled);
+				assert_eq!(accelerator.as_deref(), Some("CmdOrCtrl+S"));
+			}
+			_ => panic!("expected command"),
+		}
+		match &definition.items()[2] {
+			Item::Check {
+				enabled,
+				checked,
+				accelerator,
+				..
+			} => {
+				assert!(!enabled);
+				assert!(checked);
+				assert_eq!(accelerator.as_deref(), Some("CmdOrCtrl+P"));
+			}
+			_ => panic!("expected check"),
+		}
+		match &definition.items()[3] {
+			Item::Submenu { enabled, items, .. } => {
+				assert!(!enabled);
+				assert_eq!(items.len(), 3);
+				assert!(matches!(items[1], Item::Separator));
+				assert!(matches!(items[2], Item::Submenu { .. }));
+			}
+			_ => panic!("expected submenu"),
+		}
+
+		let bar = MenuBar()
+			.submenus([
+				Submenu("file").label("File").item(Command("open")),
+				Submenu("edit").label("Edit").item(Command("copy")),
+			])
+			.build()
+			.unwrap();
+		assert_eq!(bar.items().len(), 2);
+	}
 }

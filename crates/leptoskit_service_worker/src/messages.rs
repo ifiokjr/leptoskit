@@ -15,9 +15,37 @@ use crate::strategy::WorkerMessage;
 ///
 /// When no worker controls the page, or outside a browser.
 pub fn post_message<M: Serialize>(message: &M) -> Result<()> {
-	let worker = controller()?
-		.ok_or_else(|| Error::Unavailable("navigator.serviceWorker.controller".into()))?;
+	post_message_to(controller()?, message)
+}
+
+fn post_message_to<M: Serialize>(
+	worker: Option<crate::register::Worker>,
+	message: &M,
+) -> Result<()> {
+	let worker =
+		worker.ok_or_else(|| Error::Unavailable("navigator.serviceWorker.controller".into()))?;
 	worker.post_message(message)
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+	use super::*;
+	use crate::Error;
+	use crate::register::Worker;
+
+	#[test]
+	fn post_message_requires_a_controller() {
+		assert_eq!(
+			post_message_to(None, &"ping"),
+			Err(Error::Unavailable(
+				"navigator.serviceWorker.controller".into()
+			))
+		);
+		assert_eq!(
+			post_message_to(Some(Worker { _private: () }), &"ping"),
+			Err(Error::Unavailable("ServiceWorker.postMessage".into()))
+		);
+	}
 }
 
 /// Posts a typed [`WorkerMessage`] to the controlling worker.

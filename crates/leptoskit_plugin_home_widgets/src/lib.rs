@@ -414,20 +414,32 @@ mod tests {
 		let capability = Capability {
 			supported: true,
 			can_reload: true,
-			can_query_installed: false,
+			can_query_installed: true,
 			shared_store: true,
 		};
 		assert_eq!(
 			Capability::decode(&capability.encode()).unwrap(),
 			capability
 		);
+		assert!(
+			!Capability::decode(
+				&Capability {
+					supported: false,
+					can_reload: false,
+					can_query_installed: false,
+					shared_store: false,
+				}
+				.encode()
+			)
+			.unwrap()
+			.supported
+		);
 		assert!(Capability::decode(&[0xff, 0, 0, 0]).is_err());
 		assert!(Capability::decode(&[1, 0, 0]).is_err());
 
-		assert_eq!(
-			Installed::decode(&Installed::Some.encode()).unwrap(),
-			Installed::Some
-		);
+		for installed in [Installed::Unknown, Installed::None, Installed::Some] {
+			assert_eq!(Installed::decode(&installed.encode()).unwrap(), installed);
+		}
 		for value in [&[][..], &[3], &[3, 0, 0, 0], &[2, 0, 0, 0, 0]] {
 			assert!(Installed::decode(value).is_err());
 		}
@@ -437,6 +449,7 @@ mod tests {
 	fn kind_and_reload_payloads_roundtrip() {
 		let kind = Kind::new("counter.v1").unwrap();
 		assert_eq!(Kind::decode(&kind.encode().unwrap()).unwrap(), kind);
+		assert_eq!(Kind::decode(&[0u8; 69]), Err(Error::InvalidArgument));
 		assert_eq!(decode_reload(&[]).unwrap(), None);
 		assert_eq!(
 			decode_reload(&encode_reload(Some(&kind)).unwrap()).unwrap(),
@@ -444,11 +457,15 @@ mod tests {
 		);
 		assert_eq!(encode_reload(None).unwrap(), Bytes::new());
 		assert_eq!(kind.as_str(), "counter.v1");
+		let snapshot = Snapshot::new(kind, Family::System, "Count", "12", "myapp://x").unwrap();
+		assert_eq!(snapshot.kind().as_str(), "counter.v1");
+		assert_eq!(snapshot.family(), Family::System);
+		assert_eq!(snapshot.title(), "Count");
+		assert_eq!(snapshot.body(), "12");
+		assert_eq!(snapshot.url(), "myapp://x");
 		assert_eq!(
-			Snapshot::new(kind, Family::System, "Count", "12", "")
-				.unwrap()
-				.family(),
-			Family::System
+			Snapshot::decode(&vec![0u8; MAX_SNAPSHOT_BYTES + 1]),
+			Err(Error::InvalidArgument)
 		);
 	}
 

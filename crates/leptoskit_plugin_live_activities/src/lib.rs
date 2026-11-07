@@ -810,5 +810,152 @@ mod tests {
 			plugin.invoke(MethodId(99), Bytes::new()),
 			Err(Error::Unavailable)
 		);
+
+		let update = UpdateRequest::new(
+			Identifier::new("ride-1").unwrap(),
+			ContentState::new([("eta", "3")]).unwrap(),
+		);
+		assert_eq!(
+			plugin.invoke(UPDATE, update.encode().unwrap()),
+			Err(Error::Unavailable)
+		);
+		let end = EndRequest::new(
+			Identifier::new("ride-1").unwrap(),
+			DismissalPolicy::Immediate,
+			None,
+		);
+		assert_eq!(
+			plugin.invoke(END, end.encode().unwrap()),
+			Err(Error::Unavailable)
+		);
+		let mut token_req = Encoder::with_capacity(8);
+		Identifier::new("ride-1")
+			.unwrap()
+			.encode_into(&mut token_req)
+			.unwrap();
+		assert_eq!(
+			plugin.invoke(WAIT_PUSH_TOKEN, token_req.finish()),
+			Err(Error::Unavailable)
+		);
+		assert_eq!(
+			plugin.invoke(FREQUENT_UPDATES_ENABLED, Bytes::new()),
+			Err(Error::Unavailable)
+		);
+		assert_eq!(plugin.invoke(LIST, Bytes::new()), Err(Error::Unavailable));
+	}
+
+	#[test]
+	#[allow(
+		clippy::cognitive_complexity,
+		reason = "one test walks every remaining uncovered codec arm"
+	)]
+	fn getters_dismissal_policies_and_oversized_payloads() {
+		let id = Identifier::new("flight-42").unwrap();
+		assert_eq!(id.as_str(), "flight-42");
+
+		let too_many = (0..=MAX_FIELDS)
+			.map(|i| (format!("k{i}"), "v".to_owned()))
+			.collect::<Vec<_>>();
+		assert!(ContentState::new(too_many).is_err());
+
+		let content = ContentState::new([("status", "boarding")]).unwrap();
+		assert_eq!(content.fields().len(), 1);
+
+		let mut oversized_fields = Encoder::with_capacity(8);
+		oversized_fields.u32((MAX_FIELDS as u32) + 1);
+		assert!(ContentState::decode(&mut Decoder::new(&oversized_fields.finish())).is_err());
+
+		for policy in [
+			DismissalPolicy::Default,
+			DismissalPolicy::Immediate,
+			DismissalPolicy::After { seconds: 60 },
+		] {
+			let end = EndRequest::new(id.clone(), policy, None);
+			assert_eq!(EndRequest::decode(&end.encode().unwrap()).unwrap(), end);
+		}
+
+		let mut bad_default = Encoder::with_capacity(8);
+		bad_default.u32(0);
+		bad_default.u32(1);
+		assert!(DismissalPolicy::decode(&mut Decoder::new(&bad_default.finish())).is_err());
+		let mut bad_immediate = Encoder::with_capacity(8);
+		bad_immediate.u32(1);
+		bad_immediate.u32(1);
+		assert!(DismissalPolicy::decode(&mut Decoder::new(&bad_immediate.finish())).is_err());
+		let mut unknown = Encoder::with_capacity(8);
+		unknown.u32(9);
+		unknown.u32(0);
+		assert!(DismissalPolicy::decode(&mut Decoder::new(&unknown.finish())).is_err());
+
+		let start = StartRequest::new(
+			id.clone(),
+			Identifier::new("flight").unwrap(),
+			"SFO → JFK",
+			content.clone(),
+			false,
+		)
+		.unwrap();
+		assert_eq!(start.kind().as_str(), "flight");
+		assert_eq!(start.title(), "SFO → JFK");
+		assert_eq!(start.content(), &content);
+		assert!(!start.push_updates());
+
+		let mut oversized_start = start.encode().unwrap().to_vec();
+		oversized_start.resize(MAX_START_BYTES + 1, 0);
+		assert!(StartRequest::decode(&oversized_start).is_err());
+
+		let mut bad_push = Encoder::with_capacity(64);
+		id.encode_into(&mut bad_push).unwrap();
+		Identifier::new("flight")
+			.unwrap()
+			.encode_into(&mut bad_push)
+			.unwrap();
+		bad_push.bytes(b"title").unwrap();
+		bad_push.u32(2);
+		content.encode_into(&mut bad_push).unwrap();
+		assert!(StartRequest::decode(&bad_push.finish()).is_err());
+
+		let update = UpdateRequest::new(id.clone(), content.clone());
+		assert_eq!(update.id().as_str(), "flight-42");
+		assert_eq!(update.content(), &content);
+		let mut oversized_update = update.encode().unwrap().to_vec();
+		oversized_update.resize(MAX_UPDATE_BYTES + 1, 0);
+		assert!(UpdateRequest::decode(&oversized_update).is_err());
+
+		let end = EndRequest::new(id.clone(), DismissalPolicy::Default, Some(content.clone()));
+		assert_eq!(end.id().as_str(), "flight-42");
+		assert_eq!(end.dismissal(), DismissalPolicy::Default);
+		assert_eq!(end.final_content(), Some(&content));
+		let mut oversized_end = end.encode().unwrap().to_vec();
+		oversized_end.resize(MAX_END_BYTES + 1, 0);
+		assert!(EndRequest::decode(&oversized_end).is_err());
+
+		let end_none = EndRequest::new(id.clone(), DismissalPolicy::Immediate, None);
+		assert_eq!(
+			EndRequest::decode(&end_none.encode().unwrap())
+				.unwrap()
+				.final_content(),
+			None
+		);
+		let mut bad_final = Encoder::with_capacity(32);
+		id.encode_into(&mut bad_final).unwrap();
+		DismissalPolicy::Immediate.encode(&mut bad_final);
+		bad_final.u32(9);
+		assert!(EndRequest::decode(&bad_final.finish()).is_err());
+
+		let token = PushToken::new(vec![1, 2, 3]).unwrap();
+		assert_eq!(token.as_bytes(), &[1, 2, 3]);
+		assert!(decode_flag(&encode_flag(true)).unwrap());
+		assert!(!decode_flag(&encode_flag(false)).unwrap());
+
+		let mut huge_list = Encoder::with_capacity(8);
+		huge_list.u32(65);
+		assert!(decode_list(&huge_list.finish()).is_err());
+		let many = (0..65)
+			.map(|i| Identifier::new(format!("id{i}")).unwrap())
+			.collect::<Vec<_>>();
+		assert!(encode_list(&many).is_err());
+
+		assert_eq!(validate_empty(START, &[]), Err(Error::Unavailable));
 	}
 }

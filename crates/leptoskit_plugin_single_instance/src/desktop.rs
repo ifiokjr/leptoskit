@@ -51,10 +51,10 @@ impl Activation {
 	fn encode(&self) -> io::Result<Vec<u8>> {
 		let mut bytes = Vec::new();
 		bytes.extend_from_slice(&1u32.to_le_bytes());
-		write_string(&mut bytes, self.program.to_str().unwrap())?;
+		write_string(&mut bytes, self.program.to_str().unwrap());
 		bytes.extend_from_slice(&(self.arguments.len() as u32).to_le_bytes());
 		for argument in &self.arguments {
-			write_string(&mut bytes, argument.to_str().unwrap())?;
+			write_string(&mut bytes, argument.to_str().unwrap());
 		}
 		if bytes.len() > MAX_ACTIVATION_BYTES {
 			return Err(io::Error::new(
@@ -256,12 +256,12 @@ fn validate_identity(directory: &Path, identity: &str) -> io::Result<()> {
 	Ok(())
 }
 
-fn write_string(output: &mut Vec<u8>, value: &str) -> io::Result<()> {
-	let len = u32::try_from(value.len())
-		.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "activation string too large"))?;
+fn write_string(output: &mut Vec<u8>, value: &str) {
+	// Callers bound each string to 8192 bytes, so the length always fits in
+	// u32.
+	let len = value.len() as u32;
 	output.extend_from_slice(&len.to_le_bytes());
 	output.extend_from_slice(value.as_bytes());
-	Ok(())
 }
 
 fn take_u32(rest: &mut &[u8]) -> io::Result<u32> {
@@ -527,5 +527,129 @@ mod tests {
 			io::ErrorKind::InvalidInput
 		);
 		assert!(!target.join("app.lock").exists());
+	}
+
+	#[test]
+	fn activation_new_rejects_invalid_program_and_arguments() {
+		assert_eq!(
+			Activation::new(OsString::new(), vec![]).unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+		let too_many = (0..=MAX_ACTIVATION_ARGUMENTS)
+			.map(|i| OsString::from(format!("a{i}")))
+			.collect();
+		assert_eq!(
+			Activation::new("app".into(), too_many).unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+		assert_eq!(
+			Activation::new("app".into(), vec![OsString::from("has\nnewline")])
+				.unwrap_err()
+				.kind(),
+			io::ErrorKind::InvalidInput
+		);
+		assert_eq!(
+			Activation::new("app".into(), vec![OsString::from("x".repeat(8193))])
+				.unwrap_err()
+				.kind(),
+			io::ErrorKind::InvalidInput
+		);
+		#[cfg(unix)]
+		{
+			use std::os::unix::ffi::OsStringExt;
+			assert_eq!(
+				Activation::new(OsString::from_vec(vec![0xff]), vec![])
+					.unwrap_err()
+					.kind(),
+				io::ErrorKind::InvalidInput
+			);
+		}
+	}
+
+	#[test]
+	fn activation_encode_decode_error_paths_and_mailbox_io() {
+		let dir = private_directory();
+		let owner = InstanceGuard::acquire(dir.path(), "dev.test.app")
+			.unwrap()
+			.unwrap();
+
+		let oversized_args = (0..20)
+			.map(|_| OsString::from("x".repeat(8000)))
+			.collect::<Vec<_>>();
+		let oversized = Activation::new("app".into(), oversized_args).unwrap();
+		assert_eq!(
+			notify_running(dir.path(), "dev.test.app", &oversized)
+				.unwrap_err()
+				.kind(),
+			io::ErrorKind::InvalidInput
+		);
+
+		let mailbox = dir.path().join("dev.test.app.activation");
+		fs::write(&mailbox, vec![0u8; MAX_ACTIVATION_BYTES + 1]).unwrap();
+		assert_eq!(
+			owner.poll_activation().unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+
+		let mut bad_version = Vec::new();
+		bad_version.extend_from_slice(&2u32.to_le_bytes());
+		write_string(&mut bad_version, "app");
+		bad_version.extend_from_slice(&0u32.to_le_bytes());
+		fs::write(&mailbox, &bad_version).unwrap();
+		assert_eq!(
+			owner.poll_activation().unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+
+		let mut too_many = Vec::new();
+		too_many.extend_from_slice(&1u32.to_le_bytes());
+		write_string(&mut too_many, "app");
+		too_many.extend_from_slice(&((MAX_ACTIVATION_ARGUMENTS as u32) + 1).to_le_bytes());
+		fs::write(&mailbox, &too_many).unwrap();
+		assert_eq!(
+			owner.poll_activation().unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+
+		let mut trailing = Activation::new("app".into(), vec!["ok".into()])
+			.unwrap()
+			.encode()
+			.unwrap();
+		trailing.push(0);
+		fs::write(&mailbox, &trailing).unwrap();
+		assert_eq!(
+			owner.poll_activation().unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+
+		fs::write(&mailbox, [1, 0, 0]).unwrap();
+		assert_eq!(
+			owner.poll_activation().unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+
+		let mut truncated_string = Vec::new();
+		truncated_string.extend_from_slice(&1u32.to_le_bytes());
+		truncated_string.extend_from_slice(&4u32.to_le_bytes());
+		truncated_string.extend_from_slice(b"ab");
+		fs::write(&mailbox, &truncated_string).unwrap();
+		assert_eq!(
+			owner.poll_activation().unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+
+		let mut bad_utf8 = Vec::new();
+		bad_utf8.extend_from_slice(&1u32.to_le_bytes());
+		bad_utf8.extend_from_slice(&2u32.to_le_bytes());
+		bad_utf8.extend_from_slice(&[0xff, 0xfe]);
+		bad_utf8.extend_from_slice(&0u32.to_le_bytes());
+		fs::write(&mailbox, &bad_utf8).unwrap();
+		assert_eq!(
+			owner.poll_activation().unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+
+		fs::create_dir(&mailbox).unwrap();
+		assert!(owner.poll_activation().is_err());
 	}
 }

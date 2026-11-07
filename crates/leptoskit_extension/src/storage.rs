@@ -118,6 +118,33 @@ pub const SESSION: Area = Area::Session;
 /// Synced with the user's browser account.
 pub const SYNC: Area = Area::Sync;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+	use futures::executor::block_on;
+	use serde_json::json;
+
+	use super::*;
+
+	#[test]
+	fn keys_and_bytes_map_browser_replies() {
+		let keys = js::with_call_override(json!({ "a": 1, "b": true }), || {
+			block_on(Area::Local.keys()).expect("keys")
+		});
+		assert_eq!(keys.len(), 2);
+		assert!(keys.contains(&"a".to_owned()));
+		assert!(keys.contains(&"b".to_owned()));
+
+		let bytes = js::with_call_override(json!(42.0), || {
+			block_on(Area::Local.get_bytes_in_use(Some("a"))).expect("bytes")
+		});
+		assert_eq!(bytes, 42);
+		let bytes = js::with_call_override(json!(7.0), || {
+			block_on(Area::Sync.get_bytes_in_use(None)).expect("area bytes")
+		});
+		assert_eq!(bytes, 7);
+	}
+}
+
 /// Calls `changed` with the key and new value (or `None`, when removed)
 /// whenever a value in `area` changes, from any surface or the worker, until
 /// the returned listener is dropped.

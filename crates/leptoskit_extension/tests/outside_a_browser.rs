@@ -105,12 +105,28 @@ fn notifications_permissions_and_the_runtime_name_their_apis() {
 		block_on(permissions::request(&origins)),
 		Err(unavailable("permissions.request"))
 	);
+	let granted = permissions::Permissions {
+		permissions: vec!["storage".into()],
+		origins: origins.clone(),
+	};
+	assert_eq!(
+		block_on(permissions::request_permissions(&granted)),
+		Err(unavailable("permissions.request"))
+	);
 	assert_eq!(
 		block_on(permissions::contains(&origins)),
 		Err(unavailable("permissions.contains"))
 	);
 	assert_eq!(
+		block_on(permissions::contains_permissions(&granted)),
+		Err(unavailable("permissions.contains"))
+	);
+	assert_eq!(
 		block_on(permissions::remove(&origins)),
+		Err(unavailable("permissions.remove"))
+	);
+	assert_eq!(
+		block_on(permissions::remove_permissions(&granted)),
 		Err(unavailable("permissions.remove"))
 	);
 	assert_eq!(
@@ -212,6 +228,10 @@ fn each_storage_area_calls_its_own_api() {
 		);
 		assert_eq!(
 			block_on(area.get_bytes_in_use(Some("draft"))),
+			Err(unavailable(&format!("{path}.getBytesInUse")))
+		);
+		assert_eq!(
+			block_on(area.get_bytes_in_use(None)),
 			Err(unavailable(&format!("{path}.getBytesInUse")))
 		);
 		assert!(matches!(
@@ -325,13 +345,24 @@ fn worker(worker: &Background) {
 		assert_eq!(port.name(), "highlights");
 		assert_eq!(port.id(), Some(3));
 		assert_eq!(sender.url.as_deref(), Some("https://example.org/"));
-		// Keep the listener for the port.message simulation below.
+		assert!(format!("{port:?}").contains("highlights"));
+		assert_eq!(
+			port.post_message(&"pong"),
+			Err(unavailable("Port.postMessage"))
+		);
+		assert_eq!(port.disconnect(), Err(unavailable("Port.disconnect")));
+		// Keep the listeners for the port.message / disconnect simulation
+		// below.
 		PORT_LISTENERS.with_borrow_mut(|listeners| {
 			listeners.push(
 				port.on_message(|message: String| {
 					assert_eq!(message, "ping");
 				})
 				.expect("background ports listen without a browser"),
+			);
+			listeners.push(
+				port.on_disconnect(|| {})
+					.expect("background ports watch disconnect without a browser"),
 			);
 		});
 	});
@@ -398,6 +429,18 @@ fn the_worker_answers_each_browser_event() {
 		block_on(background::simulate(
 			"runtime.port.disconnect",
 			json!({ "id": 3 }),
+		)),
+		Ok(Value::Null)
+	);
+
+	// Dropping a listener runs its cleanup (the native Listener::guard path).
+	PORT_LISTENERS.with_borrow_mut(Vec::clear);
+
+	// A message for a port that never connected is ignored.
+	assert_eq!(
+		block_on(background::simulate(
+			"runtime.port.message",
+			json!({ "id": 99, "message": "miss" }),
 		)),
 		Ok(Value::Null)
 	);

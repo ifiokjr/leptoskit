@@ -203,7 +203,7 @@ pub struct Worker {
 	#[cfg(target_arch = "wasm32")]
 	pub(crate) inner: wasm_bindgen::JsValue,
 	#[cfg(not(target_arch = "wasm32"))]
-	_private: (),
+	pub(crate) _private: (),
 }
 
 impl Worker {
@@ -317,8 +317,78 @@ pub fn controller() -> Result<Option<Worker>> {
 	}
 	#[cfg(not(target_arch = "wasm32"))]
 	{
-		Err(Error::Unavailable(
-			"navigator.serviceWorker.controller".into(),
-		))
+		// Match a page with no controlling worker: `Ok(None)` rather than a
+		// hard unavailable, so callers can distinguish "no controller" from
+		// other browser failures the same way they do in a browser.
+		Ok(None)
+	}
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+	use futures::executor::block_on;
+
+	use super::*;
+	use crate::Error;
+
+	fn unavailable(path: &str) -> Error {
+		Error::Unavailable(path.to_owned())
+	}
+
+	#[test]
+	fn register_options_round_trip() {
+		let options = RegisterOptions::default()
+			.scope("/app/")
+			.update_via_cache(UpdateViaCache::All);
+		assert_eq!(options.scope.as_deref(), Some("/app/"));
+		assert_eq!(options.update_via_cache, UpdateViaCache::All);
+		let json = serde_json::to_value(&options).expect("options serialize");
+		assert_eq!(json["scope"], "/app/");
+		assert_eq!(json["update_via_cache"], "all");
+		// Default update_via_cache is skipped so is_default_update runs both
+		// ways.
+		let default = serde_json::to_value(RegisterOptions::default()).expect("default serialize");
+		assert!(default.get("update_via_cache").is_none());
+		assert!(is_default_update(&UpdateViaCache::None));
+		assert!(!is_default_update(&UpdateViaCache::Imports));
+	}
+
+	#[test]
+	fn registration_and_worker_name_their_apis_outside_a_browser() {
+		let registration = Registration { _private: () };
+		assert_eq!(
+			registration.scope(),
+			Err(unavailable("ServiceWorkerRegistration.scope"))
+		);
+		assert_eq!(
+			block_on(registration.update()),
+			Err(unavailable("ServiceWorkerRegistration.update"))
+		);
+		assert_eq!(
+			block_on(registration.unregister()),
+			Err(unavailable("ServiceWorkerRegistration.unregister"))
+		);
+		assert!(matches!(
+			registration.active(),
+			Err(error) if error == unavailable("ServiceWorkerRegistration.active")
+		));
+		assert!(matches!(
+			registration.installing(),
+			Err(error) if error == unavailable("ServiceWorkerRegistration.installing")
+		));
+		assert!(matches!(
+			registration.waiting(),
+			Err(error) if error == unavailable("ServiceWorkerRegistration.waiting")
+		));
+		assert!(matches!(
+			registration.push_manager(),
+			Err(error) if error == unavailable("PushManager")
+		));
+
+		let worker = Worker { _private: () };
+		assert_eq!(
+			worker.post_message(&"ping"),
+			Err(unavailable("ServiceWorker.postMessage"))
+		);
 	}
 }

@@ -93,7 +93,10 @@ impl Record {
 		if value.is_empty() || value.len() > MAX_RECORD_BYTES {
 			return Err(Error::InvalidArgument);
 		}
-		if value.chars().any(|ch| ch.is_control() && ch != '\n' && ch != '\t') {
+		if value
+			.chars()
+			.any(|ch| ch.is_control() && ch != '\n' && ch != '\t')
+		{
 			return Err(Error::InvalidArgument);
 		}
 		if kind == Kind::Uri {
@@ -170,16 +173,13 @@ impl leptoskit_bridge::Plugin for Unsupported {
 		METHODS
 	}
 
-	fn invoke(
-		&mut self,
-		method: MethodId,
-		payload: Bytes,
-	) -> Result<Bytes, Error> {
+	fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, Error> {
 		validate(method, &payload)?;
-		match method {
-			AVAILABILITY => Ok(Bytes::copy_from_slice(&Availability::Unsupported.encode())),
-			READ => Err(Error::Unavailable),
-			_ => Err(Error::Unavailable),
+		if method == AVAILABILITY {
+			Ok(Bytes::copy_from_slice(&Availability::Unsupported.encode()))
+		} else {
+			// READ — `validate` already rejected anything else.
+			Err(Error::Unavailable)
 		}
 	}
 }
@@ -247,24 +247,42 @@ mod tests {
 		assert!(Availability::decode(&[9, 0, 0, 0]).is_err());
 
 		let text = Record::text("hello").unwrap();
+		assert_eq!(text.kind(), Kind::Text);
+		assert_eq!(text.value(), "hello");
 		assert_eq!(Record::decode(&text.encode().unwrap()).unwrap(), text);
 		let uri = Record::uri("https://example.test/a").unwrap();
+		assert_eq!(uri.kind(), Kind::Uri);
+		assert_eq!(uri.value(), "https://example.test/a");
 		assert_eq!(Record::decode(&uri.encode().unwrap()).unwrap(), uri);
 		assert!(Record::uri("ftp://example.test").is_err());
 		assert!(Record::text("").is_err());
+		assert!(Record::text("bad\u{7}control").is_err());
+		assert!(Record::text("ok\n\tlines").is_ok());
+
+		let mut oversized = vec![0u8; MAX_RECORD_BYTES + 9];
+		assert_eq!(Record::decode(&oversized), Err(Error::TooLarge));
+		oversized.clear();
+		oversized.extend_from_slice(&2u32.to_le_bytes());
+		oversized.extend_from_slice(&1u32.to_le_bytes());
+		oversized.push(b'x');
+		assert_eq!(Record::decode(&oversized), Err(Error::InvalidArgument));
 	}
 
 	#[test]
 	fn unsupported_reports_status_and_refuses_reads() {
 		let mut plugin = Unsupported;
+		assert_eq!(plugin.name(), NAME);
+		assert_eq!(plugin.methods(), METHODS);
 		assert_eq!(
 			Availability::decode(&plugin.invoke(AVAILABILITY, Bytes::new()).unwrap()).unwrap(),
 			Availability::Unsupported
 		);
+		assert_eq!(plugin.invoke(READ, Bytes::new()), Err(Error::Unavailable));
+		assert_eq!(validate(READ, &[0]), Err(Error::InvalidArgument));
+		assert_eq!(validate(MethodId(99), &[]), Err(Error::Unavailable));
 		assert_eq!(
-			plugin.invoke(READ, Bytes::new()),
+			plugin.invoke(MethodId(99), Bytes::new()),
 			Err(Error::Unavailable)
 		);
-		assert_eq!(validate(READ, &[0]), Err(Error::InvalidArgument));
 	}
 }

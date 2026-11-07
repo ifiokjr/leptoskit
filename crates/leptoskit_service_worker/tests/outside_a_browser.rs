@@ -41,10 +41,7 @@ fn registration_names_its_apis() {
 		block_on(get_registration(None)),
 		Err(error) if error == unavailable("navigator.serviceWorker.getRegistration")
 	));
-	assert!(matches!(
-		controller(),
-		Err(error) if error == unavailable("navigator.serviceWorker.controller")
-	));
+	assert!(matches!(controller(), Ok(None)));
 }
 
 #[test]
@@ -91,4 +88,21 @@ fn strategies_are_usable_without_a_browser() {
 		unavailable("caches.open").to_string(),
 		"`caches.open` isn't available in this browser"
 	);
+}
+
+#[test]
+fn register_options_builders_are_usable_without_a_browser() {
+	use leptoskit_service_worker::UpdateViaCache;
+
+	let options = RegisterOptions::default()
+		.scope("/app/")
+		.update_via_cache(UpdateViaCache::Imports);
+	assert!(matches!(
+		block_on(register("/sw.js", options)),
+		Err(error) if error == unavailable("navigator.serviceWorker.register")
+	));
+	assert!(matches!(
+		block_on(get_registration(Some("/app/"))),
+		Err(error) if error == unavailable("navigator.serviceWorker.getRegistration")
+	));
 }

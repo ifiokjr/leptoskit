@@ -278,11 +278,64 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, &'static str> {
 
 #[cfg(test)]
 mod tests {
+	use futures::executor::block_on;
+	use serde_json::json;
+
+	use super::*;
+	use crate::Error;
+
 	#[test]
 	fn base64_url_round_trips() {
 		let bytes = b"hello push keys!!";
-		let encoded = super::encode_base64_url(bytes);
+		let encoded = encode_base64_url(bytes);
 		assert!(!encoded.contains('+') && !encoded.contains('/') && !encoded.contains('='));
-		assert_eq!(super::decode_base64_url(&encoded).unwrap(), bytes);
+		assert_eq!(decode_base64_url(&encoded).unwrap(), bytes);
+	}
+
+	#[test]
+	fn base64_covers_padding_and_alphabet_edges() {
+		assert_eq!(encode_base64_url(b"a"), "YQ");
+		assert_eq!(encode_base64_url(b"ab"), "YWI");
+		assert_eq!(encode_base64_url(b"abc"), "YWJj");
+		assert_eq!(decode_base64_url("YQ").unwrap(), b"a");
+		assert_eq!(decode_base64_url("YWI").unwrap(), b"ab");
+		assert_eq!(base64_decode("YQ==").unwrap(), b"a");
+		assert_eq!(base64_decode("YWI=").unwrap(), b"ab");
+		assert_eq!(base64_decode("YWJj").unwrap(), b"abc");
+		// Standard alphabet digits '+' and '/'.
+		assert_eq!(base64_decode("+/+/").unwrap(), [0xfb, 0xff, 0xbf]);
+		assert_eq!(base64_decode("ab").unwrap_err(), "invalid base64 length");
+		assert_eq!(base64_decode("@@@@").unwrap_err(), "invalid base64");
+		assert!(matches!(
+			decode_base64_url("!!!!"),
+			Err(Error::Json(message)) if message.contains("invalid applicationServerKey")
+		));
+	}
+
+	#[test]
+	fn push_options_default_user_visible_only() {
+		let options: PushOptions =
+			serde_json::from_value(json!({ "application_server_key": "BNcR" })).unwrap();
+		assert!(options.user_visible_only);
+		assert_eq!(options.application_server_key, "BNcR");
+	}
+
+	#[cfg(not(target_arch = "wasm32"))]
+	#[test]
+	fn push_manager_names_its_apis_outside_a_browser() {
+		let manager = PushManager { _private: () };
+		let options = PushOptions::new("BNcR");
+		assert_eq!(
+			block_on(manager.subscribe(&options)),
+			Err(Error::Unavailable("PushManager.subscribe".into()))
+		);
+		assert_eq!(
+			block_on(manager.get_subscription()),
+			Err(Error::Unavailable("PushManager.getSubscription".into()))
+		);
+		assert_eq!(
+			block_on(manager.unsubscribe()),
+			Err(Error::Unavailable("PushSubscription.unsubscribe".into()))
+		);
 	}
 }

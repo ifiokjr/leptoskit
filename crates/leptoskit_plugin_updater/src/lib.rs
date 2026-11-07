@@ -473,4 +473,152 @@ mod tests {
 		bad.push(0);
 		assert!(Status::decode(&bad).is_err());
 	}
+
+	#[test]
+	fn status_variants_round_trip_and_reject_bad_wire() {
+		let available = Status::Available {
+			version: "2.0.0".into(),
+			notes: Some("notes".into()),
+		};
+		assert_eq!(
+			Status::decode(&available.encode().unwrap()).unwrap(),
+			available
+		);
+		let available_none = Status::Available {
+			version: "2.0.0".into(),
+			notes: None,
+		};
+		assert_eq!(
+			Status::decode(&available_none.encode().unwrap()).unwrap(),
+			available_none
+		);
+		let downloading = Status::Downloading {
+			received: (1u64 << 33) | 7,
+			total: Some((1u64 << 40) | 9),
+		};
+		assert_eq!(
+			Status::decode(&downloading.encode().unwrap()).unwrap(),
+			downloading
+		);
+		let downloading_unknown = Status::Downloading {
+			received: 12,
+			total: None,
+		};
+		assert_eq!(
+			Status::decode(&downloading_unknown.encode().unwrap()).unwrap(),
+			downloading_unknown
+		);
+		let failed = Status::Failed {
+			message: "boom".into(),
+		};
+		assert_eq!(Status::decode(&failed.encode().unwrap()).unwrap(), failed);
+		let ready = Status::Ready {
+			version: "3.0.0".into(),
+		};
+		assert_eq!(Status::decode(&ready.encode().unwrap()).unwrap(), ready);
+
+		let mut bad_version = Status::UpToDate.encode().unwrap().to_vec();
+		bad_version[..4].copy_from_slice(&9u32.to_le_bytes());
+		assert!(Status::decode(&bad_version).is_err());
+
+		let mut encoder = Encoder::with_capacity(32);
+		encoder.u32(1);
+		encoder.u32(2);
+		encoder.bytes(b"2.0.0").unwrap();
+		encoder.u32(9);
+		assert!(Status::decode(&encoder.finish()).is_err());
+
+		let mut bad_total = Encoder::with_capacity(32);
+		bad_total.u32(1);
+		bad_total.u32(3);
+		bad_total.u32(0);
+		bad_total.u32(1);
+		bad_total.u32(2);
+		assert!(Status::decode(&bad_total.finish()).is_err());
+
+		let mut unknown = Encoder::with_capacity(8);
+		unknown.u32(1);
+		unknown.u32(99);
+		assert!(Status::decode(&unknown.finish()).is_err());
+
+		assert!(
+			Status::Failed {
+				message: String::new()
+			}
+			.encode()
+			.is_err()
+		);
+		assert!(
+			Status::Available {
+				version: String::new(),
+				notes: None
+			}
+			.encode()
+			.is_err()
+		);
+
+		let _: BridgeError = Error::Unavailable.into();
+		let _: BridgeError = Error::InvalidArgument.into();
+		let _: BridgeError = Error::Native("x".into()).into();
+	}
+
+	#[test]
+	#[allow(
+		clippy::cognitive_complexity,
+		reason = "one test walks MemoryBackend and UnavailableBackend invoke paths"
+	)]
+	fn memory_and_unavailable_backends_cover_paths() {
+		let mut unavailable = UnavailableBackend;
+		assert_eq!(unavailable.current_version(), "0.0.0");
+		assert!(matches!(unavailable.download(), Err(Error::Unavailable)));
+		assert!(matches!(
+			unavailable.install_and_restart(),
+			Err(Error::Unavailable)
+		));
+
+		assert!(
+			MemoryBackend::new("1.0.0", Some(("2.0.0".into(), Some("\u{0001}".into())))).is_err()
+		);
+		assert!(MemoryBackend::new("", None).is_err());
+
+		let mut none = Updater::new(MemoryBackend::new("1.0.0", None).unwrap());
+		assert!(matches!(none.check().unwrap(), Status::UpToDate));
+		assert!(matches!(none.download().unwrap(), Status::UpToDate));
+		assert!(matches!(none.install_and_restart(), Err(Error::Native(_))));
+
+		let mut updater =
+			Updater::new(MemoryBackend::new("1.0.0", Some(("1.1.0".into(), None))).unwrap());
+		assert!(format!("{updater:?}").contains("Updater"));
+		assert_eq!(updater.name(), "updater");
+		assert_eq!(
+			updater.methods(),
+			&[CURRENT_VERSION, CHECK, DOWNLOAD, INSTALL, STATUS]
+		);
+
+		let version = updater.invoke(CURRENT_VERSION, Bytes::new()).unwrap();
+		let mut input = Decoder::new(&version);
+		assert_eq!(input.string().unwrap(), "1.0.0");
+		input.finish().unwrap();
+
+		let check = updater.invoke(CHECK, Bytes::new()).unwrap();
+		assert!(matches!(
+			Status::decode(&check).unwrap(),
+			Status::Available { .. }
+		));
+		let download = updater.invoke(DOWNLOAD, Bytes::new()).unwrap();
+		assert!(matches!(
+			Status::decode(&download).unwrap(),
+			Status::Ready { .. }
+		));
+		assert_eq!(updater.invoke(INSTALL, Bytes::new()).unwrap(), Bytes::new());
+		let status = updater.invoke(STATUS, Bytes::new()).unwrap();
+		assert!(matches!(
+			Status::decode(&status).unwrap(),
+			Status::Ready { .. }
+		));
+		assert_eq!(
+			updater.invoke(MethodId(99), Bytes::new()),
+			Err(BridgeError::Unavailable)
+		);
+	}
 }

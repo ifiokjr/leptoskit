@@ -429,4 +429,103 @@ mod tests {
 		assert!(ProtocolAssociation::new("1bad", "x").is_err());
 		assert!(FileAssociation::new(vec![".md".into()], vec![], "Markdown").is_err());
 	}
+
+	#[test]
+	fn getters_overflow_and_bridge_error_paths() {
+		assert!(DeepLinks::new(Vec::<String>::new()).is_err());
+		assert!(
+			DeepLinks::new(["myapp".into()])
+				.unwrap()
+				.with_protocols(vec![ProtocolAssociation::new("other", "Other").unwrap()])
+				.is_err()
+		);
+
+		let mut links = DeepLinks::new(["myapp".into()]).unwrap();
+		assert_eq!(links.schemes().collect::<Vec<_>>(), ["myapp"]);
+		assert_eq!(links.lost(), 0);
+
+		assert!(matches!(links.push_url(""), Err(Error::InvalidArgument)));
+		assert!(matches!(
+			links.push_url("myapp://\u{0001}"),
+			Err(Error::InvalidArgument)
+		));
+		assert!(matches!(
+			links.push_url(&format!("myapp://{}", "x".repeat(MAX_TARGET_BYTES))),
+			Err(Error::InvalidArgument)
+		));
+
+		for i in 0..EVENT_CAPACITY + 2 {
+			links.push_url(&format!("myapp://item/{i}")).unwrap();
+		}
+		assert_eq!(links.lost(), 2);
+		let (lost, events) = links.drain();
+		assert_eq!(lost, 2);
+		assert_eq!(events.len(), EVENT_CAPACITY);
+
+		let mut links = DeepLinks::new(["myapp".into()]).unwrap();
+		links.push_file(Path::new("/tmp/note.md")).unwrap();
+		assert_eq!(links.name(), "deep-link");
+		assert_eq!(links.methods(), &[EVENTS, SCHEMES]);
+		let reply = links.invoke(EVENTS, Bytes::new()).unwrap();
+		let (lost, events) = decode_events(&reply).unwrap();
+		assert_eq!(lost, 0);
+		assert_eq!(
+			events,
+			vec![Activation::File(PathBuf::from("/tmp/note.md"))]
+		);
+
+		assert_eq!(
+			links.invoke(EVENTS, Bytes::from_static(b"x")),
+			Err(BridgeError::InvalidArgument)
+		);
+		assert_eq!(
+			links.invoke(SCHEMES, Bytes::from_static(b"x")),
+			Err(BridgeError::InvalidArgument)
+		);
+		assert_eq!(
+			links.invoke(MethodId(9), Bytes::new()),
+			Err(BridgeError::Unavailable)
+		);
+
+		let _: BridgeError = Error::InvalidArgument.into();
+		let _: BridgeError = Error::ForbiddenScheme.into();
+	}
+
+	#[test]
+	fn activation_decode_rejects_bad_wire_payloads() {
+		fn wrap_event(inner: &[u8]) -> Bytes {
+			let mut output = Encoder::with_capacity(16 + inner.len());
+			output.u32(0);
+			output.u32(0);
+			output.u32(1);
+			output.bytes(inner).unwrap();
+			output.finish()
+		}
+
+		let mut empty = Encoder::with_capacity(8);
+		empty.u32(1);
+		empty.bytes(b"").unwrap();
+		assert!(decode_events(&wrap_event(&empty.finish())).is_err());
+
+		let mut huge = Encoder::with_capacity(16);
+		huge.u32(1);
+		huge.bytes(&vec![b'a'; MAX_TARGET_BYTES + 1]).unwrap();
+		assert!(decode_events(&wrap_event(&huge.finish())).is_err());
+
+		let mut relative = Encoder::with_capacity(16);
+		relative.u32(2);
+		relative.bytes(b"relative.md").unwrap();
+		assert!(decode_events(&wrap_event(&relative.finish())).is_err());
+
+		let mut unknown = Encoder::with_capacity(16);
+		unknown.u32(99);
+		unknown.bytes(b"myapp://x").unwrap();
+		assert!(decode_events(&wrap_event(&unknown.finish())).is_err());
+
+		let mut absolute = Encoder::with_capacity(16);
+		absolute.u32(2);
+		absolute.bytes(b"/tmp/ok.md").unwrap();
+		let (_, events) = decode_events(&wrap_event(&absolute.finish())).unwrap();
+		assert_eq!(events, vec![Activation::File(PathBuf::from("/tmp/ok.md"))]);
+	}
 }

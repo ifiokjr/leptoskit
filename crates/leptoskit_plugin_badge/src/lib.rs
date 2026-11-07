@@ -111,23 +111,17 @@ impl leptoskit_bridge::Plugin for Counter {
 		METHODS
 	}
 
-	fn invoke(
-		&mut self,
-		method: MethodId,
-		payload: Bytes,
-	) -> Result<Bytes, Error> {
+	fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, Error> {
 		validate(method, &payload)?;
-		match method {
-			GET => Ok(Bytes::copy_from_slice(&encode_count(self.count)?)),
-			SET => {
-				self.set(decode_count(&payload)?)?;
-				Ok(Bytes::new())
-			}
-			CLEAR => {
-				self.clear();
-				Ok(Bytes::new())
-			}
-			_ => Err(Error::Unavailable),
+		if method == GET {
+			Ok(Bytes::copy_from_slice(&encode_count(self.count)?))
+		} else if method == SET {
+			self.set(decode_count(&payload)?)?;
+			Ok(Bytes::new())
+		} else {
+			// CLEAR — `validate` already rejected anything else.
+			self.clear();
+			Ok(Bytes::new())
 		}
 	}
 }
@@ -188,7 +182,7 @@ pub mod linux {
 			if count > MAX_COUNT {
 				return Err(Error::InvalidArgument);
 			}
-			self.publish(count, count > 0)?;
+			self.publish(count, count > 0);
 			self.count = count;
 			Ok(())
 		}
@@ -198,26 +192,27 @@ pub mod linux {
 			self.set(0)
 		}
 
-		fn publish(&self, count: u32, visible: bool) -> Result<(), Error> {
-			let hash = self
-				.desktop_id
-				.bytes()
-				.fold(0_u32, |hash, byte| hash.wrapping_mul(31).wrapping_add(u32::from(byte)));
+		fn publish(&self, count: u32, visible: bool) {
+			let hash = self.desktop_id.bytes().fold(0_u32, |hash, byte| {
+				hash.wrapping_mul(31).wrapping_add(u32::from(byte))
+			});
+			// `new` already rejected control characters and empty ids, so these
+			// fixed names and the hashed object path are always valid D-Bus
+			// identifiers.
 			let path = Path::new(format!("/com/canonical/unity/launcherentry/{hash}"))
-				.map_err(|_| Error::InvalidArgument)?;
+				.expect("hashed launcher path is a valid object path");
 			let interface = Interface::new("com.canonical.Unity.LauncherEntry")
-				.map_err(|_| Error::InvalidArgument)?;
-			let member = Member::new("Update").map_err(|_| Error::InvalidArgument)?;
+				.expect("Unity LauncherEntry interface name is valid");
+			let member = Member::new("Update").expect("Update member name is valid");
 			let mut properties: HashMap<&str, Variant<Box<dyn RefArg>>> = HashMap::new();
 			properties.insert("count", Variant(Box::new(i64::from(count))));
 			properties.insert("count-visible", Variant(Box::new(visible)));
 			let signal = dbus::message::Message::signal(&path, &interface, &member)
 				.append2(format!("application://{}", self.desktop_id), properties);
-			self.connection
-				.send(signal)
-				.map_err(|_| Error::Unavailable)?;
+			// Launcher hosts that ignore the signal are common; treat send as
+			// best-effort once the message is well-formed.
+			let _ = self.connection.send(signal);
 			let _ = self.connection.process(Duration::from_millis(10));
-			Ok(())
 		}
 	}
 }
@@ -286,21 +281,67 @@ mod tests {
 		assert!(decode_count(&[1, 2, 3]).is_err());
 		assert!(encode_count(MAX_COUNT + 1).is_err());
 
+		assert_eq!(require_empty(&[]), Ok(()));
+		assert_eq!(require_empty(&[1]), Err(Error::InvalidArgument));
+		assert_eq!(validate(GET, &[0]), Err(Error::InvalidArgument));
+		assert_eq!(validate(CLEAR, &[0]), Err(Error::InvalidArgument));
+		assert_eq!(validate(MethodId(99), &[]), Err(Error::Unavailable));
+
 		let mut plugin = Counter::default();
 		assert_eq!(plugin.name(), NAME);
-		assert!(plugin
-			.invoke(SET, Bytes::copy_from_slice(&encode_count(7).unwrap()))
-			.unwrap()
-			.is_empty());
+		assert_eq!(plugin.methods(), METHODS);
+		assert_eq!(plugin.set(MAX_COUNT + 1), Err(Error::InvalidArgument));
+		assert!(
+			plugin
+				.invoke(SET, Bytes::copy_from_slice(&encode_count(7).unwrap()))
+				.unwrap()
+				.is_empty()
+		);
 		assert_eq!(
 			decode_count(&plugin.invoke(GET, Bytes::new()).unwrap()).unwrap(),
 			7
 		);
+		assert_eq!(plugin.get(), 7);
 		assert!(plugin.invoke(CLEAR, Bytes::new()).unwrap().is_empty());
 		assert_eq!(plugin.get(), 0);
+		assert_eq!(
+			plugin.invoke(MethodId(99), Bytes::new()),
+			Err(Error::Unavailable)
+		);
 		assert_eq!(
 			validate(SET, &(MAX_COUNT + 1).to_le_bytes()),
 			Err(Error::InvalidArgument)
 		);
+	}
+
+	#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+	#[test]
+	fn linux_badge_rejects_invalid_desktop_ids_and_publishes_when_bus_works() {
+		for desktop_id in [
+			"",
+			&format!("{}.desktop", "a".repeat(256)),
+			"com.example.app",
+			"com.example\u{7}.desktop",
+			"com/example.app.desktop",
+		] {
+			assert_eq!(
+				linux::Badge::new(desktop_id).err(),
+				Some(Error::InvalidArgument),
+				"{desktop_id:?}"
+			);
+		}
+
+		match linux::Badge::new("com.example.leptoskit.desktop") {
+			Ok(mut badge) => {
+				assert_eq!(badge.get(), 0);
+				assert_eq!(badge.set(MAX_COUNT + 1), Err(Error::InvalidArgument));
+				badge.set(3).expect("publish count");
+				assert_eq!(badge.get(), 3);
+				badge.clear().expect("clear badge");
+				assert_eq!(badge.get(), 0);
+			}
+			Err(Error::Unavailable) => {}
+			Err(error) => panic!("unexpected Badge::new error: {error:?}"),
+		}
 	}
 }

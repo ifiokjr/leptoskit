@@ -196,3 +196,37 @@ impl Cache {
 		}
 	}
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+	use futures::executor::block_on;
+
+	use super::*;
+	use crate::Error;
+
+	fn unavailable(path: &str) -> Error {
+		Error::Unavailable(path.to_owned())
+	}
+
+	#[test]
+	fn cache_methods_name_their_apis_outside_a_browser() {
+		let cache = Cache { _private: () };
+		assert_eq!(
+			block_on(cache.add("/assets/app.wasm")),
+			Err(unavailable("Cache.add"))
+		);
+		assert_eq!(
+			block_on(cache.add_all(&["/a".into(), "/b".into()])),
+			Err(unavailable("Cache.addAll"))
+		);
+		assert_eq!(
+			block_on(cache.has_url("/assets/app.wasm")),
+			Err(unavailable("Cache.match"))
+		);
+		assert_eq!(
+			block_on(cache.delete_url("/assets/app.wasm")),
+			Err(unavailable("Cache.delete"))
+		);
+		assert_eq!(block_on(cache.urls()), Err(unavailable("Cache.keys")));
+	}
+}
