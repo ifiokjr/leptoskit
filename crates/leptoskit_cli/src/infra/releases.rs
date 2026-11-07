@@ -403,7 +403,8 @@ fn runtime_files(
 	let project = crate::deploy::Project::read(root, config)?;
 	ensure!(
 		project.has_probes,
-		"managed releases require readiness probes"
+		"managed releases require /healthz and /readyz; implement the readiness lifecycle and \
+		 declare serve.probes = true"
 	);
 	let (runtime_config, references) = runtime::kamal(c, &project, hosts, private)?;
 	fs::write(dir.join("release.yml"), runtime_config)?;

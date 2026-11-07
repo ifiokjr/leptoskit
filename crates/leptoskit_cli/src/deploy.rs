@@ -121,7 +121,7 @@ pub struct Project {
 	pub database: Option<Database>,
 	/// The environment variables that hold secrets, from `[auth]`.
 	pub secrets: Vec<String>,
-	/// Whether the server's source serves `/readyz`.
+	/// Whether `serve.probes` declares health and readiness routes.
 	pub has_probes: bool,
 	/// The environment variables holding other URLs with credentials: the
 	/// live relay's, and the read replicas'.
@@ -148,10 +148,9 @@ impl Project {
 	/// server package or its binary can't be found.
 	pub fn read(root: &Path, config: &LeptoskitConfig) -> Result<Self> {
 		anyhow::ensure!(
-			config.app.render.renders_on_server() || config.build.client_package.is_some(),
-			"app.render is `{}` without a separate build.client_package; upload {DIST_DIR}/ to a \
-			 CDN, or name the backend in app.name and the client in build.client_package",
-			config.app.render
+			config.backend_enabled(true)?,
+			"build.backend = false selects a static app; upload {DIST_DIR}/ to a CDN, or set \
+			 build.backend = true and name the backend in app.name"
 		);
 		let app = config.app.name.clone();
 		let server = package_dir(root, &app)?.with_context(|| {
@@ -162,7 +161,7 @@ impl Project {
 				root.join("Cargo.toml").display()
 			)
 		})?;
-		let (binary, main) = binary(&server, &app)?;
+		let (binary, _) = binary(&server, &app)?;
 
 		let output_name = match &config.build.client_package {
 			Some(client) => {
@@ -212,9 +211,7 @@ impl Project {
 			);
 		}
 
-		let has_probes = main
-			.and_then(|main| std::fs::read_to_string(main).ok())
-			.is_some_and(|source| source.contains("readyz") || source.contains("Readiness"));
+		let has_probes = config.serve.probes;
 		let urls = config
 			.rpc
 			.live
@@ -386,11 +383,12 @@ pub fn generate_with(
 
 	if !project.has_probes {
 		report.next.push(
-			"The server doesn't answer /healthz and /readyz yet, and the health checks call them. \
-			 In its main, make a `leptoskit::server::Readiness`, merge `readiness.routes()` into \
-			 the router, and serve with `leptoskit::server::serve_listener_with(listener, app, \
+			"Backend probes are not declared (serve.probes = false), and deployment health checks \
+			 require them. In its main, make a `leptoskit::server::Readiness`, merge \
+			 `readiness.routes()` into the router, and serve with \
+			 `leptoskit::server::serve_listener_with(listener, app, \
 			 GracefulShutdown::new().readiness(&readiness))`; the deployment guide shows the \
-			 whole of it."
+			 whole of it. Then declare serve.probes = true."
 				.to_owned(),
 		);
 	}

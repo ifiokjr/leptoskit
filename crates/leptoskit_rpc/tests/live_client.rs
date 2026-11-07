@@ -268,8 +268,13 @@ fn without_an_installed_client_the_globals_are_offline() {
 	rpc::client::configure(ClientConfig::new());
 	assert!(!rpc::client::live::available());
 	rpc::client::live::reauthenticate();
-	let status = rpc::client::live::use_live_status();
-	assert_eq!(status.get(), rpc::client::LiveStatus::OFFLINE);
+	// Signal hooks run inside a component owner, including builds using
+	// sandboxed arenas. Nextest runs this test without another test having
+	// initialized an arena on its thread.
+	Owner::new().with(|| {
+		let status = rpc::client::live::use_live_status();
+		assert_eq!(status.get(), rpc::client::LiveStatus::OFFLINE);
+	});
 }
 
 /// A subscription takes its value, stops when unsubscribed, and status

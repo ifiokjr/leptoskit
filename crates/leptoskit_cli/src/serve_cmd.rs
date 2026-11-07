@@ -1,9 +1,9 @@
 //! `leptoskit serve`: serves the built output.
 //!
-//! Client-rendered apps are static files, served by leptoskit's own server.
-//! Server-rendered apps (`app.render = "ssr"` or `"islands"`) serve
-//! themselves: `serve` runs the server binary the last `leptoskit build`
-//! produced, in the leptos `PROD` environment, pointed at the built site.
+//! Apps without a backend use leptoskit's static server. Apps with a
+//! backend run the binary the last `leptoskit build` produced, in the
+//! leptos `PROD` environment, pointed at the built site. Backend selection
+//! follows `build.backend` and Cargo targets independently of rendering.
 
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -30,7 +30,24 @@ pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
 	let port = port.unwrap_or(config.serve.port);
 	// A client-rendered app with a server package is served by that server,
 	// which answers its API too, as `leptoskit dev` does.
-	if config.app.render.renders_on_server() || has_built_server(&root) {
+	// A declared static deployment needs only its built files, not a Rust
+	// toolchain or Cargo manifest on the machine serving them.
+	let backend = if config.build.backend == Some(false) {
+		false
+	} else if !root
+		.ancestors()
+		.any(|directory| directory.join("Cargo.toml").is_file())
+	{
+		// A copied static artifact may predate build.backend. With no
+		// Cargo workspace there is no backend to detect; explicit backend,
+		// SSR and probe requirements must still fail instead of falling back.
+		config.backend_enabled(false)?
+	} else {
+		let metadata = crate::wasm::cargo_metadata(root.as_std_path())?;
+		crate::server::backend_package(&config, &metadata, leptoskit_config::Platform::Web)?
+			.is_some()
+	};
+	if backend {
 		return run_app_server(&config, &root, dir_path, port);
 	}
 
@@ -50,13 +67,6 @@ pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
 		leptoskit_axum::serve(options)
 			.await
 			.map_err(|error| anyhow::anyhow!("{error}"))
-	})
-}
-
-/// Whether the last build produced a server binary.
-fn has_built_server(root: &Utf8PathBuf) -> bool {
-	crate::wasm::cargo_metadata(root.as_std_path()).is_ok_and(|metadata| {
-		BuiltServer::load(&metadata.target_directory, root.as_std_path()).is_ok()
 	})
 }
 

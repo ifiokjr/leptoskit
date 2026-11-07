@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 332
 expression: contents
 ---
 #:schema https://leptoskit.dev/schemas/leptoskit.v0.schema.json
@@ -24,8 +25,10 @@ render = "ssr"
 [serve]
 address = "127.0.0.1"
 port = 3000
+probes = true
 
 [build]
+backend = true
 client_package = "snapshotted_app"
 features = []
 rustflags = []

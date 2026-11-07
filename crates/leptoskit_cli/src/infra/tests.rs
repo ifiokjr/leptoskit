@@ -215,8 +215,8 @@ fn multi_host_runtime_has_shared_services_and_sequential_rollouts() {
 	)
 	.unwrap();
 	let config = LeptoskitConfig::from_toml(
-		"[app]\nname='notes'\nrender='ssr'\n[db]\ndialect='postgres'\n[rpc.live]\nrelay_url_env='\
-		 NATS_URL'\n",
+		"[app]\nname='notes'\nrender='ssr'\n[serve]\nprobes=true\n[db]\ndialect='postgres'\n[rpc.\
+		 live]\nrelay_url_env='NATS_URL'\n",
 		root.path(),
 	)
 	.unwrap();
@@ -265,7 +265,7 @@ fn ci_workflow_builds_before_deploying_and_uses_shared_state() {
 	)
 	.unwrap();
 	let mut config = LeptoskitConfig::from_toml(
-		"[app]\nname='notes'\nrender='ssr'\n[db]\ndialect='postgres'\n",
+		"[app]\nname='notes'\nrender='ssr'\n[serve]\nprobes=true\n[db]\ndialect='postgres'\n",
 		root.path(),
 	)
 	.unwrap();
@@ -361,7 +361,7 @@ fn release_configuration_uses_private_services_and_secret_references() {
 	)
 	.unwrap();
 	let config = LeptoskitConfig::from_toml(
-		"[app]\nname='notes'\nrender='ssr'\n[db]\ndialect='postgres'\n",
+		"[app]\nname='notes'\nrender='ssr'\n[serve]\nprobes=true\n[db]\ndialect='postgres'\n",
 		root.path(),
 	)
 	.unwrap();

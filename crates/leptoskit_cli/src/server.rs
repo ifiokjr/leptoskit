@@ -21,6 +21,26 @@ use serde::Serialize;
 use crate::cache::hash_bytes;
 use crate::wasm::ClientInfo;
 
+/// Resolves the backend from the configuration and Cargo targets for both
+/// building and serving. Rendering does not determine whether a CSR app
+/// has an API server.
+pub(crate) fn backend_package<'a>(
+	config: &leptoskit_config::LeptoskitConfig,
+	metadata: &'a crate::wasm::CargoMetadata,
+	platform: leptoskit_config::Platform,
+) -> Result<Option<&'a crate::wasm::MetadataPackage>> {
+	let package = metadata
+		.package(&config.app.name)
+		.filter(|package| package.bin_target().is_some());
+	let enabled = config.backend_enabled(package.is_some())?;
+	anyhow::ensure!(
+		platform != leptoskit_config::Platform::Server || enabled,
+		"the server platform requires a backend; set build.backend = true and name its package in \
+		 app.name"
+	);
+	Ok(package.filter(|_| enabled))
+}
+
 /// The directory under the site root that holds the wasm-bindgen output.
 pub const PKG_DIR: &str = "pkg";
 

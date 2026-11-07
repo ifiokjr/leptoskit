@@ -286,7 +286,7 @@ next:
   3. Deploy: `fly deploy`
 ```
 
-This page covers the generated files, health checks, and graceful shutdown. It deploys an `ssr` or `islands` server, or a `csr` backend named by `app.name` when `build.client_package` names its browser client. Web, iOS, Android, macOS, Windows, Linux, terminal, and HarmonyOS clients reach that server wherever it runs. A purely static `csr` app needs only `dist/` on a CDN or bucket (see [security and scale](16-security-and-scale.md#client-rendered-apps-the-cdn-is-the-server)).
+This page covers the generated files, health checks, and graceful shutdown. It deploys an `ssr` or `islands` server, or a `csr` backend named by `app.name`. Set `build.backend = true` to require that backend, independently of `build.client_package`. Set `build.backend = false` for a purely static client. Web, iOS, Android, macOS, Windows, Linux, terminal, and HarmonyOS clients reach that server wherever it runs. A purely static `csr` app needs only `dist/` on a CDN or bucket (see [security and scale](16-security-and-scale.md#client-rendered-apps-the-cdn-is-the-server)).
 
 ## The targets
 
@@ -304,6 +304,7 @@ The generator reads:
 
 - `app.name`, the server package, and its binary: the one named after the package, or its only one;
 - `serve.port`, the port the container listens on;
+- `serve.probes`, the declaration that the backend implements the health and readiness routes;
 - `build.client_package`, whose library name the site's `pkg/` files are named after;
 - `[db]`: the dialect, and `url_env`, the variable that holds the database's URL;
 - `[auth]`: the variables that hold its keys and mail settings, which become secrets.
@@ -327,6 +328,8 @@ docker run --rm --read-only --tmpfs /tmp -p 127.0.0.1:3000:3000 my_app
 ```
 
 ## Health checks
+
+New projects set `serve.probes = true` and install the readiness routes. For an existing server, implement the routes and shutdown lifecycle below, then add `probes = true` under `[serve]`. Managed releases require this declaration. The CLI does not inspect Rust source to guess whether routes exist: a declaration describes the intended contract, and deployment health checks still test the running server.
 
 A load balancer asks every instance two questions, and the server answers each on its own route:
 

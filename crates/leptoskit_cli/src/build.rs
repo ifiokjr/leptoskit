@@ -165,15 +165,7 @@ pub fn run(
 		config: Vec::new(),
 	};
 	let metadata = wasm::cargo_metadata(root.as_std_path())?;
-	// A client-rendered app needs no server of its own: leptoskit's static
-	// server serves `dist/`. Server rendering needs the app's server package.
-	let server_package = metadata.package(&config.app.name);
-	anyhow::ensure!(
-		server_package.is_some() || !config.app.render.renders_on_server(),
-		"app.name `{}` in leptoskit.toml must name the server package, but the cargo workspace \
-		 has no such member",
-		config.app.name
-	);
+	let server_package = server::backend_package(&config, &metadata, platform)?;
 	let client = wasm::detect_client_with(
 		config.build.client_package.as_deref(),
 		Some(&config.app.name),
@@ -223,7 +215,12 @@ pub fn run(
 	// built and deployed as the website's.
 	let server_binary = match server_package {
 		Some(_) if platform != Platform::Extension => {
-			compile_server(&root, &config.app.name, &server_options)?
+			Some(
+				compile_server(&root, &config.app.name, &server_options)?.context(
+					"backend build produced no unambiguous executable; name its binary after \
+					 app.name",
+				)?,
+			)
 		}
 
 		_ => None,
