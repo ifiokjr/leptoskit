@@ -2795,12 +2795,12 @@ while [ "$#" -gt 0 ]; do
 done
 if [ "$target" = wasm32-unknown-unknown ]; then
   # Like cargo, place the guest under the requested target directory and
-  # report where it was written.
+  # report where it was written, and which package's manifest built it.
   mkdir -p "$target_dir/$target/$profile"
   fixture=target/wasm32-unknown-unknown/release/counter_guest.wasm
   output="$(cd "$target_dir/$target/$profile" && pwd)/counter_guest.wasm"
   [ "$fixture" -ef "$output" ] || cp "$fixture" "$output"
-  printf '{"reason":"compiler-artifact","target":{"name":"counter_guest","kind":["cdylib"]},"filenames":["%s"]}\n' "$output"
+  printf '{"reason":"compiler-artifact","manifest_path":"%s/guest/Cargo.toml","target":{"name":"counter_guest","kind":["cdylib"]},"filenames":["%s"]}\n' "$(pwd -P)" "$output"
   exit 0
 fi
 case "$target" in

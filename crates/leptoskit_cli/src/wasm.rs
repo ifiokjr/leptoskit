@@ -425,12 +425,17 @@ pub fn rustflags_config_arg(rustflags: &[String]) -> String {
 	format!("target.{WASM_TARGET}.rustflags={array}")
 }
 
-/// The `.wasm` a cdylib artifact in cargo's JSON message stream wrote: the
-/// compiled client, wherever the profile and target directory put it. The
-/// compiler's diagnostics print along the way; with
+/// The `.wasm` the client's cdylib artifact in cargo's JSON message stream
+/// wrote: the compiled client, wherever the profile and target directory put
+/// it. `manifest` is the client package's `Cargo.toml`, which picks its
+/// artifact out of the stream. A dependency that also declares a `cdylib` is
+/// compiled as one, and its `.wasm` arrives before the client's, so the
+/// first cdylib in the stream is not necessarily the client.
+///
+/// The compiler's diagnostics print along the way; with
 /// `--message-format=json-render-diagnostics` they exist only in this
 /// stream, so a reader that dropped them hid warnings and errors.
-pub fn wasm_in_messages(messages: impl BufRead) -> Result<Option<PathBuf>> {
+pub fn wasm_in_messages(messages: impl BufRead, manifest: &Path) -> Result<Option<PathBuf>> {
 	let mut wasm = None;
 
 	crate::cargo_messages::stream(messages, |message| {
@@ -438,8 +443,9 @@ pub fn wasm_in_messages(messages: impl BufRead) -> Result<Option<PathBuf>> {
 			.target
 			.as_ref()
 			.is_some_and(|target| target.kind.iter().any(|kind| kind == "cdylib"));
+		let is_client = message.manifest_path.as_deref() == Some(manifest);
 
-		if message.reason != "compiler-artifact" || !is_cdylib || wasm.is_some() {
+		if message.reason != "compiler-artifact" || !is_cdylib || !is_client || wasm.is_some() {
 			return;
 		}
 
@@ -478,7 +484,7 @@ pub fn compile_wasm(root: &Path, client: &ClientInfo, options: &CargoOptions) ->
 		.stdout
 		.take()
 		.context("cargo's output was not captured")?;
-	let wasm = wasm_in_messages(BufReader::new(messages))?;
+	let wasm = wasm_in_messages(BufReader::new(messages), &client.manifest_path)?;
 	let status = child.wait().context("could not wait for cargo")?;
 	anyhow::ensure!(status.success(), "wasm build failed");
 	let path = wasm.with_context(|| {

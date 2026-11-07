@@ -25,6 +25,10 @@ pub struct Message {
 	pub executable: Option<PathBuf>,
 	#[serde(default)]
 	pub filenames: Vec<PathBuf>,
+	/// The `Cargo.toml` of the package a `compiler-artifact` belongs to,
+	/// which tells the requested package's artifacts from its dependencies'.
+	#[serde(default)]
+	pub manifest_path: Option<PathBuf>,
 	#[serde(default)]
 	pub target: Option<Target>,
 }
