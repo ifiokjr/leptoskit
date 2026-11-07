@@ -1,0 +1,20 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+[package]
+name = "snapshotted_shared"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+snapshotted_db = { path = "../snapshotted_db" }
+leptoskit = { version = "=[version]", default-features = false, features = ["rpc", "auth"] }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+
+[features]
+# The server side of the operations: their bodies, run on the database, and
+# their descriptions in the published API. Never enable it in a client build.
+server = ["snapshotted_db/server", "leptoskit/rpc-ssr", "leptoskit/db-sqlite"]

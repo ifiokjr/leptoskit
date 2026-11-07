@@ -21,7 +21,9 @@ Next to the usual crates, the scaffold adds:
 - `migrations/`, empty until you create the first migration;
 - a `[db]` table in `leptoskit.toml`;
 - a server that applies pending migrations before it serves the first request;
-- a backend that serves `GET /api/notes` and `POST /api/notes`.
+- a `notes` query and an `add_note` mutation in `my_app_shared`, which every platform calls by name, and which the server answers at `POST /api/notes` and `POST /api/add_note` and over its live socket. They're published, so `leptoskit rpc generate` writes clients for them; [Sharing the RPC](13-sharing-the-rpc.md#in-a-new-app) shows one.
+
+An app created by an earlier leptoskit served `GET /api/notes` and `POST /api/notes` from handlers in its backend instead, and keeps them until you change them.
 
 Create the first migration, then run the app:
 

@@ -18,7 +18,7 @@ leptoskit build --platform linux
 
 All six destinations are enabled in `leptoskit.toml`. Each build activates exactly one platform feature in `snapshotted_app`; add optional dependencies to that feature when they support the app's actual compilation target. Native app code compiles to Wasm, so UIKit, JNI, and other OS dependencies belong in the corresponding runner's Cargo manifest or a native plugin.
 
-`src/main.rs` starts the SSR server, serves browser files, and registers the backend's `GET /api/health` endpoint. Shared assets live in `assets/`. `web/index.html` supplies the document for CSR mode (`app.render = "csr"`); SSR uses the shared app's `shell` function.
+`src/main.rs` starts the SSR server and serves browser files. The backend's `health` server function answers `GET /api/health`, and `#[api]` publishes it: `leptoskit rpc spec` prints the published API, and `leptoskit rpc generate --target typescript` writes a typed client for it. Shared assets live in `assets/`. `web/index.html` supplies the document for CSR mode (`app.render = "csr"`); SSR uses the shared app's `shell` function.
 
 ## Platform overrides
 
@@ -47,4 +47,17 @@ leptoskit dev
 
 While `leptoskit dev` runs, a change to the tables that keeps every row becomes a migration under `migrations/`, applied straight away; a change that would delete data writes nothing and says which command to run. You can also run `leptoskit db migration create <name>` yourself. Review and commit what it writes. `leptoskit db check` fails when the tables changed without a migration, so run it in CI. The server keeps its data in `snapshotted.sqlite3`, in the directory it starts from, unless `DATABASE_URL` names another database.
 
-`snapshotted_backend` serves `GET /api/notes` and `POST /api/notes` from the example `Note` table.
+## Operations
+
+`snapshotted_shared` declares the app's queries and mutations next to its contracts: `notes` lists the newest notes, and `add_note` adds one. Every screen calls them the same way, in the browser, in a native app, and while the server renders a page: `leptoskit::rpc::client::call(AddNote { body }).await`. Their bodies, and the database code in them, compile only into the server, through `snapshotted_shared`'s `server` feature. A native app reaches the server through the `http` plugin: grant it in `[native] plugins` with the server in its allowed origins, then name the server with `leptoskit::rpc::client::configure(ClientConfig::new().origin(…))` when the app starts.
+
+The server answers each at `POST /api/<name>`, with its arguments as one JSON object: `POST /api/notes` with `{}`, and `POST /api/add_note` with `{"body": "Milk"}`. A failure answers `Kind|message` as text with its status, such as `400` for an empty note. The live socket at `/live` sends a subscribed query's result again whenever a write changes it.
+
+`#[api]` publishes both, with the backend's `health`, so generated clients call the same routes and subscribe over the same socket:
+
+```sh
+leptoskit rpc list
+leptoskit rpc generate --target typescript --out clients/typescript
+```
+
+`leptoskit rpc` builds the server and runs it with `LEPTOSKIT_RPC_SPEC_OUT` set: it writes the published API and exits before it reads its configuration, opens the database, or loads any keys, so it needs neither `DATABASE_URL` nor secrets.

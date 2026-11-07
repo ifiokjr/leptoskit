@@ -9,4 +9,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
+schemars = "1"
 serde = { version = "1", features = ["derive"] }

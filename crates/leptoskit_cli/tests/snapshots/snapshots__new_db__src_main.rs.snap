@@ -20,6 +20,13 @@ use leptoskit::server::tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	// `leptoskit rpc spec` and `leptoskit rpc generate` run this binary with
+	// `LEPTOSKIT_RPC_SPEC_OUT` set to read the published API: this writes it
+	// there and exits, before anything below reads configuration, opens the
+	// database or binds a port. Otherwise it checks that no two operations
+	// share a route.
+	leptoskit::rpc::spec::export_if_requested();
+
 	let mut options = leptoskit::leptos::config::get_configuration(None)?.leptos_options;
 	options.output_name = "snapshotted_app".into();
 
@@ -29,17 +36,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	// `--role` (or `LEPTOSKIT_ROLE`) picks which parts of the app this
 	// process runs, every one unless it says: `web` serves the pages and the
-	// API, and `live`, `worker` and `capture` are for the live sockets, the
-	// job workers and replication capture once the app has them, so one
-	// binary can run as any part of a larger deployment.
+	// API, and `live` the live socket. `worker` and `capture` are for the job
+	// workers and replication capture once the app has them, so one binary
+	// can run as any part of a larger deployment.
 	let roles = Roles::from_env_and_args()?;
 	let address = options.site_addr;
 	let package_dir = format!("{}/{}", options.site_root, options.site_pkg_dir);
 	let assets_dir = format!("{}/assets", options.site_root);
 	// `/readyz` answers 200 once every check passes, so a load balancer only
-	// sends traffic to an instance that can serve it.
+	// sends traffic to an instance that can serve it. It checks only what
+	// this process runs.
 	let readiness = Readiness::new();
 	let migrated = readiness.check("migrations");
+	let live_ready = roles.live().then(|| readiness.check("live"));
 	// The database, migrated before the first request.
 	let url = std::env::var("DATABASE_URL")
 		.unwrap_or_else(|_| "sqlite://snapshotted.sqlite3".to_owned());
@@ -51,13 +60,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	migrated.pass();
 
+	// The queries and mutations in `snapshotted_shared`: `POST /api/<name>`,
+	// and the live socket at `/live`, where a screen or a generated client
+	// subscribes to a query and receives every change to its result.
+	let operations = snapshotted_backend::operations(db.clone());
+	let live = operations.live();
+
+	if let Some(ready) = live_ready {
+		live.start().await?;
+		ready.pass();
+	}
+
 	let routes = generate_route_list(App);
 	let app_options = options.clone();
 	// The pages and the API, with the `web` role. The built files are served
 	// with their precompressed brotli and gzip copies when the browser
 	// accepts them. Every process answers `/healthz` and `/readyz`.
-	let app = if roles.web() {
-		snapshotted_backend::router(db)
+	let mut app = if roles.web() {
+		snapshotted_backend::router(&operations)
 			.nest_service(
 				"/pkg",
 				leptoskit::server::static_files(package_dir.as_ref()),
@@ -70,15 +90,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.with_state(options)
 	} else {
 		leptoskit::server::axum::Router::new()
+	};
+
+	if roles.live() {
+		app = app.merge(live.router());
 	}
-	.merge(readiness.routes());
+
+	let app = app.merge(readiness.routes());
 	let listener = tokio::net::TcpListener::bind(address).await?;
 
 	println!("listening on http://{address}");
 	// Serves until Ctrl-C or the SIGTERM a container runtime sends. Then
-	// `/readyz` fails, and after a few seconds for the load balancer to
-	// notice, the server stops accepting and finishes the requests in flight.
-	let shutdown = GracefulShutdown::new().readiness(&readiness);
+	// `/readyz` fails, every live socket is told to reconnect elsewhere (with
+	// jitter, so they don't all come back at once), and after a few seconds
+	// for the load balancer to notice, the server stops accepting and
+	// finishes the requests in flight.
+	let draining = live.clone();
+	let shutdown = GracefulShutdown::new()
+		.readiness(&readiness)
+		.signal(async move {
+			leptoskit::server::shutdown_signal().await;
+			draining.drain();
+		});
 	leptoskit::server::serve_listener_with(listener, app, shutdown).await?;
 
 	Ok(())

@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+[package]
+name = "snapshotted_backend"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+snapshotted_shared = { path = "../snapshotted_shared", features = ["server"] }
+leptos = { version = "0.9.0-rc0", default-features = false }
+leptoskit = { version = "=[version]", default-features = false, features = ["server", "rpc-ssr", "db-sqlite"] }

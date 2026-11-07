@@ -25,7 +25,7 @@ water/
 │       ├── routes/home.rs  the home screen
 │       ├── components/   reusable pieces of UI
 │       └── services/     app state, such as the counter
-├── water_backend/        server-only code, such as the `GET /api/health` endpoint
+├── water_backend/        server-only code, such as the `health` check at `GET /api/health`
 ├── water_shared/         types the app and the backend both use
 ├── web/  assets/         the browser's HTML page and shared files
 ├── .github/workflows/release.yml

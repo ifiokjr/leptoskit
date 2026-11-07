@@ -440,12 +440,7 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 		),
 		(
 			format!("{backend}/Cargo.toml"),
-			format!(
-				"[package]\nname = \"{backend}\"\nversion = \"0.1.0\"\nedition = \
-				 \"2024\"\npublish = false\n\n[dependencies]\n{shared} = {{ path = \
-				 \"../{shared}\" }}\nleptoskit = {server_dependency}\n",
-				server_dependency = sdk_dependency("leptoskit", sdk, &["server"])?,
-			),
+			backend_manifest(name, sdk, None)?,
 		),
 		(
 			format!("{backend}/src/lib.rs"),
@@ -459,8 +454,8 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 			format!("{shared}/Cargo.toml"),
 			format!(
 				"[package]\nname = \"{shared}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish \
-				 = false\n\n[dependencies]\nserde = {{ version = \"1\", features = [\"derive\"] \
-				 }}\n"
+				 = false\n\n[dependencies]\nschemars = \"1\"\nserde = {{ version = \"1\", \
+				 features = [\"derive\"] }}\n"
 			),
 		),
 		(
@@ -640,16 +635,16 @@ fn database_files(
 		}
 	};
 
-	let (server, backend, tables) = if auth {
+	let (server, operations, tables) = if auth {
 		(
 			include_str!("new_project/templates/server_auth.rs"),
-			include_str!("new_project/templates/backend_auth.rs"),
+			include_str!("new_project/templates/shared_auth.rs"),
 			include_str!("new_project/templates/db_auth.rs"),
 		)
 	} else {
 		(
 			include_str!("new_project/templates/server_db.rs"),
-			include_str!("new_project/templates/backend_db.rs"),
+			include_str!("new_project/templates/shared_db.rs"),
 			include_str!("new_project/templates/db.rs"),
 		)
 	};
@@ -657,19 +652,30 @@ fn database_files(
 	replace("src/main.rs".into(), expand(server));
 	replace(
 		format!("{backend_crate}/Cargo.toml"),
+		backend_manifest(name, sdk, Some(feature))?,
+	);
+	replace(
+		format!("{backend_crate}/src/lib.rs"),
+		expand(include_str!("new_project/templates/backend_db.rs")),
+	);
+	// The operations live with the contracts, so every client calls them by
+	// their argument structs; only the `server` feature keeps their bodies,
+	// and with them the database driver.
+	let client_features: &[&str] = if auth { &["rpc", "auth"] } else { &["rpc"] };
+	replace(
+		format!("{shared}/Cargo.toml"),
 		format!(
-			"[package]\nname = \"{backend_crate}\"\nversion = \"0.1.0\"\nedition = \
-			 \"2024\"\npublish = false\n\n[dependencies]\n{database} = {{ path = \
-			 \"../{database}\", features = [\"server\"] }}\n{shared} = {{ path = \"../{shared}\" \
-			 }}\nleptoskit = {leptoskit}\nserde = {{ version = \"1\", features = [\"derive\"] }}\n",
-			leptoskit = sdk_dependency("leptoskit", sdk, &["server", feature])?,
+			"[package]\nname = \"{shared}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = \
+			 false\n\n[dependencies]\n{database} = {{ path = \"../{database}\" }}\nleptoskit = \
+			 {leptoskit}\nschemars = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] \
+			 }}\n\n[features]\n# The server side of the operations: their bodies, run on the \
+			 database, and\n# their descriptions in the published API. Never enable it in a \
+			 client build.\nserver = [\"{database}/server\", \"leptoskit/rpc-ssr\", \
+			 \"leptoskit/{feature}\"]\n",
+			leptoskit = sdk_dependency("leptoskit", sdk, client_features)?,
 		),
 	);
-	replace(format!("{backend_crate}/src/lib.rs"), backend.into());
-	replace(
-		format!("{backend_crate}/src/rpc/mod.rs"),
-		expand(include_str!("new_project/templates/rpc_db.rs")),
-	);
+	replace(format!("{shared}/src/lib.rs"), expand(operations));
 	let dialect = db.dialect.as_str();
 	let (auth_dependency, auth_feature) = if auth {
 		(
@@ -687,10 +693,13 @@ fn database_files(
 		format!("{database}/Cargo.toml"),
 		format!(
 			"[package]\nname = \"{database}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = \
-			 false\n\n[dependencies]\n{auth_dependency}leptoskit_db = \
-			 {dependency}\n\n[features]\n# The server side of the tables: rows, queries, \
-			 migrations, and the driver.\nserver = [\"leptoskit_db/{dialect}\"{auth_feature}]\n",
+			 false\n\n[dependencies]\n{auth_dependency}leptoskit_db = {dependency}\n# The server \
+			 side keeps the operations' receipts in the `rpc` schema pack.\nleptoskit_rpc = \
+			 {rpc}\n\n[features]\n# The server side of the tables: rows, queries, migrations, and \
+			 the driver.\nserver = [\"leptoskit_db/{dialect}\"{auth_feature}, \
+			 \"dep:leptoskit_rpc\", \"leptoskit_rpc/{dialect}\"]\n",
 			dependency = sdk_dependency("leptoskit_db", sdk, &[])?,
+			rpc = optional(&sdk_dependency("leptoskit_rpc", sdk, &[])?),
 		),
 	);
 	replace(format!("{database}/src/lib.rs"), tables.into());
@@ -712,7 +721,7 @@ fn database_files(
 		.iter_mut()
 		.find(|(path, _)| path == "README.md")
 		.expect("the scaffold writes README.md");
-	readme.1.push_str(&database_readme(name, db));
+	readme.1.push_str(&database_readme(name, db, auth));
 	Ok(())
 }
 
@@ -762,7 +771,7 @@ The screens live in `{name}_app/src/auth/` and are yours to restyle. They work t
 	)
 }
 
-fn database_readme(name: &str, db: &DbConfig) -> String {
+fn database_readme(name: &str, db: &DbConfig, auth: bool) -> String {
 	let url = match db.dialect {
 		DbDialect::Postgres => {
 			"`leptoskit dev` runs a development Postgres and hands the server its URL in \
@@ -781,6 +790,35 @@ fn database_readme(name: &str, db: &DbConfig) -> String {
 		}
 	};
 
+	let caller = if auth {
+		" A native app's calls go to `SERVER` in `{name}_app/src/lib.rs` with the signed-in \
+		 person's token, since the sign-in client's `configure` sets this client up too. Each runs \
+		 as whoever signed in, and the `Note` table's policy shows and changes only their own \
+		 notes; before sign-in, both answer `401`."
+			.replace("{name}", name)
+	} else {
+		" A native app reaches the server through the `http` plugin: grant it in `[native] \
+		 plugins` with the server in its allowed origins, then name the server with \
+		 `leptoskit::rpc::client::configure(ClientConfig::new().origin(…))` when the app starts."
+			.to_owned()
+	};
+	let operations = format!(
+		r#"## Operations
+
+`{name}_shared` declares the app's queries and mutations next to its contracts: `notes` lists the newest notes, and `add_note` adds one. Every screen calls them the same way, in the browser, in a native app, and while the server renders a page: `leptoskit::rpc::client::call(AddNote {{ body }}).await`. Their bodies, and the database code in them, compile only into the server, through `{name}_shared`'s `server` feature.{caller}
+
+The server answers each at `POST /api/<name>`, with its arguments as one JSON object: `POST /api/notes` with `{{}}`, and `POST /api/add_note` with `{{"body": "Milk"}}`. A failure answers `Kind|message` as text with its status, such as `400` for an empty note. The live socket at `/live` sends a subscribed query's result again whenever a write changes it.
+
+`#[api]` publishes both, with the backend's `health`, so generated clients call the same routes and subscribe over the same socket:
+
+```sh
+leptoskit rpc list
+leptoskit rpc generate --target typescript --out clients/typescript
+```
+
+`leptoskit rpc` builds the server and runs it with `LEPTOSKIT_RPC_SPEC_OUT` set: it writes the published API and exits before it reads its configuration, opens the database, or loads any keys, so it needs neither `DATABASE_URL` nor secrets."#
+	);
+
 	format!(
 		r"
 ## Database
@@ -794,9 +832,42 @@ leptoskit dev
 
 While `leptoskit dev` runs, a change to the tables that keeps every row becomes a migration under `migrations/`, applied straight away; a change that would delete data writes nothing and says which command to run. You can also run `leptoskit db migration create <name>` yourself. Review and commit what it writes. `leptoskit db check` fails when the tables changed without a migration, so run it in CI. {url}
 
-`{name}_backend` serves `GET /api/notes` and `POST /api/notes` from the example `Note` table.
+{operations}
 "
 	)
+}
+
+/// The backend: server-only code, with the shared crate's server side when
+/// the app has a database (`database` names its `leptoskit` feature). Its
+/// server functions name `leptos` directly, at the version `leptoskit`
+/// re-exports, and `rpc-ssr` registers their descriptions for the
+/// published API.
+fn backend_manifest(name: &str, sdk: Option<&Utf8Path>, database: Option<&str>) -> Result<String> {
+	let backend = format!("{name}_backend");
+	let shared = format!("{name}_shared");
+	let mut features = vec!["server", "rpc-ssr"];
+	let shared_features = match database {
+		Some(feature) => {
+			features.push(feature);
+			", features = [\"server\"]"
+		}
+		None => "",
+	};
+
+	Ok(format!(
+		"[package]\nname = \"{backend}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = \
+		 false\n\n[dependencies]\n{shared} = {{ path = \"../{shared}\"{shared_features} \
+		 }}\nleptos = {{ version = \"0.9.0-rc0\", default-features = false }}\nleptoskit = {}\n",
+		sdk_dependency("leptoskit", sdk, &features)?,
+	))
+}
+
+/// `dependency`, an inline table from [`sdk_dependency`], made optional.
+fn optional(dependency: &str) -> String {
+	let fields = dependency
+		.strip_suffix(" }")
+		.expect("sdk_dependency writes an inline table");
+	format!("{fields}, optional = true }}")
 }
 
 /// The root SSR package owns workspace composition and imports the shared app.
@@ -812,11 +883,13 @@ fn server_manifest(
 	db: Option<&DbConfig>,
 	auth: bool,
 ) -> Result<String> {
-	let mut features = vec!["server"];
+	// `rpc-ssr` exports the published API: `leptoskit::rpc::spec`.
+	let mut features = vec!["server", "rpc-ssr"];
 
 	if let Some(db) = db {
-		// The server reads `--role` through `leptoskit::rpc::server::Roles`.
-		features.extend([database_feature(db), "rpc"]);
+		// The live socket, and `--role` through
+		// `leptoskit::rpc::server::Roles`.
+		features.extend([database_feature(db), "rpc-live"]);
 	}
 
 	if auth {
@@ -1188,7 +1261,7 @@ leptoskit build --platform linux
 
 All six destinations are enabled in `leptoskit.toml`. Each build activates exactly one platform feature in `{name}_app`; add optional dependencies to that feature when they support the app's actual compilation target. Native app code compiles to Wasm, so UIKit, JNI, and other OS dependencies belong in the corresponding runner's Cargo manifest or a native plugin.
 
-`src/main.rs` starts the SSR server, serves browser files, and registers the backend's `GET /api/health` endpoint. Shared assets live in `assets/`. `web/index.html` supplies the document for CSR mode (`app.render = "csr"`); SSR uses the shared app's `shell` function.
+`src/main.rs` starts the SSR server and serves browser files. The backend's `health` server function answers `GET /api/health`, and `#[api]` publishes it: `leptoskit rpc spec` prints the published API, and `leptoskit rpc generate --target typescript` writes a typed client for it. Shared assets live in `assets/`. `web/index.html` supplies the document for CSR mode (`app.render = "csr"`); SSR uses the shared app's `shell` function.
 
 ## Platform overrides
 
@@ -1315,6 +1388,40 @@ fn secrets_manifest(config: &LeptoskitConfig) -> Result<String> {
 #[cfg(test)]
 mod tests {
 	use super::host_manifest;
+
+	#[test]
+	fn every_server_exports_its_api_before_it_starts_anything() {
+		for (template, source) in [
+			("server.rs", include_str!("new_project/templates/server.rs")),
+			(
+				"server_db.rs",
+				include_str!("new_project/templates/server_db.rs"),
+			),
+			(
+				"server_auth.rs",
+				include_str!("new_project/templates/server_auth.rs"),
+			),
+		] {
+			let export = source
+				.find("leptoskit::rpc::spec::export_if_requested();")
+				.unwrap_or_else(|| panic!("{template} never exports its API"));
+
+			// Configuration, roles, the database, sign-in's keys, and the
+			// listener: none may run before the export, or exporting the spec
+			// would need the server's environment.
+			for start in [
+				"get_configuration(",
+				"Roles::from_env_and_args(",
+				"Db::connect(",
+				"sign_in::service",
+				"TcpListener::bind(",
+			] {
+				if let Some(at) = source.find(start) {
+					assert!(export < at, "{template} runs `{start}` before exporting");
+				}
+			}
+		}
+	}
 
 	#[test]
 	fn the_terminal_host_is_gated_on_the_architecture_alone() {

@@ -5,13 +5,20 @@
 //! commit what it writes under `migrations/`.
 
 use leptoskit_auth::Account;
+#[cfg(feature = "server")]
+use leptoskit_auth::AuthContext;
 use leptoskit_db::Id;
 use leptoskit_db::Timestamp;
+use leptoskit_db::policy;
 use leptoskit_db::table;
 
 // Sign-in keeps its own tables (accounts, sessions, codes, and its audit
 // trail) in this database, under the `auth` namespace.
 leptoskit_db::packs!(leptoskit_auth);
+// The operations keep receipts in the `rpc` schema pack, so a mutation a
+// client sends again after losing the answer runs once.
+#[cfg(feature = "server")]
+leptoskit_db::packs!(leptoskit_rpc);
 
 /// Someone with an account. The row shares its key with their
 /// `auth::Account`, so deleting the account deletes the user.
@@ -54,10 +61,21 @@ impl leptoskit_auth::OnSignUp for User {
 	}
 }
 
-/// Something worth remembering. Clients see it as `PublicNote`.
-#[table(name = "notes", public)]
+/// Something worth remembering, kept by whoever wrote it. Clients see it as
+/// `PublicNote`.
+///
+/// The policy lets each person read and write only their own notes, however
+/// a query asks: the server runs every query and mutation as the caller.
+/// It's `live`: every write reaches the screens and generated clients that
+/// subscribe to a query reading it, each still seeing only their own rows.
+#[table(name = "notes", public, live, index(owner_id))]
+#[policy(all, |note, cx| cx.signed_in(|me| note.owner_id.eq(me.account)),
+	message = "Sign in to keep notes; each person sees only their own")]
 pub struct Note {
 	pub id: Id<Note>,
+	/// Who wrote it.
+	#[db(on_delete = cascade)]
+	pub owner_id: Id<Account>,
 	/// What the note says.
 	#[db(min_len = 1, max_len = 500)]
 	pub body: String,

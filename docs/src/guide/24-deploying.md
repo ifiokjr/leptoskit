@@ -355,7 +355,8 @@ for name in db.migrate(my_app_db::MIGRATIONS).await? {
 
 migrated.pass();
 
-let app = my_app_backend::router(db)
+let operations = my_app_backend::operations(db.clone());
+let app = my_app_backend::router(&operations)
 	// ...the site's routes...
 	.with_state(options)
 	.merge(readiness.routes());

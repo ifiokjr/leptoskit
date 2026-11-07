@@ -15,6 +15,12 @@ use leptoskit::server::tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	// `leptoskit rpc spec` and `leptoskit rpc generate` run this binary with
+	// `LEPTOSKIT_RPC_SPEC_OUT` set to read the published API: this writes it
+	// there and exits, before anything below reads configuration or binds a
+	// port. Otherwise it checks that no two functions share a route.
+	leptoskit::rpc::spec::export_if_requested();
+
 	let mut options = leptoskit::leptos::config::get_configuration(None)?.leptos_options;
 	options.output_name = "__CRATE___app".into();
 

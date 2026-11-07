@@ -20,7 +20,7 @@ ssr = ["snapshotted_app/web", "snapshotted_app/ssr", "leptoskit/ssr"]
 [dependencies]
 snapshotted_app = { path = "snapshotted_app", default-features = false }
 snapshotted_backend = { path = "snapshotted_backend" }
-leptoskit = { version = "=[version]", default-features = false, features = ["server"] }
+leptoskit = { version = "=[version]", default-features = false, features = ["server", "rpc-ssr"] }
 
 [profile.release]
 lto = "thin"

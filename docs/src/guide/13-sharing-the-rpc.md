@@ -20,6 +20,36 @@ app crate ── #[api] #[server] fns ──► spec (routes, schemas, docs) ─
 
 [`examples/harbor`](https://github.com/leptoskit/leptoskit/tree/main/examples/harbor) publishes three server functions this way and commits the TypeScript client `leptoskit rpc generate` writes for them; its tests fail when the client falls behind the code.
 
+## In a new app
+
+A new app publishes its RPC from the start. Its backend's `health` check is an `#[api]` server function at `GET /api/health`. With `--db` or `--auth`, the app's `_shared` crate also declares a `notes` query and an `add_note` mutation, which the browser, the native apps, and the server all call by name. Any program can then use them, written in any language the generators support, without this repository or a Rust toolchain:
+
+```sh
+leptoskit new notes --db sqlite
+cd notes
+leptoskit db migration create init
+leptoskit rpc generate --target typescript --out ../notes-client
+leptoskit dev
+```
+
+`rpc generate` builds the server and asks it for the spec, and the server answers before it reads its configuration, opens the database, or loads sign-in's keys, so the export needs none of them. In `../notes-client`, next to the generated `index.ts`, a script that runs under Node 22 or newer, or Deno:
+
+```ts
+import { Client } from "./index.ts";
+
+const api = new Client({ serverUrl: "http://127.0.0.1:3000" });
+
+// Called with the notes now, and again whenever a write changes them.
+const stop = api.notes.subscribe((notes) => {
+	console.log(notes.map((note) => note.body));
+});
+
+// Resolves once the subscription above shows the new note.
+await api.addNote.live({ body: "Milk" });
+```
+
+When the server restarts, the client reconnects, subscribes again, and receives what changed while it was away. With `--auth`, each call runs as whoever signed in, and each person only sees their own notes: give the client the person's access token, as an `Authorization: Bearer …` entry in `headers` for calls and as `live: { token }` for the socket. A failed call rejects with an `FnError` carrying the status: `400` for an empty note, `401` before sign-in.
+
 ## Publishing functions
 
 Add `leptoskit_rpc` to the app, and enable its `ssr` feature from the app's own `ssr` feature so the server build registers the descriptions:
