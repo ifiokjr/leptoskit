@@ -337,20 +337,54 @@ fn cargo_args(options: &CargoOptions) -> Vec<String> {
 
 #[test]
 fn the_compiled_client_is_the_cdylibs_wasm_in_cargos_messages() {
-	let messages = r#"{"reason":"compiler-artifact","target":{"kind":["lib"]},"filenames":["/t/libserde.rlib"]}
+	let messages = r#"{"reason":"compiler-artifact","manifest_path":"/serde/Cargo.toml","target":{"kind":["lib"]},"filenames":["/t/libserde.rlib"]}
 not json
-{"reason":"compiler-artifact","target":{"kind":["cdylib","rlib"]},"filenames":["/t/wasm32-unknown-unknown/bench/app.wasm","/t/wasm32-unknown-unknown/bench/libapp.rlib"]}
+{"reason":"compiler-artifact","manifest_path":"/app/Cargo.toml","target":{"kind":["cdylib","rlib"]},"filenames":["/t/wasm32-unknown-unknown/bench/app.wasm","/t/wasm32-unknown-unknown/bench/libapp.rlib"]}
 {"reason":"build-finished","success":true}
 "#;
+	let client = Path::new("/app/Cargo.toml");
 	assert_eq!(
-		wasm::wasm_in_messages(std::io::Cursor::new(messages)).expect("parse"),
+		wasm::wasm_in_messages(std::io::Cursor::new(messages), client).expect("parse"),
 		Some(PathBuf::from("/t/wasm32-unknown-unknown/bench/app.wasm")),
 		"the profile's directory comes from cargo, whatever its name"
 	);
 	assert_eq!(
-		wasm::wasm_in_messages(std::io::Cursor::new("{\"reason\":\"build-finished\"}\n"))
-			.expect("parse"),
+		wasm::wasm_in_messages(
+			std::io::Cursor::new("{\"reason\":\"build-finished\"}\n"),
+			client
+		)
+		.expect("parse"),
 		None
+	);
+}
+
+/// A dependency that declares a `cdylib` (as `leptoskit_deploy_console`
+/// does for `leptoskit_app`) is compiled as one, and cargo reports its
+/// `.wasm` before the client's. Binding that module instead shipped a client
+/// without the app's start function, so the live example never mounted.
+#[test]
+fn a_dependencys_cdylib_is_never_mistaken_for_the_client() {
+	let messages = r#"{"reason":"compiler-artifact","package_id":"path+file:///w/console#0.3.0","manifest_path":"/w/console/Cargo.toml","target":{"kind":["rlib","cdylib"],"name":"console"},"filenames":["/t/wasm32-unknown-unknown/release/build/console/0f/out/libconsole.rlib","/t/wasm32-unknown-unknown/release/build/console/0f/out/console.wasm"]}
+{"reason":"compiler-artifact","package_id":"path+file:///w/app#0.3.0","manifest_path":"/w/app/Cargo.toml","target":{"kind":["rlib","cdylib"],"name":"app"},"filenames":["/t/wasm32-unknown-unknown/release/libapp.rlib","/t/wasm32-unknown-unknown/release/app.wasm"]}
+{"reason":"build-finished","success":true}
+"#;
+	assert_eq!(
+		wasm::wasm_in_messages(
+			std::io::Cursor::new(messages),
+			Path::new("/w/app/Cargo.toml")
+		)
+		.expect("parse"),
+		Some(PathBuf::from("/t/wasm32-unknown-unknown/release/app.wasm")),
+		"the client's own artifact, not the dependency's that came first"
+	);
+	assert_eq!(
+		wasm::wasm_in_messages(
+			std::io::Cursor::new(messages),
+			Path::new("/w/other/Cargo.toml")
+		)
+		.expect("parse"),
+		None,
+		"no artifact of the client means no client, never another package's"
 	);
 }
 

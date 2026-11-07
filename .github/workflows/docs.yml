@@ -110,6 +110,19 @@ jobs:
             exit 1
           fi
 
+      # A client bundle that never mounts the live example still loads
+      # without an error, so only a real browser notices it. The runner image
+      # ships Google Chrome.
+      - name: install deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.8.0
+
+      - name: verify the live example in chrome
+        run: |
+          LEPTOSKIT_SITE=docs/dist deno test --allow-env --allow-read --allow-net \
+            --allow-run --allow-write crates/leptoskit_app/tests/live_example.mjs
+
       - name: verify public schema assets
         run: |
           cmp docs/src/schema.json docs/dist/schema.json
