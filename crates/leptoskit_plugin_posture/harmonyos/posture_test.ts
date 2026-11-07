@@ -21,6 +21,7 @@ interface DecodedHinge {
 	fold: number;
 	axis: number;
 	occluding: number;
+	separating: number;
 	region: number[] | undefined;
 	angle: number | undefined;
 }
@@ -29,21 +30,22 @@ interface DecodedHinge {
 function decode(bytes: ArrayBuffer) {
 	const view = new DataView(bytes);
 	const count = view.getUint32(8, true);
-	equal(bytes.byteLength, 12 + 36 * count);
+	equal(bytes.byteLength, 12 + 40 * count);
 	const hinges: DecodedHinge[] = [];
 
 	for (let index = 0; index < count; index++) {
-		const at = 12 + 36 * index;
+		const at = 12 + 40 * index;
 		const word = (offset: number) => view.getUint32(at + offset, true);
-		const region = [16, 20, 24, 28].map((offset) =>
+		const region = [20, 24, 28, 32].map((offset) =>
 			Math.round(view.getFloat32(at + offset, true) * 1000) / 1000
 		);
 		hinges.push({
 			fold: word(0),
 			axis: word(4),
 			occluding: word(8),
-			region: word(12) === 1 ? region : undefined,
-			angle: word(32) === 0xffffffff ? undefined : word(32),
+			separating: word(12),
+			region: word(16) === 1 ? region : undefined,
+			angle: word(36) === 0xffffffff ? undefined : word(36),
 		});
 	}
 
@@ -94,6 +96,7 @@ Deno.test("a half-open book fold reports its crease as window fractions", () => 
 			fold: HALF_OPEN,
 			axis: VERTICAL,
 			occluding: 0,
+			separating: 2,
 			region: [0.49, 0, 0.02, 1],
 			angle: 97,
 		}],
@@ -188,14 +191,14 @@ Deno.test("encoding matches the Rust wire format byte for byte", () => {
 		status: 1,
 		creases: [{ left: 1000, top: 0, width: 0, height: 1000 }],
 	})));
-	const expected = new DataView(new ArrayBuffer(48));
-	[2, OPEN, 1, OPEN, VERTICAL, 0, 1].forEach((word, index) =>
+	const expected = new DataView(new ArrayBuffer(52));
+	[2, OPEN, 1, OPEN, VERTICAL, 0, 2, 1].forEach((word, index) =>
 		expected.setUint32(4 * index, word, true)
 	);
 	[0.5, 0, 0, 1].forEach((value, index) =>
-		expected.setFloat32(28 + 4 * index, value, true)
+		expected.setFloat32(32 + 4 * index, value, true)
 	);
-	expected.setUint32(44, 0xffffffff, true);
+	expected.setUint32(48, 0xffffffff, true);
 	deepStrictEqual(bytes, new Uint8Array(expected.buffer));
 });
 

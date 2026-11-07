@@ -23,10 +23,10 @@
 //! percentage sizes and never needs the window's size in points.
 //!
 //! The wire format is little-endian u32 words: foldable flag, fold, hinge
-//! count, then nine words per hinge: fold, axis, occluding flag, region flag,
-//! the region's x, y, width, and height as `f32` bits, and the angle in whole
-//! degrees. Flags use unknown/false/true = 0/1/2; an unknown angle is
-//! `u32::MAX`; an absent region is encoded as zeros.
+//! count, then ten words per hinge: fold, axis, occluding flag, separating
+//! flag, region flag, the region's x, y, width, and height as `f32` bits, and
+//! the angle in whole degrees. Flags use unknown/false/true = 0/1/2; an
+//! unknown angle is `u32::MAX`; an absent region is encoded as zeros.
 
 use leptoskit_bridge::Bytes;
 use leptoskit_bridge::Error;
@@ -46,9 +46,23 @@ pub const WAIT_FOR_CHANGE: MethodId = MethodId(1);
 pub const MAX_HINGES: usize = 4;
 
 const HEADER_WORDS: usize = 3;
-const HINGE_WORDS: usize = 9;
+const HINGE_WORDS: usize = 10;
 /// Tolerance for regions that end at the window edge after float rounding.
 const EDGE_EPSILON: f32 = 1e-3;
+
+/// How an app should lay content out for the current posture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum LayoutMode {
+	/// One pane: the window is continuous, or no hinge crosses it.
+	#[default]
+	Single,
+	/// Two or more panes across a separating fold that is open flat.
+	DualPane,
+	/// Half open with a side-to-side hinge: laptop-style tabletop.
+	Tabletop,
+	/// Half open with a top-to-bottom hinge: held like a book.
+	Book,
+}
 
 /// How far a device or a single hinge is folded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -177,6 +191,12 @@ pub struct Hinge {
 	/// Whether the hinge physically hides content beneath it, as on
 	/// dual-screen devices with a gap between panels.
 	pub occluding: Option<bool>,
+	/// Whether the hinge splits the window into independent display areas.
+	/// Android's `FoldingFeature.isSeparating` is the reference: a fully open
+	/// continuous foldable reports `false`, so dual-pane layouts stay off;
+	/// half-open and dual-screen hinges report `true`. `None` when the
+	/// platform cannot say.
+	pub separating: Option<bool>,
 }
 
 /// How the device is folded, with every hinge that crosses the app's window.
@@ -239,10 +259,36 @@ impl Posture {
 				.any(|hinge| hinge.fold == Fold::HalfOpen && hinge.axis == Axis::Vertical)
 	}
 
+	/// Whether [`Self::panes`] returns more than one region: a separating fold
+	/// crosses the window, so a dual-pane or tabletop layout can put content
+	/// on either side.
+	#[must_use]
+	pub fn is_dual_pane(&self) -> bool {
+		self.panes().len() >= 2
+	}
+
+	/// The layout mode implied by this posture: tabletop and book win over a
+	/// plain dual-pane split, and a continuous window is
+	/// [`LayoutMode::Single`].
+	#[must_use]
+	pub fn layout_mode(&self) -> LayoutMode {
+		if self.is_tabletop() {
+			LayoutMode::Tabletop
+		} else if self.is_book() {
+			LayoutMode::Book
+		} else if self.is_dual_pane() {
+			LayoutMode::DualPane
+		} else {
+			LayoutMode::Single
+		}
+	}
+
 	/// The window's regions on either side of every hinge that crosses it,
 	/// left to right and then top to bottom. A window no hinge crosses is one
 	/// pane covering all of it. Each hinge's own region is left out, so content
-	/// laid out in the panes never sits under a fold.
+	/// laid out in the panes never sits under a fold. Hinges that the platform
+	/// marks as not separating (a continuous open foldable) are skipped, so a
+	/// flat Pixel Fold stays one pane.
 	#[must_use]
 	pub fn panes(&self) -> Vec<Region> {
 		let mut columns = vec![(0.0, 1.0)];
@@ -253,7 +299,7 @@ impl Posture {
 				continue;
 			};
 
-			if hinge.fold == Fold::Closed {
+			if hinge.fold == Fold::Closed || hinge.separating == Some(false) {
 				continue;
 			}
 
@@ -301,6 +347,7 @@ impl Posture {
 			output.u32(hinge.fold as u32);
 			output.u32(hinge.axis as u32);
 			output.u32(flag(hinge.occluding));
+			output.u32(flag(hinge.separating));
 			output.u32(u32::from(hinge.region.is_some()));
 
 			for value in [region.x, region.y, region.width, region.height] {
@@ -331,6 +378,7 @@ impl Posture {
 			let fold = Fold::decode(input.u32()?)?;
 			let axis = Axis::decode(input.u32()?)?;
 			let occluding = read_flag(input.u32()?)?;
+			let separating = read_flag(input.u32()?)?;
 
 			let has_region = match input.u32()? {
 				0 => false,
@@ -361,6 +409,7 @@ impl Posture {
 				region: has_region.then_some(region),
 				angle,
 				occluding,
+				separating,
 			});
 		}
 
@@ -467,6 +516,7 @@ mod tests {
 			region,
 			angle: None,
 			occluding: None,
+			separating: region.map(|_| true),
 		}
 	}
 
@@ -491,6 +541,7 @@ mod tests {
 					region: Some(vertical_band(0.333, 0.0)),
 					angle: Some(180),
 					occluding: Some(false),
+					separating: Some(true),
 				},
 				Hinge {
 					fold: Fold::HalfOpen,
@@ -498,6 +549,7 @@ mod tests {
 					region: Some(vertical_band(0.666, 0.01)),
 					angle: Some(97),
 					occluding: None,
+					separating: Some(true),
 				},
 			],
 		};
@@ -524,8 +576,9 @@ mod tests {
 			)],
 		};
 		let bytes = posture.encode().unwrap().to_vec();
-		// foldable, fold, hinge fold, axis, occluding, region flag, angle.
-		for word in [0, 1, 3, 4, 5, 6, 11] {
+		// foldable, fold, hinge fold, axis, occluding, separating, region flag,
+		// angle.
+		for word in [0, 1, 3, 4, 5, 6, 7, 12] {
 			let mut invalid = bytes.clone();
 			invalid[word * 4..word * 4 + 4].copy_from_slice(&361_u32.to_le_bytes());
 			assert_eq!(
@@ -540,10 +593,10 @@ mod tests {
 
 		assert_eq!(Posture::decode(&too_many), Err(Error::InvalidArgument));
 		let mut outside = bytes.clone();
-		outside[28..32].copy_from_slice(&1.5_f32.to_bits().to_le_bytes());
+		outside[32..36].copy_from_slice(&1.5_f32.to_bits().to_le_bytes());
 		assert_eq!(Posture::decode(&outside), Err(Error::InvalidArgument));
 		let mut not_finite = bytes.clone();
-		not_finite[28..32].copy_from_slice(&f32::NAN.to_bits().to_le_bytes());
+		not_finite[32..36].copy_from_slice(&f32::NAN.to_bits().to_le_bytes());
 		assert_eq!(Posture::decode(&not_finite), Err(Error::InvalidArgument));
 		assert_eq!(
 			Posture::decode(&bytes[..bytes.len() - 1]),
@@ -631,6 +684,8 @@ mod tests {
 		assert_eq!(panes.len(), 2);
 		assert_eq!(panes[0], vertical_band(0.0, 0.48));
 		assert!((panes[1].x - 0.52).abs() < 1e-6 && (panes[1].width - 0.48).abs() < 1e-6);
+		assert!(book.is_dual_pane());
+		assert_eq!(book.layout_mode(), LayoutMode::Book);
 
 		let flip = Posture {
 			hinges: vec![hinge(
@@ -649,6 +704,7 @@ mod tests {
 		assert_eq!(panes.len(), 2);
 		assert_eq!((panes[0].y, panes[0].height), (0.0, 0.5));
 		assert_eq!((panes[1].y, panes[1].height), (0.5, 0.5));
+		assert_eq!(flip.layout_mode(), LayoutMode::Tabletop);
 
 		let trifold = Posture {
 			fold: Fold::Open,
@@ -660,19 +716,26 @@ mod tests {
 		};
 		let widths: Vec<f32> = trifold.panes().iter().map(|pane| pane.width).collect();
 		assert_eq!(widths, vec![0.25, 0.5, 0.25]);
+		assert_eq!(trifold.layout_mode(), LayoutMode::DualPane);
 
-		// Closed hinges, hinges without geometry, and slivers at the window
-		// edge do not split the window.
+		// Closed hinges, hinges without geometry, non-separating continuous
+		// folds, and slivers at the window edge do not split the window.
 		let ignored = Posture {
 			hinges: vec![
 				hinge(Fold::Closed, Axis::Vertical, Some(vertical_band(0.5, 0.0))),
 				hinge(Fold::Open, Axis::Vertical, None),
 				hinge(Fold::Open, Axis::Unknown, Some(vertical_band(0.3, 0.0))),
 				hinge(Fold::Open, Axis::Vertical, Some(vertical_band(0.0, 0.0))),
+				Hinge {
+					separating: Some(false),
+					..hinge(Fold::Open, Axis::Vertical, Some(vertical_band(0.5, 0.0)))
+				},
 			],
 			..book
 		};
 		assert_eq!(ignored.panes(), vec![Region::FULL]);
+		assert!(!ignored.is_dual_pane());
+		assert_eq!(ignored.layout_mode(), LayoutMode::Single);
 	}
 
 	#[test]

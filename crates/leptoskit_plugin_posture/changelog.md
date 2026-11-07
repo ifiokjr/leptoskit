@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Breaking changes
+
+#### Separating hinges and dual-pane layout helpers
+
+Each hinge now carries a `separating` flag on the wire (ten u32 words per hinge instead of nine). Android sets it from `FoldingFeature.isSeparating`, so a fully open continuous foldable keeps a single pane. `Posture::is_dual_pane`, `Posture::layout_mode`, and matching `use_posture` signals choose dual-pane, tabletop, book, or single layouts. `panes()` skips hinges marked not separating.
+
 ## [0.3.0](https://github.com/leptoskit/leptoskit/releases/tag/v0.3.0) (2026-11-06)
 
 ### Breaking changes

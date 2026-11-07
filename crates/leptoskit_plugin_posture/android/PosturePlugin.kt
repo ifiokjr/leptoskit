@@ -30,6 +30,11 @@ import kotlin.math.roundToInt
  * hinge crosses the activity's window, and the hinge angle sensor, which says how
  * far the device is open even when no hinge crosses the window (folded onto the
  * cover screen, or in split screen).
+ *
+ * Configuration changes that accompany folding (`screenLayout`,
+ * `smallestScreenSize`, and friends) are handled by the generated activity's
+ * `android:configChanges`, so the guest keeps running while this plugin reports
+ * the new posture through `wait_for_change`.
  */
 class PosturePlugin(
     private val context: Context,
@@ -129,20 +134,14 @@ class PosturePlugin(
         val window = WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(activity).bounds
         val folds = layout.displayFeatures.filterIsInstance<FoldingFeature>().take(MAX_HINGES)
         val foldable = hingeSensor != null || folds.isNotEmpty()
-        val output = ByteBuffer.allocate(HEADER_BYTES + HINGE_BYTES * folds.size).order(ByteOrder.LITTLE_ENDIAN)
-
-        output.putInt(if (foldable) TRUE else UNKNOWN_FLAG)
-        output.putInt(foldState(folds, angle))
-        output.putInt(folds.size)
-
         val width = window.width().toFloat()
         val height = window.height().toFloat()
+        val hinges =
+            folds.map { feature ->
+                hingeFromFeature(feature, width, height, angle, folds.size)
+            }
 
-        for (feature in folds) {
-            writeHinge(output, feature, width, height, angle, folds.size)
-        }
-
-        return output.array()
+        return encodePosture(if (foldable) TRUE else UNKNOWN_FLAG, foldState(folds, angle), hinges)
     }
 
     /** The posture the hinges report, with the sensor's angle as a fallback. */
@@ -159,39 +158,13 @@ class PosturePlugin(
             else -> OPEN
         }
 
-    /** Writes one hinge's state, place, and fractional bounds. */
-    private fun writeHinge(
-        output: ByteBuffer,
-        feature: FoldingFeature,
-        width: Float,
-        height: Float,
-        angle: Int?,
-        count: Int,
-    ) {
-        // Folding feature bounds are already in the window's coordinate space.
-        val bounds = feature.bounds
-        val x = (bounds.left / width).coerceIn(0f, 1f)
-        val y = (bounds.top / height).coerceIn(0f, 1f)
-
-        output.putInt(if (feature.state == FoldingFeature.State.HALF_OPENED) HALF_OPEN else OPEN)
-        output.putInt(if (feature.orientation == FoldingFeature.Orientation.VERTICAL) VERTICAL else HORIZONTAL)
-        output.putInt(if (feature.occlusionType == FoldingFeature.OcclusionType.FULL) TRUE else FALSE)
-        output.putInt(1)
-        output.putFloat(x)
-        output.putFloat(y)
-        output.putFloat((bounds.width() / width).coerceIn(0f, 1f - x))
-        output.putFloat((bounds.height() / height).coerceIn(0f, 1f - y))
-        // A single sensor cannot say which of several hinges it measures.
-        output.putInt(if (count == 1 && angle != null) angle else NO_ANGLE)
-    }
-
     internal companion object {
         const val MAX_HINGES = 4
 
         /** The angle field when the sensor cannot attribute one to this hinge. */
         const val NO_ANGLE = -1
         const val HEADER_BYTES = 12
-        const val HINGE_BYTES = 36
+        const val HINGE_BYTES = 40
         const val FIRST_ANGLE_TIMEOUT_MS = 250L
 
         // The emulator's and AOSP's default posture boundaries.
@@ -207,5 +180,77 @@ class PosturePlugin(
         const val UNKNOWN_FLAG = 0
         const val FALSE = 1
         const val TRUE = 2
+
+        /**
+         * One hinge as wire fields. Synthetic tests build these without a
+         * [FoldingFeature] instance.
+         */
+        data class EncodedHinge(
+            val fold: Int,
+            val axis: Int,
+            val occluding: Int,
+            val separating: Int,
+            val x: Float,
+            val y: Float,
+            val width: Float,
+            val height: Float,
+            val angle: Int,
+        )
+
+        /** Encodes a posture header and hinges into the Rust wire format. */
+        fun encodePosture(
+            foldable: Int,
+            fold: Int,
+            hinges: List<EncodedHinge>,
+        ): ByteArray {
+            require(hinges.size <= MAX_HINGES)
+            val output = ByteBuffer.allocate(HEADER_BYTES + HINGE_BYTES * hinges.size).order(ByteOrder.LITTLE_ENDIAN)
+            output.putInt(foldable)
+            output.putInt(fold)
+            output.putInt(hinges.size)
+
+            for (hinge in hinges) {
+                output.putInt(hinge.fold)
+                output.putInt(hinge.axis)
+                output.putInt(hinge.occluding)
+                output.putInt(hinge.separating)
+                output.putInt(1)
+                output.putFloat(hinge.x)
+                output.putFloat(hinge.y)
+                output.putFloat(hinge.width)
+                output.putFloat(hinge.height)
+                output.putInt(hinge.angle)
+            }
+
+            return output.array()
+        }
+
+        /** Maps a WindowManager folding feature into wire fields. */
+        fun hingeFromFeature(
+            feature: FoldingFeature,
+            width: Float,
+            height: Float,
+            angle: Int?,
+            count: Int,
+        ): EncodedHinge {
+            // Folding feature bounds are already in the window's coordinate space.
+            val bounds = feature.bounds
+            val x = (bounds.left / width).coerceIn(0f, 1f)
+            val y = (bounds.top / height).coerceIn(0f, 1f)
+
+            return EncodedHinge(
+                fold = if (feature.state == FoldingFeature.State.HALF_OPENED) HALF_OPEN else OPEN,
+                axis = if (feature.orientation == FoldingFeature.Orientation.VERTICAL) VERTICAL else HORIZONTAL,
+                occluding = if (feature.occlusionType == FoldingFeature.OcclusionType.FULL) TRUE else FALSE,
+                // Continuous open foldables report isSeparating=false so dual-pane stays off.
+                separating = if (feature.isSeparating) TRUE else FALSE,
+                x = x,
+                y = y,
+                width = (bounds.width() / width).coerceIn(0f, 1f - x),
+                height = (bounds.height() / height).coerceIn(0f, 1f - y),
+                // A single sensor cannot say which of several hinges it measures.
+                angle = if (count == 1 && angle != null) angle else NO_ANGLE,
+            )
+        }
     }
 }

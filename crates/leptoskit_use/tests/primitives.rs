@@ -235,6 +235,7 @@ fn posture_queries_follow_fold_transitions() {
 				}),
 				angle: Some(angle),
 				occluding: Some(false),
+				separating: Some(true),
 			}],
 		}
 	}
@@ -264,6 +265,8 @@ fn posture_queries_follow_fold_transitions() {
 		assert!(half_open_reads.get());
 		assert!(fold.is_book.get());
 		assert!(!fold.is_tabletop.get());
+		assert!(fold.is_dual_pane.get());
+		assert_eq!(fold.layout_mode.get(), LayoutMode::Book);
 		assert_eq!(fold.angle.get(), Some(90));
 		assert_eq!(fold.panes.get().len(), 2);
 		let after_opening = runs.load(Ordering::SeqCst);
@@ -277,10 +280,14 @@ fn posture_queries_follow_fold_transitions() {
 		posture.set(book(Fold::Open, 180));
 		assert!(fold.is_open.get());
 		assert!(!fold.is_book.get());
+		assert!(fold.is_dual_pane.get());
+		assert_eq!(fold.layout_mode.get(), LayoutMode::DualPane);
 		assert_eq!(fold.fold.get(), Fold::Open);
 
 		posture.set(Posture::rigid());
 		assert_eq!(fold.fold.get(), Fold::Unknown);
+		assert!(!fold.is_dual_pane.get());
+		assert_eq!(fold.layout_mode.get(), LayoutMode::Single);
 		assert!(!fold.is_open.get() && !fold.is_closed.get() && !fold.is_half_open.get());
 	});
 }
