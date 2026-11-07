@@ -3409,6 +3409,7 @@ dependencies = [
  "leptoskit_plugin_os",
  "leptoskit_plugin_pedometer",
  "leptoskit_plugin_permissions",
+ "leptoskit_plugin_picture_in_picture",
  "leptoskit_plugin_posture",
  "leptoskit_plugin_screen_capture",
  "leptoskit_plugin_screen_orientation",
@@ -6027,6 +6028,13 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_picture_in_picture"
+version = "0.3.0"
+dependencies = [
+ "leptoskit_bridge",
 ]
 
 [[package]]

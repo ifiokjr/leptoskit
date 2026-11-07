@@ -60,6 +60,7 @@ cd android
 - `Image` loads local files and `android.resource://` URIs, not URLs.
 - The generated app keeps your screen clear of the status and navigation bars. The bars take your root view's background, as a browser paints the page's background across the whole window, with light icons on a dark one. A root without an opaque background leaves the theme's white bars.
 - With the backend crate, the host reports the window insets for the system bars and display cutouts, and the [safe-area utilities](../guide/07-shared-components.md#clear-the-status-bar-and-home-indicator) pad by them.
+- The [`picture-in-picture`](plugins.md) plugin can enter activity picture-in-picture when the hosting activity declares `android:supportsPictureInPicture="true"`, and can hold a system overlay after the user grants `SYSTEM_ALERT_WINDOW` in settings. Declaring the permission in the manifest never grants it; `request_overlay` opens the system grant screen.
 
 ## Ship an update without the Play Store
 
