@@ -9,6 +9,7 @@
 //! starts them with the runtime contract's environment, and [`proxy`] puts
 //! their public paths on the app's origin.
 
+pub mod database;
 pub mod env;
 pub mod proxy;
 pub mod run;
@@ -806,6 +807,16 @@ impl BuiltServices {
 	}
 }
 
+/// The engine services' databases use: the app's `[db] dialect`, or SQLite
+/// when the app has no database of its own.
+#[must_use]
+pub fn dialect(config: &LeptoskitConfig) -> DbDialect {
+	config
+		.db
+		.as_ref()
+		.map_or(DbDialect::Sqlite, |db| db.dialect)
+}
+
 /// Where a service's dev files live: `.leptoskit/services/<name>/`.
 #[must_use]
 pub fn dev_dir(root: &Path, service: &str) -> PathBuf {
@@ -824,18 +835,24 @@ pub fn sqlite_path(root: &Path, service: &str) -> PathBuf {
 /// The `_service_` segment keeps services out of the names leptoskit uses
 /// itself (the managed `leptoskit` database, the `leptoskit_admin`
 /// superuser, `app__<branch>` branch databases), so no service name can take
-/// one over. A name past Postgres's 63 bytes is shortened with a hash of the
-/// service's name, the way branch databases are.
+/// one over. A name past Postgres's 63 bytes is [`shortened`].
 #[must_use]
 pub fn postgres_database(app: &str, service: &str) -> String {
+	shortened(format!("{app}_service_{}", service.replace('-', "_")))
+}
+
+/// `name` cut to Postgres's 63 bytes when it's longer, ending in a hash of
+/// the whole of `name`, so two long names that share their first 50 bytes
+/// still differ.
+#[must_use]
+pub fn shortened(name: String) -> String {
 	const MAX_NAME: usize = 63;
-	let name = format!("{app}_service_{}", service.replace('-', "_"));
 
 	if name.len() <= MAX_NAME {
 		return name;
 	}
 
-	let hash = &leptoskit_db::checksum(service)[..8];
+	let hash = &leptoskit_db::checksum(&name)[..12];
 	let mut end = MAX_NAME - hash.len() - 1;
 
 	while !name.is_char_boundary(end) {
@@ -1006,8 +1023,8 @@ pub fn listing(services: &[Service], config: &LeptoskitConfig, root: &Path) -> L
 				ServiceSource::Remote { url } => url.clone(),
 			};
 			let database = settings.database.then(|| {
-				match config.db.as_ref().map(|db| db.dialect) {
-					Some(DbDialect::Postgres) => {
+				match dialect(config) {
+					DbDialect::Postgres => {
 						EntryDatabase {
 							engine: "postgres",
 							location: format!(
@@ -1017,7 +1034,7 @@ pub fn listing(services: &[Service], config: &LeptoskitConfig, root: &Path) -> L
 							pool: settings.pool,
 						}
 					}
-					Some(DbDialect::Sqlite) | None => {
+					DbDialect::Sqlite => {
 						EntryDatabase {
 							engine: "sqlite",
 							location: relative(sqlite_path(root, &name)),

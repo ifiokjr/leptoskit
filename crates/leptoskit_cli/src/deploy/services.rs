@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -51,6 +52,9 @@ pub struct DeployService {
 	pub secrets: Vec<String>,
 	/// The variables set on the app, before substitution.
 	pub bind: BTreeMap<String, String>,
+	/// Its migrations directory for the app's engine, when it has a
+	/// database and code in this checkout or cargo's copy of it.
+	pub migrations: Option<PathBuf>,
 }
 
 impl DeployService {
@@ -168,7 +172,14 @@ pub fn read(root: &Path, config: &LeptoskitConfig) -> Result<Vec<DeployService>>
 	let resolved = crate::services::resolve(config, root, &metadata, locked)?;
 	let mut services = Vec::new();
 
+	let dialect = crate::services::dialect(config);
+
 	for service in resolved {
+		let migrations = service
+			.settings
+			.database
+			.then(|| crate::services::database::migrations_dir(&service, dialect))
+			.flatten();
 		let settings = &service.settings;
 		let binary = |package: &str, manifest: &Path| -> Result<String> {
 			if let Some(bin) = &settings.bin {
@@ -216,6 +227,7 @@ pub fn read(root: &Path, config: &LeptoskitConfig) -> Result<Vec<DeployService>>
 			env: settings.env.clone(),
 			secrets: settings.secrets.clone(),
 			bind: settings.bind.clone(),
+			migrations,
 		});
 	}
 

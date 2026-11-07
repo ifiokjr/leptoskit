@@ -20,7 +20,8 @@
 //!   identifies it as the caller `"app"`. An ordinary `call`, and every query
 //!   hook, goes anonymously, so a page never renders it.
 //!
-//! After changing the table, regenerate the migrations: see `readme.md`.
+//! After changing the table, write a migration with `leptoskit db migration
+//! create <name> --service analytics`: see `readme.md`.
 
 use std::collections::BTreeMap;
 

@@ -330,12 +330,32 @@ A service's live connection doesn't share the app's offline queue either: while 
 
 With `database = true`, the service gets a database of its own on the engine your `[db]` table names, or SQLite when your app has no `[db]`:
 
-| Your app uses        | The service gets in `leptoskit dev`                                   |
-| -------------------- | --------------------------------------------------------------------- |
-| SQLite, or no `[db]` | the file `.leptoskit/services/<name>/<name>.sqlite3`                  |
-| Postgres             | the database `<your database>_<name>`, on the same development server |
+| Your app uses        | The service gets in `leptoskit dev`                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| SQLite, or no `[db]` | the file `.leptoskit/services/<name>/<name>.sqlite3`                                                                                 |
+| Postgres             | the database `<your database>_service_<name>` on the development Postgres `leptoskit` runs, and a login role of its own that owns it |
 
-The service finds it in `DATABASE_URL`. It applies its own migrations when it starts, as in the binary above, so an installed service brings its tables with it. Generating a service's migrations from its `#[table]` structs isn't part of `leptoskit db` yet; write them in the service's `migrations/` directory.
+On Postgres the service logs in as its own role, which can't connect to any of your app's databases, so a bug in the service can't read or change the app's tables. The one exception is a development server whose login can't create roles (it isn't a superuser): the service then shares the app's login, with a database of its own, and `leptoskit dev` warns that it isn't isolated.
+
+`leptoskit` only sets this up on the development Postgres it runs for you. If your app's `DATABASE_URL` points at another server, such as a shared staging database, `leptoskit` creates and changes nothing there: set `LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL` to the service's own database instead, or `leptoskit dev` stops and says so. `leptoskit serve` always works this way, since it never runs the development Postgres; it's the variable deploys set too.
+
+The service finds its database in `DATABASE_URL`. It applies its own migrations when it starts, as in the binary above, so an installed service brings its tables with it. Keep them beside the service's `Cargo.toml`: `migrations/` for SQLite, and `migrations-postgres/` for Postgres when the service supports both.
+
+### Changing a service's tables
+
+Every `leptoskit db` command takes `--service <name>` to work on that service's database instead of your app's. It reads the tables from the service's crate, writes migrations into its `migrations/` directory, or `migrations-postgres/` when your app is on Postgres, and connects to the database `leptoskit dev` gives the service. After changing the analytics service's `Event` table:
+
+```sh
+leptoskit db migration create add_referrer --service analytics
+leptoskit db migrate --service analytics
+leptoskit db status --service analytics
+```
+
+To point a command at another copy of the service's database, pass `--url`, or set `LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL`; the app's `DATABASE_URL` is never used for a service, and when it's set to another server, a service command needs one of those two. `leptoskit db reset --service <name> --yes` deletes the service's development database and creates it again from its migrations; with `--url`, as for the app, it only resets a database on this machine. A service installed from a registry or git ships its migrations, so `migration create`, `migration consolidate`, and `release record` refuse to write to it.
+
+### On a branch
+
+When your app gets a database per git branch on the development Postgres, so does each service: on a branch, the service's database starts as a copy of the main branch's, rows and all, the first time the branch runs, or empty when the main branch's service has no database yet. `leptoskit db branch list` shows the service's copies beside the app's, and `leptoskit db branch prune` deletes them together when the branch is merged or deleted.
 
 The service's data is its own: the app can't query the service's tables, and the service can't query the app's. That separation is what lets each one run its own live queries and background work without the other interfering.
 
@@ -405,7 +425,7 @@ What each deploy target makes of a service:
 
 - **Compose** (`--target compose`): an entry per service running `/app/services/<name>`, with its variables, its volumes, and a health check, which the app waits for. Public services get a small Caddy edge in front of the app that sends their paths to them, strips cookies for `isolated` services, and passes WebSockets through. It needs Docker Compose 2.23.1 or newer. On Postgres, each service gets its own role and database the first time the database volume starts; on SQLite, each service gets its own data volume.
 - **Kubernetes** (`--target kubernetes`, with or without `--split-roles`): a Deployment, a Service, and a Secret per service, checked on `/readyz` and `/healthz`. A service with a SQLite database or volumes runs one replica. An Ingress sends each public service's paths to it ahead of the app's catch-all. Stripping cookies for `isolated` services is left to your ingress controller, and the generated next steps say so.
-- **`leptoskit infra`**: each service runs as its own role on the primary host, with a stable network name the app calls, and kamal-proxy sends public paths to it. Every release creates or updates each service's Postgres role and database, and backups and restores cover every service's database as well as the app's. Services need a single application host for now (`instances = 1`), and `leptoskit infra plan` refuses public `isolated` and public remote services, because the edge can't strip their cookies yet.
+- **`leptoskit infra`**: each service runs as its own role on the primary host, with a stable network name the app calls, and kamal-proxy sends public paths to it. Every release creates or updates each service's Postgres role and database, and backups and restores cover every service's database as well as the app's. The release history records each service database's migrations beside the app's: a release whose service tables changed needs `--maintenance`, like one whose app tables changed, and `lk deploy --rollback <tag> --rollback-schema --yes` takes each service's database back to the release's tables with the service's down migrations, after stopping the services. Releases recorded by older versions of leptoskit hold only the app's tables, so rolling back to one leaves the services' databases as they are. Services need a single application host for now (`instances = 1`), and `leptoskit infra plan` refuses public `isolated` and public remote services, because the edge can't strip their cookies yet.
 - **Fly and systemd** don't support services yet: generating them stops with an error that names the targets that do.
 
 Every process keeps its own Postgres connections, so `leptoskit infra plan`, releases, and `leptoskit doctor` add up the app's and each service's pools and stop when they don't fit the server's limit. `[infra.postgres]` sets that limit (`max_connections`, 100 by default) and the app's pool size (`app_pool`, 8 by default); a service's comes from its `pool`.

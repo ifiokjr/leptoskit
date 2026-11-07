@@ -170,6 +170,17 @@ pub(crate) fn ensure_database(
 	database: &str,
 	template: Option<(&str, &str)>,
 ) -> Result<bool> {
+	ensure_owned_database(url, database, None, template)
+}
+
+/// [`ensure_database`], with the database owned by the role `owner` when
+/// given, rather than by whoever `url` logs in as.
+pub(crate) fn ensure_owned_database(
+	url: &str,
+	database: &str,
+	owner: Option<&str>,
+	template: Option<(&str, &str)>,
+) -> Result<bool> {
 	super::runtime()?.block_on(async {
 		let db = Db::connect(url).await?;
 
@@ -178,14 +189,18 @@ pub(crate) fn ensure_database(
 		}
 
 		let name = quote_identifier(database);
+		let owner = owner.map_or_else(String::new, |owner| {
+			format!(" OWNER {}", quote_identifier(owner))
+		});
 		let Some((template, branch)) = template else {
-			db.run_script(&format!("CREATE DATABASE {name}")).await?;
+			db.run_script(&format!("CREATE DATABASE {name}{owner}"))
+				.await?;
 			return Ok(true);
 		};
 
 		if let Err(error) = db
 			.run_script(&format!(
-				"CREATE DATABASE {name} TEMPLATE {}",
+				"CREATE DATABASE {name} TEMPLATE {}{owner}",
 				quote_identifier(template)
 			))
 			.await
@@ -214,6 +229,21 @@ pub(crate) fn ensure_database(
 		))
 		.await?;
 		anyhow::Ok(true)
+	})
+}
+
+/// Labels `database` as `branch`'s, so `leptoskit db branch` lists it and
+/// prunes it once the branch is gone.
+pub(crate) fn label_database(url: &str, database: &str, branch: &str) -> Result<()> {
+	super::runtime()?.block_on(async {
+		let db = Db::connect(url).await?;
+		db.run_script(&format!(
+			"COMMENT ON DATABASE {} IS {}",
+			quote_identifier(database),
+			literal(&format!("{LABEL}{branch}"))
+		))
+		.await?;
+		anyhow::Ok(())
 	})
 }
 
@@ -436,6 +466,7 @@ mod tests {
 			},
 			package: "app_db".into(),
 			name: "my-app".into(),
+			service: None,
 		};
 		let server = super::super::dev_server::start(
 			&project,
@@ -493,6 +524,7 @@ mod tests {
 			config: project.config.clone(),
 			package: project.package.clone(),
 			name: project.name.clone(),
+			service: None,
 		};
 		shared.config.branch_databases = false;
 		assert_eq!(ensure(&shared, &postgres).unwrap(), "my_app");

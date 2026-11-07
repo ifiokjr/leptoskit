@@ -577,7 +577,7 @@ fn follow_database(
 			Ok(Some(env)) => {
 				if let Some(web) = web {
 					web.env = env;
-					web.database_url = database.url().map(str::to_owned);
+					web.database_url = database.app_database();
 				}
 			}
 			Ok(None) => {}
@@ -619,8 +619,8 @@ struct Web {
 	app_server: Option<Child>,
 	/// Extra variables for the app server, such as the database's URL.
 	env: Vec<(String, String)>,
-	/// The app's development database URL, beside which services get theirs.
-	database_url: Option<String>,
+	/// The app's development database, beside which services get theirs.
+	database_url: Option<crate::services::run::AppDatabase>,
 	/// The app's services, running beside it.
 	services: DevServices,
 }
@@ -691,7 +691,7 @@ impl Web {
 			runs_app_server,
 			app_server: None,
 			env: database.map_or_else(Vec::new, crate::db::DevDatabase::env),
-			database_url: database.and_then(|database| database.url().map(str::to_owned)),
+			database_url: database.and_then(crate::db::DevDatabase::app_database),
 			services: DevServices {
 				tokens: crate::services::run::tokens(&output.services)?,
 				..DevServices::default()
@@ -792,7 +792,7 @@ impl Web {
 			root: &self.root,
 			public_origin: self.url(),
 			app_url: format!("http://{}", self.app_address),
-			app_database_url: self.database_url.clone(),
+			app_database: self.database_url.clone(),
 			tokens: &self.services.tokens,
 		};
 		let prepared = crate::services::run::prepare(built, &session)?;

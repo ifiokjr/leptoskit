@@ -802,3 +802,233 @@ fn the_compose_database_script_gives_each_service_its_database() {
 		"notes_service_analytics"
 	);
 }
+
+/// Writes a Postgres migration for the fixture's analytics service.
+fn service_migration(root: &Path, name: &str, sql: &str) {
+	let directory = root.join("analytics_service/migrations-postgres");
+	fs::create_dir_all(directory.join(name)).unwrap();
+	fs::write(directory.join(name).join("migration.sql"), sql).unwrap();
+	let registry = directory.join("registry.txt");
+	let mut text = fs::read_to_string(&registry).unwrap_or_default();
+	text.push_str(name);
+	text.push('\n');
+	fs::write(registry, text).unwrap();
+}
+
+#[test]
+fn releases_record_each_service_databases_schema() {
+	let root = tempfile::tempdir().unwrap();
+	let project = services_project(root.path(), "first-party");
+
+	// Only analytics has a database: cards has none, and billing is remote.
+	let schemas = service_schemas(&project.services).unwrap();
+	assert_eq!(schemas.keys().collect::<Vec<_>>(), ["analytics"]);
+	assert_eq!(schemas["analytics"].schema, Vec::<(String, String)>::new());
+	let before = services_fingerprint(&schemas).unwrap();
+	assert!(before.is_some());
+	assert_eq!(
+		services_fingerprint(&std::collections::BTreeMap::new()).unwrap(),
+		None
+	);
+
+	service_migration(
+		root.path(),
+		"20260101T000000_init",
+		"CREATE TABLE events (id INTEGER PRIMARY KEY);",
+	);
+	let schemas = service_schemas(&project.services).unwrap();
+	assert_eq!(schemas["analytics"].schema.len(), 1);
+	assert_eq!(schemas["analytics"].schema[0].0, "20260101T000000_init");
+	assert_ne!(services_fingerprint(&schemas).unwrap(), before);
+
+	// A record from before services were tracked loads with none, and one
+	// without services is written exactly as before.
+	let old: Release = serde_json::from_str(
+		r#"{"version":"v1","migrations":"abc","schema":[],"image_digest":null,"completed_at":null}"#,
+	)
+	.unwrap();
+	assert!(old.services.is_empty());
+	assert!(!serde_json::to_string(&old).unwrap().contains("services"));
+	let new = Release {
+		services: schemas.clone(),
+		..old
+	};
+	let json = serde_json::to_string(&new).unwrap();
+	let read: Release = serde_json::from_str(&json).unwrap();
+	assert_eq!(read.services, schemas);
+}
+
+/// The history script a release runs on the primary, against a real
+/// Postgres through a `docker` that runs `psql` here: `[]` before the
+/// service's database or its history table exists, then its migrations.
+#[test]
+#[cfg(unix)]
+fn a_service_databases_history_is_read_before_and_after_it_migrates() {
+	use std::os::unix::fs::PermissionsExt as _;
+
+	let Some(cluster) = postgres::PostgresCluster::start() else {
+		return;
+	};
+	let url = url::Url::parse(&cluster.database()).unwrap();
+	let directory = tempfile::tempdir().unwrap();
+	let docker = directory.path().join("docker");
+	// `docker exec <container> psql …` becomes `psql …`.
+	fs::write(&docker, "#!/bin/sh\nshift 2\nexec \"$@\"\n").unwrap();
+	fs::set_permissions(&docker, fs::Permissions::from_mode(0o755)).unwrap();
+	let psql = Command::new("sh")
+		.args(["-c", "command -v psql"])
+		.output()
+		.unwrap();
+	let psql_dir = Path::new(String::from_utf8_lossy(&psql.stdout).trim())
+		.parent()
+		.map(Path::to_path_buf);
+	let path = std::env::join_paths(
+		[directory.path().to_path_buf()]
+			.into_iter()
+			.chain(psql_dir)
+			.chain(std::env::split_paths(
+				&std::env::var_os("PATH").unwrap_or_default(),
+			)),
+	)
+	.unwrap();
+	let history = |database: &str| -> Vec<(String, String)> {
+		let script = service_history_script("notes", database).unwrap();
+		let output = Command::new("sh")
+			.args(["-c", &script])
+			.env("PATH", &path)
+			.env("PGHOST", url.host_str().unwrap())
+			.env("PGPORT", url.port().unwrap().to_string())
+			.output()
+			.unwrap();
+		assert!(
+			output.status.success(),
+			"{}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+		serde_json::from_slice(&output.stdout).unwrap()
+	};
+	let admin = |sql: &str| {
+		let mut admin = url.clone();
+		admin.set_path("/postgres");
+		let output = Command::new("psql")
+			.arg("-X")
+			.arg(admin.as_str())
+			.args(["-v", "ON_ERROR_STOP=1", "-q", "-c", sql])
+			.output()
+			.unwrap();
+		assert!(
+			output.status.success(),
+			"{}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+	};
+	admin("CREATE ROLE leptoskit_admin SUPERUSER LOGIN");
+
+	assert_eq!(
+		history("leptoskit_service_analytics"),
+		Vec::<(String, String)>::new()
+	);
+	admin("CREATE DATABASE leptoskit_service_analytics");
+	assert_eq!(
+		history("leptoskit_service_analytics"),
+		Vec::<(String, String)>::new()
+	);
+
+	let mut service = url.clone();
+	service.set_path("/leptoskit_service_analytics");
+	let migrations = [leptoskit_db::Migration::new(
+		"20260101T000000_init",
+		"CREATE TABLE events (id INTEGER PRIMARY KEY)",
+	)];
+	tokio::runtime::Runtime::new().unwrap().block_on(async {
+		let db = leptoskit_db::Db::connect(service.as_str()).await.unwrap();
+		db.migrate(&migrations).await.unwrap();
+	});
+	let read = history("leptoskit_service_analytics");
+	assert_eq!(
+		read,
+		[(
+			"20260101T000000_init".to_owned(),
+			migrations[0].checksum.to_string()
+		)]
+	);
+	assert!(service_history_script("notes", "x; rm -rf /").is_err());
+}
+
+/// A rollback checks every database before any down migration: a service's
+/// missing password, or its recorded migrations missing here, stops it
+/// while the app's database is still untouched.
+#[test]
+fn a_rollback_checks_every_service_before_the_apps_down_migrations() {
+	let root = tempfile::tempdir().unwrap();
+	let project = services_project(root.path(), "first-party");
+	let config = crate::deploy::tests::project_with_services(
+		root.path(),
+		crate::deploy::tests::Db::Postgres,
+		"first-party",
+	);
+	fs::create_dir_all(root.path().join("migrations")).unwrap();
+	fs::write(root.path().join("migrations/registry.txt"), "").unwrap();
+	service_migration(
+		root.path(),
+		"20260101T000000_init",
+		"CREATE TABLE events (id INTEGER PRIMARY KEY);",
+	);
+	let schemas = service_schemas(&project.services).unwrap();
+	let target = Release {
+		authorization: None,
+		evidence: None,
+		version: "v1".into(),
+		migrations: history_fingerprint(Vec::new()).unwrap(),
+		schema: Vec::new(),
+		image_digest: None,
+		completed_at: None,
+		services: schemas.clone(),
+	};
+	let plan = |lookup: &dyn Fn(&str) -> Option<String>, target: &Release| {
+		releases::plan_rollbacks(root.path(), &config, &project, target, lookup)
+	};
+	let every = |name: &str| Some(format!("{name}-value"));
+
+	let planned = plan(&every, &target).unwrap();
+	assert_eq!(
+		planned.len(),
+		2,
+		"the app's database, then the analytics service's"
+	);
+
+	let no_service_password = |name: &str| {
+		(name != "LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_PASSWORD")
+			.then(|| every(name))
+			.flatten()
+	};
+	let error = plan(&no_service_password, &target).err().unwrap();
+	assert_eq!(
+		error.to_string(),
+		"set LEPTOSKIT_SERVICE_ANALYTICS_DATABASE_PASSWORD"
+	);
+
+	let mut missing = target.clone();
+	missing
+		.services
+		.get_mut("analytics")
+		.unwrap()
+		.schema
+		.push(("20260202T000000_gone".into(), "sum".into()));
+	let error = plan(&every, &missing).err().unwrap();
+	assert!(
+		error.to_string().contains("leptoskit_service_analytics"),
+		"{error}"
+	);
+
+	let mut gone = target;
+	gone.services
+		.insert("search".into(), schemas["analytics"].clone());
+	let error = plan(&every, &gone).err().unwrap();
+	assert!(
+		error
+			.to_string()
+			.starts_with("services.search is in the target release"),
+		"{error}"
+	);
+}

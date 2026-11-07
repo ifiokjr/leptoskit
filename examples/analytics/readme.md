@@ -50,24 +50,13 @@ If the app's own database is Postgres, the service gets a database of its own on
 
 ## Changing the table
 
-The service applies its migrations itself when it starts. After changing `Event`, regenerate them. In `analytics_service`, write a temporary `leptoskit.toml` that points `[db]` at the crate, then create the migration:
-
-```toml
-schema_version = 0
-[app]
-name = "analytics_service"
-[db]
-dialect = "sqlite"
-crate = "analytics_service"
-features = ["service"]
-migrations = "migrations"
-```
+The service applies its migrations itself when it starts. After changing `Event`, write a migration for it from `analytics_app`:
 
 ```sh
-leptoskit db migration create <name>
+leptoskit db migration create <name> --service analytics
 ```
 
-Repeat with `dialect = "postgres"` and `migrations = "migrations-postgres"`, then delete the temporary file.
+That writes into `analytics_service/migrations/`. If the app's `[db]` is Postgres, it writes into `migrations-postgres/` instead; the service ships both, so write one for each engine.
 
 ## Tests
 

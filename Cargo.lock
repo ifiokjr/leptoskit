@@ -5211,6 +5211,7 @@ dependencies = [
  "notify",
  "plist",
  "png 0.17.16",
+ "postgres-protocol",
  "postgresql_embedded",
  "rayon",
  "resvg",

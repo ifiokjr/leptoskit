@@ -781,6 +781,75 @@ struct Release {
 	image_digest: Option<String>,
 	#[serde(default)]
 	completed_at: Option<String>,
+	/// Each database-backed service's schema, by service name. Releases
+	/// recorded before services were tracked have none, and rolling back to
+	/// one leaves the services' databases as they are.
+	#[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+	services: std::collections::BTreeMap<String, ServiceSchema>,
+}
+
+/// A service database's schema in a release, as the app's is recorded: the
+/// fingerprint of its migration history, and the history itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ServiceSchema {
+	migrations: String,
+	schema: Vec<(String, String)>,
+}
+
+impl ServiceSchema {
+	fn of(schema: Vec<(String, String)>) -> Result<Self> {
+		Ok(Self {
+			migrations: history_fingerprint(schema.clone())?,
+			schema,
+		})
+	}
+}
+
+/// The fingerprint of every service's schema together, which a managed image
+/// carries in its `SERVICES_SCHEMA_LABEL`: `None` without database-backed
+/// services, so their images keep only the app's label.
+fn services_fingerprint(
+	services: &std::collections::BTreeMap<String, ServiceSchema>,
+) -> Result<Option<String>> {
+	if services.is_empty() {
+		return Ok(None);
+	}
+
+	history_fingerprint(
+		services
+			.iter()
+			.map(|(name, schema)| (name.clone(), schema.migrations.clone()))
+			.collect(),
+	)
+	.map(Some)
+}
+
+/// The schema each database-backed process service's migrations in this
+/// checkout make, by service name.
+fn service_schemas(
+	services: &[crate::deploy::services::DeployService],
+) -> Result<std::collections::BTreeMap<String, ServiceSchema>> {
+	let mut schemas = std::collections::BTreeMap::new();
+
+	for service in services
+		.iter()
+		.filter(|service| service.is_process() && service.database)
+	{
+		// A service that keeps its tables some other way has no migrations,
+		// and so an empty history.
+		let schema = match &service.migrations {
+			Some(directory) if directory.is_dir() => {
+				leptoskit_db::load_migrations(directory)?
+					.iter()
+					.map(|m| (m.name.to_string(), m.checksum.to_string()))
+					.collect()
+			}
+			_ => Vec::new(),
+		};
+		schemas.insert(service.name.clone(), ServiceSchema::of(schema)?);
+	}
+
+	Ok(schemas)
 }
 
 fn history_fingerprint(mut pairs: Vec<(String, String)>) -> Result<String> {
@@ -804,6 +873,56 @@ fn remote_history(ip: &str, name: &str) -> Result<String> {
 	history_fingerprint(
 		serde_json::from_slice(&result.stdout).context("invalid remote migration history")?,
 	)
+}
+
+/// The fingerprint of a service database's migration history, read inside
+/// the private database container as the administrator: the history of no
+/// migrations while the database, or its history table, doesn't exist yet,
+/// as before the service's first start.
+fn remote_service_history(ip: &str, name: &str, database: &str) -> Result<String> {
+	let remote = service_history_script(name, database)?;
+	let result = Command::new("ssh")
+		.args(["-o", "BatchMode=yes", "--", &format!("root@{ip}"), &remote])
+		.output()
+		.context("couldn't read a service's remote migration history")?;
+	ensure!(
+		result.status.success(),
+		"couldn't verify the migration history of `{database}`; rollback is blocked"
+	);
+	history_fingerprint(
+		serde_json::from_slice(&result.stdout).context("invalid remote migration history")?,
+	)
+}
+
+/// The script [`remote_service_history`] runs on the primary host: it prints
+/// the service database's migration history as JSON, `[]` before it has one.
+fn service_history_script(name: &str, database: &str) -> Result<String> {
+	ensure!(
+		database
+			.bytes()
+			.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'),
+		"unexpected service database name"
+	);
+	let psql = |database: &str, sql: &str| {
+		format!("docker exec {name}-db psql -X -U leptoskit_admin -d {database} -At -c \"{sql}\"")
+	};
+	Ok(format!(
+		"set -eu; if [ \"$({})\" != 1 ]; then echo '[]'; exit 0; fi; if [ \"$({})\" != t ]; then \
+		 echo '[]'; exit 0; fi; {}",
+		psql(
+			"postgres",
+			&format!("SELECT count(*) FROM pg_database WHERE datname = '{database}'")
+		),
+		psql(
+			database,
+			"SELECT to_regclass('public._leptoskit_migrations') IS NOT NULL"
+		),
+		psql(
+			database,
+			"SELECT COALESCE(json_agg(json_build_array(name, checksum)), '[]'::json) FROM \
+			 _leptoskit_migrations"
+		),
+	))
 }
 
 /// Deploys a prebuilt immutable tag. Rollback refuses a different migration

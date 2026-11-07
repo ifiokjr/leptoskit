@@ -88,7 +88,10 @@ adapter.chmod(0o700)
 (root / "recovery.json").write_text(json.dumps({"name": "fixture", "services": {"relay": True, "cache": True}, "repository": str(root / "repo"),
     "daily": 7, "weekly": 4, "monthly": 3, "max_age_hours": 36}))
 (root / "backup-secrets.json").write_text(json.dumps({"RESTIC_PASSWORD": "fixture-encryption-password"}))
-(root / "releases.json").write_text('[{"version":"v1"}]')
+# A release records each service database's schema beside the app's; a
+# restore brings the snapshot's records back unchanged.
+RELEASES = [{"version": "v1", "migrations": "app", "services": {"analytics": {"migrations": "a", "schema": [["init", "sum"]]}}}]
+(root / "releases.json").write_text(json.dumps(RELEASES))
 (root / "cache-stale").write_text("stale value")
 (root.parent / "nats").mkdir(mode=0o700)
 (root.parent / "nats/old-stream").write_text("events ahead of the restored database")
@@ -125,7 +128,7 @@ assert psql("SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'le
 # A restored database is locked down again: only its owner connects.
 for name in ["leptoskit", "leptoskit_service_analytics", "leptoskit_service_cards"]:
     assert psql("SELECT has_database_privilege('public', '" + name + "', 'CONNECT')") == "f", name
-assert json.loads((root / "releases.json").read_text()) == [{"version": "v1"}]
+assert json.loads((root / "releases.json").read_text()) == RELEASES
 assert not (root / "cache-stale").exists()
 assert not list((root.parent / "nats").iterdir())
 assert len(list(root.parent.glob("nats-before-restore-*/old-stream"))) == 1

@@ -132,10 +132,13 @@ impl DevDatabase {
 		Ok(StudioProcess(child))
 	}
 
-	/// The app's database URL, when `leptoskit dev` knows it. Services put
-	/// their own databases beside it.
-	pub(crate) fn url(&self) -> Option<&str> {
-		self.url.as_deref()
+	/// The database as services see it: its URL, and whether it's on the
+	/// development server this session runs.
+	pub(crate) fn app_database(&self) -> Option<crate::services::run::AppDatabase> {
+		Some(crate::services::run::AppDatabase {
+			url: self.url.clone()?,
+			dev_server: self.server.is_some(),
+		})
 	}
 
 	/// The variables the app server needs to find the database: the URL,
@@ -439,6 +442,7 @@ mod tests {
 			},
 			package: "app_db".into(),
 			name: "app".into(),
+			service: None,
 		}
 	}
 
@@ -746,6 +750,7 @@ mod push_tests {
 			},
 			package: "app_db".into(),
 			name: "app".into(),
+			service: None,
 		};
 		let mut without_server = DevDatabase::open(project, None, None).unwrap();
 		assert_eq!(without_server.switch_branch().unwrap(), None);
@@ -768,6 +773,7 @@ mod push_tests {
 			},
 			package: "app_db".into(),
 			name: "app".into(),
+			service: None,
 		};
 		let mut database = DevDatabase::open(project, None, Some(&binaries)).unwrap();
 		assert!(database.env()[0].1.contains("/app?"));
@@ -795,6 +801,7 @@ mod push_tests {
 			},
 			package: "app_db".into(),
 			name: "app".into(),
+			service: None,
 		};
 		let url = format!("sqlite://{}", root.path().join("dev.sqlite3").display());
 		let mut database = DevDatabase {

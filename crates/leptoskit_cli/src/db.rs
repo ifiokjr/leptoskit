@@ -240,9 +240,10 @@ pub enum ReleaseCommand {
 	},
 }
 
-/// Runs a `leptoskit db` subcommand.
-pub fn run(command: DbCommand) -> Result<()> {
-	let project = Project::load()?;
+/// Runs a `leptoskit db` subcommand on the app's database, or on the
+/// database of the service `service` names.
+pub fn run(command: DbCommand, service: Option<&str>) -> Result<()> {
+	let project = project_for(&command, service)?;
 
 	match command {
 		DbCommand::Migration {
@@ -404,6 +405,31 @@ pub fn run(command: DbCommand) -> Result<()> {
 	}
 }
 
+/// The database `command` works on: the app's, or the service's that
+/// `--service` names, refusing what doesn't apply to a service.
+fn project_for(command: &DbCommand, service: Option<&str>) -> Result<Project> {
+	let Some(service) = service else {
+		return Project::load();
+	};
+	ensure!(
+		!matches!(command, DbCommand::Branch { .. }),
+		"a service's branch databases follow the app's: `{} db branch` lists and prunes them with \
+		 the app's, so run it without --service",
+		invoked_name()
+	);
+	let (config, root) = LeptoskitConfig::load()?;
+	let project = Project::service(&config, root, service)?;
+
+	if matches!(
+		command,
+		DbCommand::Migration { .. } | DbCommand::Release { .. }
+	) {
+		project.ensure_writable()?;
+	}
+
+	Ok(project)
+}
+
 /// `leptoskit db push`: pushes `target` to the database at `url`, and fails
 /// when that would delete data without `allow_destructive`.
 fn push_command(
@@ -490,13 +516,29 @@ fn branch(project: &Project, command: &BranchCommand, binaries: Option<&Path>) -
 	Ok(())
 }
 
-/// The app's database settings, resolved.
+/// The app's database settings, resolved, or a service's.
 pub(crate) struct Project {
 	pub root: PathBuf,
 	pub config: DbConfig,
 	pub package: String,
-	/// The app's name, `app.name`.
+	/// The app's name, `app.name`, or the service's.
 	pub name: String,
+	/// The service whose database this is, under `--service`.
+	pub service: Option<ServiceProject>,
+}
+
+/// What a service's database adds to its [`Project`].
+pub(crate) struct ServiceProject {
+	/// The app's database settings, whose development server the service's
+	/// database shares; `None` when the app has no `[db]`, so the service's
+	/// is SQLite.
+	pub app: Option<Box<Project>>,
+	/// The service crate's manifest and the target directory to build it in,
+	/// when it isn't a member of the app's workspace.
+	pub external: Option<(PathBuf, PathBuf)>,
+	/// Where cargo fetched it from, when that's a registry or git: its
+	/// migrations ship with it, so `leptoskit` doesn't write to them.
+	pub installed: Option<&'static str>,
 }
 
 impl Project {
@@ -520,7 +562,105 @@ impl Project {
 			name: config.app.name.clone(),
 			config: db.clone(),
 			root,
+			service: None,
 		})
+	}
+
+	/// The database of the service `[services.<name>]` declares: on the
+	/// app's engine, with the service crate's tables, and its migrations in
+	/// `migrations/` beside its `Cargo.toml`, or `migrations-postgres/` when
+	/// the app is on Postgres.
+	pub(crate) fn service(config: &LeptoskitConfig, root: PathBuf, name: &str) -> Result<Self> {
+		if !config.services.contains_key(name) {
+			let known: Vec<&str> = config.services.keys().map(String::as_str).collect();
+			bail!(
+				"there's no [services.{name}] in {}{}",
+				leptoskit_config::CONFIG_FILE,
+				if known.is_empty() {
+					String::new()
+				} else {
+					format!("; its services are {}", known.join(", "))
+				}
+			);
+		}
+
+		let metadata = crate::wasm::cargo_metadata(&root)?;
+		let service = crate::services::resolve(config, &root, &metadata, false)?
+			.into_iter()
+			.find(|service| service.name() == name)
+			.with_context(|| format!("[services.{name}] didn't resolve"))?;
+		let (package, external) = match &service.code {
+			crate::services::Code::Workspace { package, .. } => (package.clone(), None),
+			crate::services::Code::External { package, manifest } => {
+				let target = metadata
+					.target_directory
+					.join("leptoskit")
+					.join("services")
+					.join("target");
+				(package.clone(), Some((manifest.clone(), target)))
+			}
+			crate::services::Code::Remote => {
+				bail!(
+					"[services.{name}] is remote: it runs elsewhere, with a database leptoskit \
+					 doesn't manage"
+				)
+			}
+		};
+		ensure!(
+			service.settings.database,
+			"[services.{name}] has no database of its own; set `database = true` in it, or in its \
+			 crate's [package.metadata.leptoskit.service]"
+		);
+
+		let app = Self::of(config, root.clone());
+		let dialect = crate::services::dialect(config);
+		let migrations = crate::services::database::migrations_dir(&service, dialect)
+			.context("a service's manifest has no directory")?;
+		let defaults = DbConfig::default();
+		let db = DbConfig {
+			dialect,
+			package: Some(package.clone()),
+			features: service.settings.features.clone(),
+			migrations,
+			url_env: crate::services::database::url_env(name),
+			dev_server: app
+				.as_ref()
+				.map_or(defaults.dev_server, |app| app.config.dev_server),
+			draft: app.as_ref().map_or(defaults.draft, |app| app.config.draft),
+			branch_databases: app.as_ref().is_some_and(|app| app.config.branch_databases),
+			..defaults
+		};
+		let installed = match &service.settings.source {
+			leptoskit_config::ServiceSource::Crate { .. } => Some("a registry"),
+			leptoskit_config::ServiceSource::Git { .. } => Some("git"),
+			_ => None,
+		};
+
+		Ok(Self {
+			root,
+			config: db,
+			package,
+			name: name.to_owned(),
+			service: Some(ServiceProject {
+				app: app.map(Box::new),
+				external,
+				installed,
+			}),
+		})
+	}
+
+	/// Fails for a service installed from a registry or git, whose
+	/// migrations directory is in cargo's copy of its source.
+	fn ensure_writable(&self) -> Result<()> {
+		if let Some(from) = self.service.as_ref().and_then(|service| service.installed) {
+			bail!(
+				"services.{} comes from {from}, and its migrations ship with it; change them in \
+				 its own repository",
+				self.name
+			);
+		}
+
+		Ok(())
 	}
 
 	/// The development database's name: the app's, with `_` for `-`.
@@ -543,8 +683,22 @@ impl Project {
 	/// names, or the development database, which stays up while the server
 	/// returned with it lives.
 	fn database(&self, url: Option<String>) -> Result<(String, Option<dev_server::DevServer>)> {
+		self.database_with(url, crate::services::database::Existing::Keep)
+	}
+
+	/// [`Self::database`], with a service's development database on
+	/// Postgres created again, empty, under `existing`.
+	fn database_with(
+		&self,
+		url: Option<String>,
+		existing: crate::services::database::Existing,
+	) -> Result<(String, Option<dev_server::DevServer>)> {
 		if let Some(url) = url.or_else(|| std::env::var(&self.config.url_env).ok()) {
 			return Ok((url, None));
+		}
+
+		if let Some(service) = &self.service {
+			return self.service_database(service, existing);
 		}
 
 		let Some(source) = dev_server::source(self) else {
@@ -559,6 +713,66 @@ impl Project {
 		Ok((server.url.clone(), Some(server)))
 	}
 
+	/// A service's development database, where `leptoskit dev` gives it one:
+	/// its SQLite file, or its own database beside the app's, or the
+	/// branch's, on the development Postgres. An app whose `db.url_env`
+	/// names another server gets nothing made there: the service's URL has
+	/// to come from `--url` or `LEPTOSKIT_SERVICE_<NAME>_DATABASE_URL`.
+	fn service_database(
+		&self,
+		service: &ServiceProject,
+		existing: crate::services::database::Existing,
+	) -> Result<(String, Option<dev_server::DevServer>)> {
+		let app_url = service
+			.app
+			.as_deref()
+			.and_then(|app| std::env::var(&app.config.url_env).ok());
+		self.service_database_beside(service, existing, app_url.as_deref())
+	}
+
+	/// [`Self::service_database`], with the URL the app's `db.url_env` holds,
+	/// if any, as `app_url`.
+	fn service_database_beside(
+		&self,
+		service: &ServiceProject,
+		existing: crate::services::database::Existing,
+		app_url: Option<&str>,
+	) -> Result<(String, Option<dev_server::DevServer>)> {
+		let Some(app) = service
+			.app
+			.as_deref()
+			.filter(|_| self.dialect() == Dialect::Postgres)
+		else {
+			let url = crate::services::database::sqlite_url(&self.root, &self.name)?;
+			println!("using the development database {url}");
+			return Ok((url, None));
+		};
+		// Only on the development Postgres does leptoskit create, drop, or
+		// lock down a service's database.
+		if app_url.is_some() {
+			return Err(crate::services::database::not_on_the_dev_server(
+				&self.name,
+				&app.config.url_env,
+			)
+			.context("or pass --url"));
+		}
+
+		let Some(source) = dev_server::source(app) else {
+			bail!(
+				"set {} to the service's database URL, or pass --url; db.dev_server is off",
+				self.config.url_env
+			);
+		};
+		let binaries = dev_server::binaries_from_env();
+		let server = dev_server::start(app, source, binaries.as_deref())?;
+		let url =
+			crate::services::database::dev_postgres_url(app, &server.url, &self.name, existing)?;
+		let server = Some(server);
+		let database = crate::services::database::database_of(&url)?;
+		println!("using the service's development database `{database}`");
+		Ok((url, server))
+	}
+
 	/// The schema the app's tables declare, from the test
 	/// `export_schema!()` adds to the db crate.
 	pub(crate) fn export(&self) -> Result<Schema> {
@@ -566,9 +780,15 @@ impl Project {
 			tempfile::NamedTempFile::new().context("couldn't create a file for the schema")?;
 		let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
 		let mut command = Command::new(cargo);
+		command.current_dir(&self.root).args([
+			"test",
+			"--quiet",
+			"--package",
+			&self.package,
+			"--lib",
+		]);
+		self.outside_the_workspace(&mut command);
 		command
-			.current_dir(&self.root)
-			.args(["test", "--quiet", "--package", &self.package, "--lib"])
 			.env(leptoskit_db::SCHEMA_OUT_ENV, out.path())
 			.env(leptoskit_db::DIALECT_ENV, self.config.dialect.as_str())
 			.env(leptoskit_db::POLICIES_ENV, self.config.policies.as_str())
@@ -612,6 +832,22 @@ impl Project {
 }
 
 impl Project {
+	/// Points `command`, a cargo command, at a service crate outside the
+	/// app's workspace, building it where installed services build.
+	fn outside_the_workspace(&self, command: &mut Command) {
+		if let Some((manifest, target)) = self
+			.service
+			.as_ref()
+			.and_then(|service| service.external.as_ref())
+		{
+			command
+				.arg("--manifest-path")
+				.arg(manifest)
+				.arg("--target-dir")
+				.arg(target);
+		}
+	}
+
 	/// The command that serves the studio on `127.0.0.1:port` over the
 	/// database at `url`: the db crate's `export_schema!()` test, built with
 	/// the studio and the dialect's driver, which serves until it's stopped.
@@ -2076,7 +2312,10 @@ fn reset(project: &Project, url: Option<String>, yes: bool) -> Result<()> {
 		yes,
 		"this deletes every row in the database; pass --yes to confirm"
 	);
-	let (url, _server) = project.database(url)?;
+	// A service's database on the development Postgres is created again,
+	// under the service's own role.
+	let (url, _server) =
+		project.database_with(url, crate::services::database::Existing::Recreate)?;
 	let history = History::read(&project.migrations_dir(), project.dialect())?;
 	let migrations = leptoskit_db::load_migrations(&project.migrations_dir())?;
 
