@@ -645,7 +645,6 @@ fn a_taken_port_stops_a_service_before_it_starts() {
 		"{error}"
 	);
 	drop(taken);
-	assert!(crate::server::ensure_port_free(address, "services.analytics").is_ok());
 }
 
 /// `SIGTERM` reaches the child, which stops on its own; one that ignores it

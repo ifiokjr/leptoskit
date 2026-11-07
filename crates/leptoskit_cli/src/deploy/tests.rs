@@ -437,10 +437,11 @@ pub(crate) fn project_with_services(root: &Path, db: Db, trust: &str) -> Leptosk
 	};
 	let config = format!(
 		"schema_version = 0\n\n[app]\nname = \"notes\"\nversion = \"0.1.0\"\nrender = \
-		 \"ssr\"\n\n[serve]\naddress = \"127.0.0.1\"\nport = 3000\n\n[build]\nclient_package = \
-		 \"notes_app\"\n\n[db]\ndialect = \"{dialect}\"\n\n[services.analytics]\npackage = \
-		 \"analytics_service\"\ntrust = \"{trust}\"\n\n[services.cards]\npackage = \
-		 \"cards\"\n\n[services.billing]\nurl = \"https://billing.internal.example/\"\n"
+		 \"ssr\"\n\n[serve]\naddress = \"127.0.0.1\"\nport = 3000\nprobes = \
+		 true\n\n[build]\nclient_package = \"notes_app\"\n\n[db]\ndialect = \
+		 \"{dialect}\"\n\n[services.analytics]\npackage = \"analytics_service\"\ntrust = \
+		 \"{trust}\"\n\n[services.cards]\npackage = \"cards\"\n\n[services.billing]\nurl = \
+		 \"https://billing.internal.example/\"\n"
 	);
 	write(root, "leptoskit.toml", &config);
 	write(
