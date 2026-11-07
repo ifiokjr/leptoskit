@@ -80,7 +80,8 @@ pub(crate) fn millis(duration: Duration) -> u64 {
 
 /// Whether [`sleep`] really waits: a timer was installed, or this target has
 /// a default one. Without one every sleep resolves at once.
-pub(crate) fn has_timer() -> bool {
+#[must_use]
+pub fn has_timer() -> bool {
 	SLEEP.get().is_some() || cfg!(any(not(target_arch = "wasm32"), feature = "browser"))
 }
 

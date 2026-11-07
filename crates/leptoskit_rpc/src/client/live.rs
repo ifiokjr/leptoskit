@@ -63,6 +63,7 @@ use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
 use futures::future::Either;
 use futures::future::FutureExt;
+use futures::stream::Peekable;
 use leptos::prelude::Update as _;
 use leptos::prelude::*;
 use leptoskit_query::BoxFuture;
@@ -943,10 +944,43 @@ enum Reauthenticated {
 	Closed,
 }
 
-async fn run(inner: Arc<Inner>, mut commands: UnboundedReceiver<Command>) {
+/// Waits until the connection has something to do, on a host without a
+/// timer, and returns `false` once the client is gone.
+///
+/// Without a timer, as in a native app's guest, a backoff can't wait, so a
+/// server it can't reach is retried without pause. There the socket opens
+/// once it has something to do: a call, a subscription, or a channel, or
+/// calls the offline queue kept. An app that never goes live, such as one
+/// that only signs in, never connects. Until then, a change of identity has
+/// nothing to update: the handshake reads the current one.
+async fn wait_for_work(inner: &Inner, commands: &mut Peekable<UnboundedReceiver<Command>>) -> bool {
+	if leptoskit_query::has_timer() || !inner.queue().is_empty() {
+		return true;
+	}
+
+	loop {
+		match Pin::new(&mut *commands).peek().await {
+			None => return false,
+			Some(
+				Command::Reauthenticate | Command::RefreshCredentials { .. } | Command::Reconnect,
+			) => {
+				commands.next().await;
+			}
+			Some(_) => return true,
+		}
+	}
+}
+
+async fn run(inner: Arc<Inner>, commands: UnboundedReceiver<Command>) {
+	let mut commands = commands.peekable();
+
 	if let Some(offline) = &inner.offline {
 		let calls = offline.store.load().await;
 		inner.restore(calls);
+	}
+
+	if !wait_for_work(inner.as_ref(), &mut commands).await {
+		return;
 	}
 
 	let mut backoff = BACKOFF_START;

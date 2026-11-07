@@ -263,6 +263,7 @@ pub use state::QueryState;
 pub use state::QueryStatus;
 pub use time::AlreadyInstalled;
 pub use time::BoxFuture;
+pub use time::has_timer;
 pub use time::install_clock;
 pub use time::install_sleep;
 pub use time::now_ms;
