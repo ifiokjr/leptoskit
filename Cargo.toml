@@ -304,6 +304,9 @@ leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.3.0" }
 leptoskit_use = { path = "crates/leptoskit_use", version = "0.3.0" }
 leptoskit_virtual = { path = "crates/leptoskit_virtual", version = "0.3.0" }
 leptoskit_wasm = { path = "crates/leptoskit_wasm", version = "0.3.0" }
+leptoskit_watch = { path = "crates/leptoskit_watch", version = "0.3.0" }
+leptoskit_watchos = { path = "crates/leptoskit_watchos", version = "0.3.0" }
+leptoskit_wearos = { path = "crates/leptoskit_wearos", version = "0.3.0" }
 leptoskit_windows = { path = "crates/leptoskit_windows", version = "0.3.0" }
 leptoskit_yoga = { path = "crates/leptoskit_yoga", version = "0.3.0" }
 

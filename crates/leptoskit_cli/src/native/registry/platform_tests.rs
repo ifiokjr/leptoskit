@@ -330,3 +330,53 @@ fn experimental_only_rust_plugin_reports_missing_flag_when_not_opted_in() {
 		);
 	}
 }
+
+#[test]
+fn watch_targets_consult_platform_tables_without_native_hosts() {
+	let with_android = resolve_metadata(
+		runtime_metadata(&json!({
+			"name": "echo", "android-type": "dev.example.EchoPlugin"
+		})),
+		&echo_config(),
+	)
+	.unwrap();
+	// Wear OS reads the Android table but has no native host kind yet, so the
+	// Android type does not bind; watchOS has no table at all.
+	assert_eq!(
+		with_android.plugins[0].implementation(Target::Wearos, RUNS_RUST),
+		Err(Missing::NoImplementation)
+	);
+	assert_eq!(
+		with_android.plugins[0].implementation(Target::Watchos, RUNS_RUST),
+		Err(Missing::NoImplementation)
+	);
+
+	let with_rust = resolve_metadata(
+		runtime_metadata(&json!({
+			"name": "echo", "rust-type": "Shared"
+		})),
+		&echo_config(),
+	)
+	.unwrap();
+	assert_eq!(
+		with_rust.plugins[0].implementation(Target::Wearos, HostCapabilities::of(Target::Wearos)),
+		Err(Missing::HostCannotRun(Capability::Sync))
+	);
+}
+
+#[test]
+fn missing_plugin_messages_name_wear_and_watch_hosts() {
+	for (target, label) in [(Target::Wearos, "Wear OS"), (Target::Watchos, "watchOS")] {
+		let missing = MissingPlugin {
+			name: "echo".into(),
+			target,
+			reason: Missing::NoImplementation,
+		};
+		assert!(missing.describe().contains(label), "{}", missing.describe());
+		assert!(
+			missing.warning().unwrap().contains(label),
+			"{:?}",
+			missing.warning()
+		);
+	}
+}

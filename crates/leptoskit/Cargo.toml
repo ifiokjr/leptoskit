@@ -45,6 +45,9 @@ leptoskit_tui = { workspace = true, optional = true }
 leptoskit_use = { workspace = true, optional = true }
 leptoskit_virtual = { workspace = true, optional = true }
 leptoskit_wasm = { workspace = true, optional = true }
+leptoskit_watch = { workspace = true, optional = true }
+leptoskit_watchos = { workspace = true, optional = true }
+leptoskit_wearos = { workspace = true, optional = true }
 leptoskit_yoga = { workspace = true }
 monosecret = { workspace = true }
 
@@ -130,6 +133,13 @@ guest = [
 tui = ["dep:leptoskit_tui"]
 gtk = ["dep:leptoskit_gtk"]
 ios = ["uikit"]
+# Shared watch UI surfaces (Wear OS and watchOS). Experimental.
+watch = ["dep:leptoskit_watch"]
+# Experimental Android Wear OS host stubs.
+wearos = ["watch", "dep:leptoskit_wearos"]
+# Experimental Apple watchOS host stubs.
+watchos = ["watch", "dep:leptoskit_watchos"]
+
 l10n = ["dep:leptoskit_l10n"]
 ## Database tables as Rust structs: `leptoskit::db`. On its own, the client
 ## side: IDs, public types, and validation, with no database code.

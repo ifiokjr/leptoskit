@@ -409,6 +409,20 @@ impl Tools {
 						.to_owned(),
 				)
 			}
+			Platform::Wearos => {
+				Err(
+					"`leptoskit dev` does not run Wear OS apps yet; Wear OS support is \
+					 experimental — see the Wear OS platform page"
+						.to_owned(),
+				)
+			}
+			Platform::Watchos => {
+				Err(
+					"`leptoskit dev` does not run watchOS apps yet; watchOS support is \
+					 experimental — see the watchOS platform page"
+						.to_owned(),
+				)
+			}
 			Platform::Extension => self.extension_browser.support(),
 			_ => Ok(()),
 		}
@@ -1280,6 +1294,8 @@ mod tests {
 		let reason = |platform| tools.support(platform).unwrap_err();
 		assert!(reason(Platform::Android).contains("ANDROID_HOME"));
 		assert!(reason(Platform::Harmonyos).contains("HarmonyOS"));
+		assert!(reason(Platform::Wearos).contains("Wear OS"));
+		assert!(reason(Platform::Watchos).contains("watchOS"));
 
 		if cfg!(target_os = "macos") {
 			assert!(reason(Platform::Ios).contains("Xcode"));

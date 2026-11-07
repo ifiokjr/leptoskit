@@ -132,14 +132,30 @@ fn platform_selection_rejects_disabled_defaults_duplicates_and_empty_lists() {
 
 #[test]
 fn concrete_platforms_round_trip_and_select_distinct_features() {
-	for platform in Platform::APPLICATION
-		.into_iter()
-		.chain([Platform::Harmonyos, Platform::Tui])
-	{
+	for platform in Platform::APPLICATION.into_iter().chain([
+		Platform::Harmonyos,
+		Platform::Wearos,
+		Platform::Watchos,
+		Platform::Tui,
+	]) {
 		let name = platform.to_string();
 		assert_eq!(name.parse::<Platform>().unwrap(), platform);
 		assert_eq!(platform.feature(), Some(name.as_str()));
 		assert_eq!(platform.is_native(), platform != Platform::Web);
+	}
+}
+
+#[test]
+fn watch_native_targets_round_trip() {
+	for target in [
+		leptoskit_config::NativeTarget::Wearos,
+		leptoskit_config::NativeTarget::Watchos,
+	] {
+		let name = target.to_string();
+		assert_eq!(
+			name.parse::<leptoskit_config::NativeTarget>().unwrap(),
+			target
+		);
 	}
 }
 

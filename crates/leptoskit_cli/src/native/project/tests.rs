@@ -32,6 +32,27 @@ fn metadata_registry(root: &Path, metadata: &[serde_json::Value]) -> Registry {
 }
 
 #[test]
+fn watch_targets_refuse_phone_project_generation() {
+	let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+		"leptoskit-watch-project-generate-{}",
+		std::process::id()
+	));
+	std::fs::create_dir_all(&root).unwrap();
+	let registry = metadata_registry(&root, &[]);
+	let config = leptoskit_config::LeptoskitConfig::default();
+	for target in [Target::Wearos, Target::Watchos] {
+		let error = generate(&root, &config, &registry, target, false)
+			.unwrap_err()
+			.to_string();
+		assert!(
+			error.contains("watch hosts are scaffolded"),
+			"{target:?}: {error}"
+		);
+	}
+	std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn ios_requires_selected_plugin_purpose_strings_without_modifying_app_metadata() {
 	let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
 		"leptoskit-ios-required-purpose-{}",

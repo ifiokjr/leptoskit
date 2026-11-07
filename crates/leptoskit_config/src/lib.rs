@@ -366,6 +366,10 @@ pub enum Platform {
 	Linux,
 	/// A HarmonyOS application.
 	Harmonyos,
+	/// An Android Wear OS watch application (experimental).
+	Wearos,
+	/// An Apple watchOS application (experimental).
+	Watchos,
 	/// A terminal application: the shared tree in an interactive cell grid.
 	Tui,
 	/// A browser extension for Chromium, Firefox, and Safari, built from the
@@ -399,6 +403,8 @@ impl Platform {
 			Self::Windows => Some("windows"),
 			Self::Linux => Some("linux"),
 			Self::Harmonyos => Some("harmonyos"),
+			Self::Wearos => Some("wearos"),
+			Self::Watchos => Some("watchos"),
 			Self::Tui => Some("tui"),
 			Self::Extension => Some("extension"),
 			Self::Native | Self::Server => None,
@@ -416,6 +422,8 @@ impl Platform {
 				| Self::Windows
 				| Self::Linux
 				| Self::Harmonyos
+				| Self::Wearos
+				| Self::Watchos
 				| Self::Tui
 		)
 	}
@@ -431,6 +439,8 @@ impl fmt::Display for Platform {
 			Self::Windows => f.write_str("windows"),
 			Self::Linux => f.write_str("linux"),
 			Self::Harmonyos => f.write_str("harmonyos"),
+			Self::Wearos => f.write_str("wearos"),
+			Self::Watchos => f.write_str("watchos"),
 			Self::Tui => f.write_str("tui"),
 			Self::Extension => f.write_str("extension"),
 			Self::Native => f.write_str("native"),
@@ -451,6 +461,8 @@ impl std::str::FromStr for Platform {
 			"windows" => Ok(Self::Windows),
 			"linux" => Ok(Self::Linux),
 			"harmonyos" => Ok(Self::Harmonyos),
+			"wearos" => Ok(Self::Wearos),
+			"watchos" => Ok(Self::Watchos),
 			"tui" => Ok(Self::Tui),
 			"extension" => Ok(Self::Extension),
 			"native" => Ok(Self::Native),
@@ -987,6 +999,10 @@ pub enum NativeTarget {
 	Android,
 	/// HarmonyOS (ArkUI, packaged as a HAP).
 	Harmonyos,
+	/// Android Wear OS (experimental watch host).
+	Wearos,
+	/// Apple watchOS (experimental watch host).
+	Watchos,
 	/// Windows.
 	Windows,
 	/// Linux.
@@ -1000,6 +1016,8 @@ impl fmt::Display for NativeTarget {
 			Self::Ios => f.write_str("ios"),
 			Self::Android => f.write_str("android"),
 			Self::Harmonyos => f.write_str("harmonyos"),
+			Self::Wearos => f.write_str("wearos"),
+			Self::Watchos => f.write_str("watchos"),
 			Self::Windows => f.write_str("windows"),
 			Self::Linux => f.write_str("linux"),
 		}
@@ -1015,6 +1033,8 @@ impl std::str::FromStr for NativeTarget {
 			"ios" => Ok(Self::Ios),
 			"android" => Ok(Self::Android),
 			"harmonyos" => Ok(Self::Harmonyos),
+			"wearos" => Ok(Self::Wearos),
+			"watchos" => Ok(Self::Watchos),
 			"windows" => Ok(Self::Windows),
 			"linux" => Ok(Self::Linux),
 			other => Err(ConfigError::UnknownPlatform(other.to_owned())),

@@ -1,0 +1,20 @@
+[package]
+name = "leptoskit_watch"
+version = "0.3.0"
+authors.workspace = true
+categories = ["gui", "os", "rendering"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["watch", "wearos", "watchos", "native", "leptos"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared watch UI surfaces for Wear OS and watchOS: pages, tiles, glances, and complications."
+
+[dependencies]
+leptoskit_native = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

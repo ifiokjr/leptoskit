@@ -2283,6 +2283,16 @@
 					"const": "harmonyos"
 				},
 				{
+					"description": "Android Wear OS (experimental watch host).",
+					"type": "string",
+					"const": "wearos"
+				},
+				{
+					"description": "Apple watchOS (experimental watch host).",
+					"type": "string",
+					"const": "watchos"
+				},
+				{
 					"description": "Windows.",
 					"type": "string",
 					"const": "windows"
@@ -2346,6 +2356,16 @@
 					"description": "A HarmonyOS application.",
 					"type": "string",
 					"const": "harmonyos"
+				},
+				{
+					"description": "An Android Wear OS watch application (experimental).",
+					"type": "string",
+					"const": "wearos"
+				},
+				{
+					"description": "An Apple watchOS application (experimental).",
+					"type": "string",
+					"const": "watchos"
 				},
 				{
 					"description": "A terminal application: the shared tree in an interactive cell grid.",
