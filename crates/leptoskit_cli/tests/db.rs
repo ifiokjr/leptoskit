@@ -182,7 +182,6 @@ fn exchange(
 /// A scaffolded server, killed if the test ends while it runs.
 struct Server {
 	child: std::process::Child,
-	address: String,
 }
 
 impl Server {
@@ -203,7 +202,6 @@ impl Server {
 
 		let server = Self {
 			child: child.spawn().unwrap(),
-			address: address.to_owned(),
 		};
 		let ready = (0..240).any(|_| {
 			std::thread::sleep(std::time::Duration::from_millis(250));
@@ -705,44 +703,9 @@ fn the_auth_scaffold_signs_people_in() {
 	});
 	// Each person's notes are their own: the operations run as the caller,
 	// and the table's policy shows them only their rows.
-	let bob = ready.then(|| {
-		let (_, head, _) = exchange(
-			&address,
-			"POST",
-			"/auth/dev/sign-in",
-			&origin,
-			r#"{"email":"bob@example.com"}"#,
-		);
-		let line = head
-			.lines()
-			.find(|line| line.to_ascii_lowercase().starts_with("set-cookie:"))
-			.expect("dev sign-in sets a cookie");
-		line["set-cookie:".len()..]
-			.split(';')
-			.next()
-			.unwrap()
-			.trim()
-			.to_owned()
-	});
-	let call = |cookie: Option<&String>, path: &str, body: &str| {
-		let headers = match cookie {
-			Some(cookie) => format!("{origin}Cookie: {cookie}\r\n"),
-			None => origin.clone(),
-		};
-		let (status, _, body) = exchange(&address, "POST", path, &headers, body);
-		(status, body)
-	};
-	let anonymous = ready.then(|| call(None, "/api/add_note", r#"{"body":"nobody's"}"#));
-	let added = cookie
+	let notes = cookie
 		.as_ref()
-		.map(|ada| call(Some(ada), "/api/add_note", r#"{"body":"ada's"}"#));
-	let bobs = bob
-		.as_ref()
-		.map(|bob| call(Some(bob), "/api/add_note", r#"{"body":"bob's"}"#));
-	let adas_list = cookie
-		.as_ref()
-		.map(|ada| call(Some(ada), "/api/notes", "{}"));
-	let bobs_list = bob.as_ref().map(|bob| call(Some(bob), "/api/notes", "{}"));
+		.map(|ada| each_persons_notes(&address, &origin, ada));
 	// The probes answer without a session.
 	let probe = ready.then(|| request(&address, "GET", "/readyz", ""));
 	server.kill().unwrap();
@@ -762,29 +725,73 @@ fn the_auth_scaffold_signs_people_in() {
 	let (status, _, body) = session.unwrap();
 	assert_eq!(status, 200);
 	assert!(body.contains(r#""account_id""#), "{body}");
-	let (status, body) = anonymous.unwrap();
-	assert_eq!(status, 401, "{body}");
-	let (status, body) = added.unwrap();
-	assert_eq!(status, 200, "{body}");
-	assert!(body.contains(r#""body":"ada's""#), "{body}");
-	assert_eq!(bobs.unwrap().0, 200);
-	let (status, body) = adas_list.unwrap();
-	assert_eq!(status, 200, "{body}");
-	assert!(
-		body.contains("ada's") && !body.contains("bob's"),
-		"Ada sees only hers: {body}"
-	);
-	let (status, body) = bobs_list.unwrap();
-	assert_eq!(status, 200, "{body}");
-	assert!(
-		body.contains("bob's") && !body.contains("ada's"),
-		"Bob sees only his: {body}"
-	);
+	assert_their_own(notes.unwrap());
 	assert_eq!(probe.unwrap().0, 200);
 
 	assert_eq!(
 		succeeds(&leptoskit(&root, &["generate", "auth"])),
 		"nothing changed: the sign-in screens are already in place\n"
+	);
+}
+
+/// What Ada, signed in with `ada`, Bob, signed in here, and someone signed
+/// out get from the notes: the signed-out call, Ada's and Bob's adds, then
+/// Ada's and Bob's lists.
+fn each_persons_notes(address: &str, origin: &str, ada: &str) -> Option<[(u16, String); 5]> {
+	let (_, head, _) = exchange(
+		address,
+		"POST",
+		"/auth/dev/sign-in",
+		origin,
+		r#"{"email":"bob@example.com"}"#,
+	);
+	let line = head
+		.lines()
+		.find(|line| line.to_ascii_lowercase().starts_with("set-cookie:"))?;
+	let bob = line["set-cookie:".len()..]
+		.split(';')
+		.next()?
+		.trim()
+		.to_owned();
+	let call = |cookie: Option<&str>, path: &str, body: &str| {
+		let headers = match cookie {
+			Some(cookie) => format!("{origin}Cookie: {cookie}\r\n"),
+			None => origin.to_owned(),
+		};
+		let (status, _, body) = exchange(address, "POST", path, &headers, body);
+		(status, body)
+	};
+	Some([
+		call(None, "/api/add_note", r#"{"body":"nobody's"}"#),
+		call(Some(ada), "/api/add_note", r#"{"body":"ada's"}"#),
+		call(Some(&bob), "/api/add_note", r#"{"body":"bob's"}"#),
+		call(Some(ada), "/api/notes", "{}"),
+		call(Some(&bob), "/api/notes", "{}"),
+	])
+}
+
+/// Someone signed out is refused, and Ada and Bob each see only their own
+/// notes.
+fn assert_their_own(notes: Option<[(u16, String); 5]>) {
+	let [anonymous, added, bobs, adas_list, bobs_list] =
+		notes.expect("dev sign-in sets Bob's cookie");
+	let (status, body) = anonymous;
+	assert_eq!(status, 401, "{body}");
+	let (status, body) = added;
+	assert_eq!(status, 200, "{body}");
+	assert!(body.contains(r#""body":"ada's""#), "{body}");
+	assert_eq!(bobs.0, 200, "{}", bobs.1);
+	let (status, body) = adas_list;
+	assert_eq!(status, 200, "{body}");
+	assert!(
+		body.contains("ada's") && !body.contains("bob's"),
+		"Ada sees only hers: {body}"
+	);
+	let (status, body) = bobs_list;
+	assert_eq!(status, 200, "{body}");
+	assert!(
+		body.contains("bob's") && !body.contains("ada's"),
+		"Bob sees only his: {body}"
 	);
 }
 
