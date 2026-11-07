@@ -66,29 +66,77 @@ impl ObjectShape<'_> {
 	}
 }
 
-/// The analyzed node: its shape and whether `null` is allowed.
+/// Why a schema could not be turned into a shape the generators model.
+///
+/// [`Shape::Any`] is also the intentional unconstrained-JSON case (`true`,
+/// `{}`, and annotation-only schemas). This reason is what separates the two:
+/// it is `None` for intentional free-form JSON and `Some` when a construct
+/// was dropped.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Unsupported<'a> {
+	/// A `$ref` that does not name a component schema.
+	ExternalReference(&'a str),
+	/// `type` listed more than one non-null kind.
+	MultipleTypes,
+	/// `type` named a JSON type this crate does not model.
+	UnknownType(&'a str),
+	/// A composition such as `allOf` with more than one member.
+	Composition { keyword: &'a str, parts: usize },
+	/// A schema that mixes a non-string `enum`.
+	NonStringEnum,
+	/// A schema whose `const` is not a string.
+	NonStringConstant,
+	/// The schema is `false`, which admits no JSON value at all.
+	FalseSchema,
+	/// Keywords this crate does not understand leave the shape unknown.
+	Unknown,
+}
+
+impl Unsupported<'_> {
+	/// A sentence naming what was dropped, without a target's rendering.
+	pub(crate) fn reason(&self) -> String {
+		match self {
+			Self::ExternalReference(reference) => {
+				format!("`$ref` {reference:?} does not name a component schema")
+			}
+			Self::MultipleTypes => "`type` lists more than one non-null kind".to_owned(),
+			Self::UnknownType(kind) => {
+				format!("`type` names the unknown JSON type `{kind}`")
+			}
+			Self::Composition { keyword, parts } => {
+				format!("`{keyword}` with {parts} members is not modeled")
+			}
+			Self::NonStringEnum => "non-string `enum` values are not modeled".to_owned(),
+			Self::NonStringConstant => "a non-string `const` is not modeled".to_owned(),
+			Self::FalseSchema => "the schema is `false`, which admits no value".to_owned(),
+			Self::Unknown => "the schema uses keywords this generator does not model".to_owned(),
+		}
+	}
+}
+
+/// The analyzed node: its shape, whether `null` is allowed, and why the shape
+/// is [`Shape::Any`] when that was not intentional.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Analyzed<'a> {
 	pub shape: Shape<'a>,
 	pub nullable: bool,
+	pub unsupported: Option<Unsupported<'a>>,
 }
 
 /// Analyzes one schema node.
 pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 	let Some(object) = schema.as_object() else {
-		return Analyzed {
-			shape: Shape::Any,
-			nullable: false,
+		return match schema {
+			Value::Bool(true) => analyzed(Shape::Any, false, None),
+			Value::Bool(false) => analyzed(Shape::Any, false, Some(Unsupported::FalseSchema)),
+			_ => analyzed(Shape::Any, false, Some(Unsupported::Unknown)),
 		};
 	};
 
 	if let Some(Value::String(reference)) = object.get("$ref")
 		&& let Some(name) = ref_name(reference)
 	{
-		return Analyzed {
-			shape: Shape::Ref(name),
-			nullable: false,
-		};
+		return analyzed(Shape::Ref(name), false, None);
 	}
 
 	let mut nullable = false;
@@ -112,7 +160,10 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 		.collect();
 
 	for key in ["anyOf", "oneOf"] {
-		if let Some(Value::Array(variants)) = object.get(key) {
+		if let Some(value) = object.get(key) {
+			let Some(variants) = value.as_array() else {
+				return analyzed(Shape::Any, nullable, Some(Unsupported::Unknown));
+			};
 			let rest: Vec<&Value> = variants
 				.iter()
 				.filter(|variant| {
@@ -126,25 +177,12 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 				.collect();
 
 			return match rest.as_slice() {
-				[] => {
-					Analyzed {
-						shape: Shape::Null,
-						nullable: true,
-					}
-				}
+				[] => analyzed(Shape::Null, true, None),
 				[single] => {
 					let inner = analyze(single);
-					Analyzed {
-						shape: inner.shape,
-						nullable: nullable || inner.nullable,
-					}
+					analyzed(inner.shape, nullable || inner.nullable, inner.unsupported)
 				}
-				_ => {
-					Analyzed {
-						shape: Shape::Union(rest),
-						nullable,
-					}
-				}
+				_ => analyzed(Shape::Union(rest), nullable, None),
 			};
 		}
 	}
@@ -153,11 +191,7 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 		&& let [single] = parts.as_slice()
 	{
 		let inner = analyze(single);
-
-		return Analyzed {
-			shape: inner.shape,
-			nullable: nullable || inner.nullable,
-		};
+		return analyzed(inner.shape, nullable || inner.nullable, inner.unsupported);
 	}
 
 	let format = object.get("format").and_then(Value::as_str);
@@ -203,7 +237,84 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 		_ => Shape::Any,
 	};
 
-	Analyzed { shape, nullable }
+	let unsupported = unsupported(object, &kinds);
+
+	analyzed(shape, nullable, unsupported)
+}
+
+fn analyzed<'a>(
+	shape: Shape<'a>,
+	nullable: bool,
+	unsupported: Option<Unsupported<'a>>,
+) -> Analyzed<'a> {
+	Analyzed {
+		shape,
+		nullable,
+		unsupported,
+	}
+}
+
+/// The construct a schema loses, when it has one, independent of its shape.
+fn unsupported<'a>(object: &'a Map<String, Value>, kinds: &[&'a str]) -> Option<Unsupported<'a>> {
+	// Diagnostics must not change the permissive generator's choice of type.
+	// A foreign reference or unsupported composition can accompany a usable
+	// base type; keep that type and report the part that was discarded.
+	if let Some(Value::String(reference)) = object.get("$ref")
+		&& ref_name(reference).is_none()
+	{
+		return Some(Unsupported::ExternalReference(reference));
+	}
+	if let Some(value) = object.get("allOf") {
+		return Some(match value.as_array() {
+			Some(parts) => {
+				Unsupported::Composition {
+					keyword: "allOf",
+					parts: parts.len(),
+				}
+			}
+			None => Unsupported::Unknown,
+		});
+	}
+
+	if kinds.len() > 1 {
+		return Some(Unsupported::MultipleTypes);
+	}
+
+	if let Some(kind) = kinds.first()
+		&& !["boolean", "integer", "number", "string", "array", "object"].contains(kind)
+	{
+		return Some(Unsupported::UnknownType(kind));
+	}
+
+	if object.contains_key("enum") && string_enum_values(object).is_none() {
+		return Some(Unsupported::NonStringEnum);
+	}
+
+	if object.contains_key("const") && object.get("const").and_then(Value::as_str).is_none() {
+		return Some(Unsupported::NonStringConstant);
+	}
+
+	if has_unmodeled_keyword(object) {
+		return Some(Unsupported::Unknown);
+	}
+
+	None
+}
+
+/// Keywords that constrain a value in ways this crate does not model.
+fn has_unmodeled_keyword(object: &Map<String, Value>) -> bool {
+	[
+		"not",
+		"if",
+		"then",
+		"else",
+		"patternProperties",
+		"dependentSchemas",
+		"unevaluatedProperties",
+		"unevaluatedItems",
+	]
+	.iter()
+	.any(|keyword| object.contains_key(*keyword))
 }
 
 fn array_shape(object: &Map<String, Value>) -> Shape<'_> {
@@ -512,7 +623,8 @@ mod tests {
 				shape: Shape::Integer {
 					format: Some("uint32")
 				},
-				nullable: true
+				nullable: true,
+				unsupported: None,
 			}
 		);
 		let any_of =
@@ -521,12 +633,19 @@ mod tests {
 			analyze(&any_of),
 			Analyzed {
 				shape: Shape::Ref("Todo"),
-				nullable: true
+				nullable: true,
+				unsupported: None,
 			}
 		);
 		assert_eq!(analyze(&json!({ "type": "null" })).shape, Shape::Null);
 		assert_eq!(analyze(&json!(true)).shape, Shape::Any);
 		assert_eq!(analyze(&json!({})).shape, Shape::Any);
+		assert_eq!(
+			analyze(&json!(true)).unsupported,
+			None,
+			"an unconstrained schema is intentional"
+		);
+		assert_eq!(analyze(&json!({})).unsupported, None);
 	}
 
 	#[test]
@@ -575,6 +694,66 @@ mod tests {
 			Shape::Any,
 			"no shape keywords at all"
 		);
+		assert_eq!(
+			analyze(&json!({ "minimum": 1 })).unsupported,
+			None,
+			"constraints alone still describe any JSON value"
+		);
+	}
+
+	#[test]
+	fn diagnostics_preserve_usable_types_beside_unsupported_constructs() {
+		for schema in [
+			json!({ "type": "string", "$ref": "https://example.invalid/type.json" }),
+			json!({ "type": "string", "allOf": [{ "minLength": 1 }, { "maxLength": 10 }] }),
+		] {
+			let result = analyze(&schema);
+			assert!(matches!(result.shape, Shape::String { .. }));
+			assert!(result.unsupported.is_some());
+		}
+	}
+
+	#[test]
+	fn separates_unconstrained_json_from_unmodeled_constructs() {
+		for unconstrained in [
+			json!(true),
+			json!({}),
+			json!({ "description": "anything" }),
+			json!({ "type": "object", "additionalProperties": true }),
+			json!({ "type": "array" }),
+		] {
+			assert_eq!(
+				analyze(&unconstrained).unsupported,
+				None,
+				"{unconstrained} is intentionally free-form"
+			);
+		}
+
+		for (schema, expected) in [
+			(json!(false), Unsupported::FalseSchema),
+			(
+				json!({ "type": ["string", "integer"] }),
+				Unsupported::MultipleTypes,
+			),
+			(
+				json!({ "type": "string", "enum": ["a", 1] }),
+				Unsupported::NonStringEnum,
+			),
+			(json!({ "const": 42 }), Unsupported::NonStringConstant),
+			(json!({ "type": "date" }), Unsupported::UnknownType("date")),
+			(json!({ "not": { "type": "string" } }), Unsupported::Unknown),
+			(
+				json!({
+					"allOf": [{ "type": "string" }, { "type": "string" }],
+				}),
+				Unsupported::Composition {
+					keyword: "allOf",
+					parts: 2,
+				},
+			),
+		] {
+			assert_eq!(analyze(&schema).unsupported, Some(expected), "{schema}");
+		}
 	}
 
 	#[test]
@@ -584,7 +763,8 @@ mod tests {
 			analyze(&only_null),
 			Analyzed {
 				shape: Shape::Null,
-				nullable: true
+				nullable: true,
+				unsupported: None,
 			}
 		);
 		let one_of = json!({ "oneOf": [{ "type": "string" }, { "type": "integer" }] });
@@ -593,10 +773,26 @@ mod tests {
 		let all_of = json!({ "allOf": [{ "type": "boolean" }] });
 		assert_eq!(analyze(&all_of).shape, Shape::Boolean);
 		let many = json!({ "type": ["string", "integer"] });
+
 		assert_eq!(analyze(&many).shape, Shape::Any);
+		assert_eq!(analyze(&many).unsupported, Some(Unsupported::MultipleTypes));
+		let composed = json!({ "allOf": [{ "type": "string" }, { "type": "string" }] });
+
+		assert_eq!(analyze(&composed).shape, Shape::Any);
+		assert_eq!(
+			analyze(&composed).unsupported,
+			Some(Unsupported::Composition {
+				keyword: "allOf",
+				parts: 2
+			})
+		);
 
 		let foreign_ref = json!({ "$ref": "https://elsewhere/schema.json" });
 		assert_eq!(analyze(&foreign_ref).shape, Shape::Any);
+		assert!(matches!(
+			analyze(&foreign_ref).unsupported,
+			Some(Unsupported::ExternalReference(_))
+		));
 		let defs_ref = json!({ "$ref": "#/$defs/Thing" });
 		assert_eq!(analyze(&defs_ref).shape, Shape::Ref("Thing"));
 		let closed = json!({ "type": "object", "additionalProperties": false });

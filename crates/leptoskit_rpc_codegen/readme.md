@@ -53,6 +53,8 @@ The server writes the specification; the CLI reads it back and generates clients
 leptoskit rpc generate    # write clients for the configured targets
 ```
 
+Some schemas describe more than a target's type system can carry. The default generators fall back to the target's broad type (`unknown`, `Any`, `any`, `serde_json::Value`, or `dynamic`) and `ApiSpec::diagnostics` reports each place with its schema path; `leptoskit rpc generate --strict` fails before writing when that happens. Deliberately unconstrained JSON is not reported.
+
 ## Learn more
 
 - [Crate documentation](https://docs.rs/leptoskit_rpc_codegen)

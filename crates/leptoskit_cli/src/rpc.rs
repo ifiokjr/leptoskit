@@ -72,6 +72,7 @@ pub fn run(command: RpcCommand) -> Result<()> {
 			include_internal,
 			scaffold,
 			build,
+			strict,
 		} => {
 			generate(
 				&config,
@@ -85,6 +86,7 @@ pub fn run(command: RpcCommand) -> Result<()> {
 					include_internal,
 					scaffold,
 					build,
+					strict,
 				},
 			)
 		}
@@ -292,6 +294,7 @@ struct GenerateRequest {
 	include_internal: bool,
 	scaffold: Option<String>,
 	build: bool,
+	strict: bool,
 }
 
 /// Resolves configured targets and preserves each target's scaffold policy.
@@ -305,45 +308,78 @@ fn generate(config: &LeptoskitConfig, root: &Utf8PathBuf, request: GenerateReque
 		include_internal,
 		scaffold,
 		build,
+		strict,
 	} = request;
 	let spec = acquire_spec(config, root, from.as_deref())?;
 	let plan = plan_targets(config, &target, out.as_deref())?;
 	let scaffold_override: Option<Scaffold> = scaffold.as_deref().map(str::parse).transpose()?;
 	let include_internal = include_internal || config.rpc.include_internal;
 
+	let prepared: Vec<(Scaffold, GenerateOptions)> = plan
+		.iter()
+		.map(|entry| {
+			let scaffold = match scaffold_override {
+				Some(mode) => mode,
+				None => {
+					entry
+						.scaffold
+						.as_deref()
+						.map(str::parse)
+						.transpose()?
+						.unwrap_or_default()
+				}
+			};
+
+			let package_name = package
+				.clone()
+				.or_else(|| entry.package.clone())
+				.unwrap_or_else(|| default_package_name(entry.language, &config.app.name));
+			let options = GenerateOptions {
+				language: entry.language,
+				out_dir: entry.out_dir.clone(),
+				package_name,
+				version: Some(config.app.version.to_string()),
+				server_url: server_url
+					.clone()
+					.or_else(|| entry.server_url.clone())
+					.or_else(|| config.rpc.servers.first().cloned()),
+				include_internal,
+				exclude: config.rpc.exclude.clone(),
+			};
+			Ok((scaffold, options))
+		})
+		.collect::<Result<_>>()?;
+
+	// Diagnose every requested target before writing any of them, so a strict
+	// run can never leave half a set of clients behind.
+	let diagnostics: Vec<_> = prepared
+		.iter()
+		.flat_map(|(_, options)| spec.diagnostics(options))
+		.collect();
+
+	if strict && !diagnostics.is_empty() {
+		let details = diagnostics
+			.iter()
+			.map(ToString::to_string)
+			.collect::<Vec<_>>()
+			.join("\n  ");
+
+		anyhow::bail!(
+			"{} target mapping(s) lose structure or cannot be generated. Remove `--strict` to \
+			 generate the documented fallbacks instead:\n\n  {details}",
+			diagnostics.len()
+		);
+	}
+
+	for diagnostic in &diagnostics {
+		crate::ui::warning(diagnostic);
+	}
+
 	let mut written_total = 0;
 	let mut kept_total = 0;
 
-	for entry in &plan {
-		let scaffold = match scaffold_override {
-			Some(mode) => mode,
-			None => {
-				entry
-					.scaffold
-					.as_deref()
-					.map(str::parse)
-					.transpose()?
-					.unwrap_or_default()
-			}
-		};
-
-		let package_name = package
-			.clone()
-			.or_else(|| entry.package.clone())
-			.unwrap_or_else(|| default_package_name(entry.language, &config.app.name));
-		let options = GenerateOptions {
-			language: entry.language,
-			out_dir: entry.out_dir.clone(),
-			package_name,
-			version: Some(config.app.version.to_string()),
-			server_url: server_url
-				.clone()
-				.or_else(|| entry.server_url.clone())
-				.or_else(|| config.rpc.servers.first().cloned()),
-			include_internal,
-			exclude: config.rpc.exclude.clone(),
-		};
-		let (written, kept) = generate_target(root, &spec, &options, scaffold, build)?;
+	for (scaffold, options) in &prepared {
+		let (written, kept) = generate_target(root, &spec, options, *scaffold, build)?;
 		written_total += written;
 
 		kept_total += kept;

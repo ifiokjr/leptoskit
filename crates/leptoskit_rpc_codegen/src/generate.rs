@@ -287,6 +287,18 @@ impl GenerateOptions {
 }
 
 impl ApiSpec {
+	/// Reports every schema detail `options.language` cannot represent.
+	///
+	/// The default generators stay permissive: an unmodeled construct falls
+	/// back to the target's dynamic type. This method makes those fallbacks
+	/// visible with the schema path that caused each one, so `--strict` can
+	/// reject them before writing anything. Deliberately unconstrained JSON
+	/// is not a loss.
+	#[must_use]
+	pub fn diagnostics(&self, options: &GenerateOptions) -> Vec<crate::Diagnostic> {
+		crate::diagnostics::diagnose(self, options)
+	}
+
 	/// Generates `options.language`.
 	///
 	/// Internal functions and channels (unless included) and
@@ -320,6 +332,28 @@ impl ApiSpec {
 	}
 }
 
+/// Why generated clients leave a function out, if they do.
+pub(crate) fn skip_reason(function: &ApiFunction) -> Option<String> {
+	if !function.kind.is_callable_over_http() {
+		Some(
+			"a stream is read over the live connection, which generated clients don't speak yet"
+				.to_owned(),
+		)
+	} else if !function.input.is_supported() {
+		Some(format!(
+			"requests are encoded as {}, which generated clients cannot build",
+			function.input.content_type()
+		))
+	} else if !function.output.is_supported() {
+		Some(format!(
+			"responses are encoded as {}, which generated clients cannot decode",
+			function.output.content_type()
+		))
+	} else {
+		None
+	}
+}
+
 /// What every generator works from: the filtered spec, the resolved naming
 /// and URL choices, and the functions it can actually call.
 pub(crate) struct Context<'a> {
@@ -349,29 +383,8 @@ impl<'a> Context<'a> {
 		let mut skipped = Vec::new();
 
 		for function in &spec.functions {
-			if !function.kind.is_callable_over_http() {
-				skipped.push((
-					function.name.as_str(),
-					"a stream is read over the live connection, which generated clients don't \
-					 speak yet"
-						.to_owned(),
-				));
-			} else if !function.input.is_supported() {
-				skipped.push((
-					function.name.as_str(),
-					format!(
-						"requests are encoded as {}, which generated clients cannot build",
-						function.input.content_type()
-					),
-				));
-			} else if !function.output.is_supported() {
-				skipped.push((
-					function.name.as_str(),
-					format!(
-						"responses are encoded as {}, which generated clients cannot decode",
-						function.output.content_type()
-					),
-				));
+			if let Some(reason) = skip_reason(function) {
+				skipped.push((function.name.as_str(), reason));
 			} else {
 				functions.push(function);
 			}
