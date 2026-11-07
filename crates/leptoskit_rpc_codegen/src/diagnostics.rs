@@ -40,6 +40,8 @@ pub enum DiagnosticKind {
 	IntegerPrecision,
 	/// A target that cannot distinguish an absent value from `null`.
 	NullableCollapsed,
+	/// Named object fields hide explicitly allowed additional properties.
+	AdditionalPropertiesLost,
 	/// A function left out because the target cannot speak its encoding.
 	SkippedFunction,
 }
@@ -174,6 +176,13 @@ impl Walker<'_> {
 						self.target
 					)
 				}
+				other if !matches!(analyzed.shape, Shape::Any) => {
+					format!(
+						"{}; {} keeps the base type and drops this constraint",
+						other.reason(),
+						self.target
+					)
+				}
 				other => {
 					format!(
 						"{}; {} renders it as `{}`",
@@ -217,17 +226,24 @@ impl Walker<'_> {
 			Shape::Integer {
 				format: Some(format),
 			} if matches!(format, "int64" | "uint64") => {
-				// TypeScript always maps integers to `number`, which is an
-				// IEEE-754 double; values beyond 2^53-1 round.
-				if self.target == TargetLanguage::TypeScript {
-					self.loss(
-						path,
-						DiagnosticKind::IntegerPrecision,
+				if matches!(
+					self.target,
+					TargetLanguage::TypeScript | TargetLanguage::Dart
+				) && !fits_javascript_integer(schema, format)
+				{
+					let message = if self.target == TargetLanguage::Dart {
+						format!(
+							"`{format}` becomes Dart `int`: the VM has a signed 64-bit range, and \
+							 JavaScript builds cannot represent every integer beyond 2^53-1 \
+							 exactly"
+						)
+					} else {
 						format!(
 							"`{format}` is rendered as `number`, which cannot represent integers \
 							 beyond 2^53-1 exactly"
-						),
-					);
+						)
+					};
+					self.loss(path, DiagnosticKind::IntegerPrecision, message);
 				}
 			}
 			Shape::Null
@@ -272,27 +288,60 @@ impl Walker<'_> {
 			let property_path = property_path(path, property);
 			self.walk(property_schema, &property_path);
 
-			// Dart has one nullable field for both absence and null, and
-			// `toJson` omits it when null. A required nullable field therefore
-			// sends absence where the schema requires an explicit null.
-			if self.target == TargetLanguage::Dart
-				&& object.is_required(property)
-				&& !has_default(property_schema)
-				&& analyze(property_schema).nullable
-				&& !matches!(analyze(property_schema).shape, Shape::Null)
-			{
+			let analyzed = analyze(property_schema);
+			let optional = !object.is_required(property) || has_default(property_schema);
+			let collapses_null = match self.target {
+				TargetLanguage::Dart => self.nullable_alias(property_schema),
+				TargetLanguage::Go => optional && self.nullable_alias(property_schema),
+				TargetLanguage::Rust | TargetLanguage::Cli => optional && analyzed.nullable,
+				_ => false,
+			};
+			if collapses_null && !matches!(analyzed.shape, Shape::Null) {
 				self.loss(
 					&property_path,
 					DiagnosticKind::NullableCollapsed,
-					"a required nullable property becomes an optional Dart field whose `toJson` \
-					 omits `null`; null and absence are indistinguishable"
+					"the generated field omits a null value; explicit null and absence cannot be \
+					 sent separately"
 						.to_owned(),
 				);
 			}
 		}
 
 		if let Some(additional) = object.additional {
+			if !object.properties.is_empty() {
+				self.loss(
+					&format!("{path}.additionalProperties"),
+					DiagnosticKind::AdditionalPropertiesLost,
+					"the generated object declares only named fields; explicitly allowed extra \
+					 properties have no typed field or index signature"
+						.to_owned(),
+				);
+			}
 			self.walk(additional, &format!("{path}.additionalProperties"));
+		}
+	}
+
+	/// Dart and Go aliases retain the underlying nullable representation.
+	/// Walk references without revisiting cycles; Rust wraps named aliases
+	/// separately and can retain two Option layers, so it uses direct shape.
+	fn nullable_alias(&self, schema: &Value) -> bool {
+		let mut current = schema;
+		let mut seen = std::collections::BTreeSet::new();
+		loop {
+			let analyzed = analyze(current);
+			if analyzed.nullable {
+				return !matches!(analyzed.shape, Shape::Null);
+			}
+			let Shape::Ref(name) = analyzed.shape else {
+				return false;
+			};
+			if !seen.insert(name) {
+				return false;
+			}
+			let Some(next) = self.spec.schema(name) else {
+				return false;
+			};
+			current = next;
 		}
 	}
 
@@ -351,4 +400,17 @@ const fn dynamic_type(target: TargetLanguage) -> &'static str {
 		TargetLanguage::Dart => "dynamic",
 		TargetLanguage::OpenApi => "the original schema",
 	}
+}
+
+/// A declared narrower range can make a wide integer safe on JS targets.
+/// Float bounds and exclusive bounds are left conservative; this is a
+/// representation check, not a general JSON Schema constraint solver.
+fn fits_javascript_integer(schema: &Value, format: &str) -> bool {
+	const SAFE: i64 = 9_007_199_254_740_991;
+	let minimum = schema
+		.get("minimum")
+		.and_then(Value::as_i64)
+		.or_else(|| (format == "uint64").then_some(0));
+	let maximum = schema.get("maximum").and_then(Value::as_i64);
+	matches!((minimum, maximum), (Some(min), Some(max)) if min >= -SAFE && max <= SAFE && min <= max)
 }

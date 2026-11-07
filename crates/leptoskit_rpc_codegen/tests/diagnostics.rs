@@ -161,7 +161,11 @@ fn targets_differ_in_what_they_can_represent() {
 		kinds(&typescript, "components.Account.properties.id"),
 		[DiagnosticKind::IntegerPrecision]
 	);
-	for diagnostics in [&python, &go, &rust, &dart, &cli] {
+	assert_eq!(
+		kinds(&dart, "components.Account.properties.id"),
+		[DiagnosticKind::IntegerPrecision]
+	);
+	for diagnostics in [&python, &go, &rust, &cli] {
 		assert!(
 			at(diagnostics, "components.Account.properties.id").is_empty(),
 			"these targets can represent uint64 exactly"
@@ -236,7 +240,7 @@ fn supported_spec() -> ApiSpec {
 				"name": { "type": "string" },
 				"nickname": { "type": "string" },
 				"role": { "type": "string", "default": "member" },
-				"note": { "type": ["string", "null"] },
+				"note": { "type": "string" },
 				"tags": { "type": "array", "items": { "type": "string" } },
 				"counts": {
 					"type": "object",
@@ -257,4 +261,96 @@ fn useful_permissive_schemas_are_not_rejected() {
 			"{target} should accept ordinary optional and nullable fields"
 		);
 	}
+}
+
+#[test]
+fn optional_nullable_fields_and_explicit_extra_properties_are_reported() {
+	let mut spec = supported_spec();
+	spec.schemas.get_mut("User").unwrap()["properties"]["note"] =
+		json!({ "type": ["string", "null"] });
+	spec.schemas.get_mut("User").unwrap()["additionalProperties"] = json!({ "type": "string" });
+	for target in TargetLanguage::ALL {
+		let found = diagnostics(&spec, *target);
+		if *target == TargetLanguage::OpenApi {
+			assert_eq!(found, []);
+			continue;
+		}
+		assert_eq!(
+			kinds(&found, "components.User.additionalProperties"),
+			[DiagnosticKind::AdditionalPropertiesLost]
+		);
+		let nullable = kinds(&found, "components.User.properties.note");
+		if matches!(
+			target,
+			TargetLanguage::Dart | TargetLanguage::Go | TargetLanguage::Rust | TargetLanguage::Cli
+		) {
+			assert_eq!(nullable, [DiagnosticKind::NullableCollapsed]);
+		} else {
+			assert_eq!(nullable, []);
+		}
+	}
+}
+
+#[test]
+fn typed_conditional_shapes_are_not_silently_accepted() {
+	let mut spec = supported_spec();
+	spec.schemas.get_mut("User").unwrap()["if"] = json!({ "required": ["note"] });
+	spec.schemas.get_mut("User").unwrap()["then"] = json!({ "required": ["nickname"] });
+	assert_eq!(
+		kinds(
+			&diagnostics(&spec, TargetLanguage::TypeScript),
+			"components.User"
+		),
+		[DiagnosticKind::UnsupportedSchema]
+	);
+}
+
+#[test]
+fn bounded_wide_integers_are_safe_for_javascript_targets() {
+	let mut spec = supported_spec();
+	for target in [TargetLanguage::TypeScript, TargetLanguage::Dart] {
+		for format in ["int64", "uint64"] {
+			spec.schemas.get_mut("User").unwrap()["properties"]["id"] = json!({
+				"type": "integer", "format": format, "minimum": 0, "maximum": 100
+			});
+			assert_eq!(
+				kinds(&diagnostics(&spec, target), "components.User.properties.id"),
+				[]
+			);
+			spec.schemas.get_mut("User").unwrap()["properties"]["id"]["maximum"] =
+				json!(9_007_199_254_740_992_i64);
+			assert_eq!(
+				kinds(&diagnostics(&spec, target), "components.User.properties.id"),
+				[DiagnosticKind::IntegerPrecision]
+			);
+		}
+	}
+}
+
+#[test]
+fn dart_and_go_nullable_aliases_cannot_hide_null_omission() {
+	let mut spec = supported_spec();
+	spec.schemas.insert(
+		"MaybeText".to_owned(),
+		json!({ "type": ["string", "null"] }),
+	);
+	spec.schemas.get_mut("User").unwrap()["properties"]["note"] =
+		json!({ "$ref": "#/components/schemas/MaybeText" });
+	for target in [TargetLanguage::Dart, TargetLanguage::Go] {
+		assert_eq!(
+			kinds(
+				&diagnostics(&spec, target),
+				"components.User.properties.note"
+			),
+			[DiagnosticKind::NullableCollapsed]
+		);
+	}
+	// Rust can wrap the named Option alias in another Option for absence.
+	assert_eq!(
+		kinds(
+			&diagnostics(&spec, TargetLanguage::Rust),
+			"components.User.properties.note"
+		),
+		[]
+	);
 }

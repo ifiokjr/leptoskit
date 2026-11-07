@@ -133,17 +133,10 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 		};
 	};
 
-	if let Some(Value::String(reference)) = object.get("$ref") {
-		return match ref_name(reference) {
-			Some(name) => analyzed(Shape::Ref(name), false, None),
-			None => {
-				analyzed(
-					Shape::Any,
-					false,
-					Some(Unsupported::ExternalReference(reference)),
-				)
-			}
-		};
+	if let Some(Value::String(reference)) = object.get("$ref")
+		&& let Some(name) = ref_name(reference)
+	{
+		return analyzed(Shape::Ref(name), false, None);
 	}
 
 	let mut nullable = false;
@@ -194,27 +187,11 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 		}
 	}
 
-	if let Some(value) = object.get("allOf") {
-		let Some(parts) = value.as_array() else {
-			return analyzed(Shape::Any, nullable, Some(Unsupported::Unknown));
-		};
-
-		match parts.as_slice() {
-			[single] => {
-				let inner = analyze(single);
-				return analyzed(inner.shape, nullable || inner.nullable, inner.unsupported);
-			}
-			_ => {
-				return analyzed(
-					Shape::Any,
-					nullable,
-					Some(Unsupported::Composition {
-						keyword: "allOf",
-						parts: parts.len(),
-					}),
-				);
-			}
-		}
+	if let Some(Value::Array(parts)) = object.get("allOf")
+		&& let [single] = parts.as_slice()
+	{
+		let inner = analyze(single);
+		return analyzed(inner.shape, nullable || inner.nullable, inner.unsupported);
 	}
 
 	let format = object.get("format").and_then(Value::as_str);
@@ -279,6 +256,26 @@ fn analyzed<'a>(
 
 /// The construct a schema loses, when it has one, independent of its shape.
 fn unsupported<'a>(object: &'a Map<String, Value>, kinds: &[&'a str]) -> Option<Unsupported<'a>> {
+	// Diagnostics must not change the permissive generator's choice of type.
+	// A foreign reference or unsupported composition can accompany a usable
+	// base type; keep that type and report the part that was discarded.
+	if let Some(Value::String(reference)) = object.get("$ref")
+		&& ref_name(reference).is_none()
+	{
+		return Some(Unsupported::ExternalReference(reference));
+	}
+	if let Some(value) = object.get("allOf") {
+		return Some(match value.as_array() {
+			Some(parts) => {
+				Unsupported::Composition {
+					keyword: "allOf",
+					parts: parts.len(),
+				}
+			}
+			None => Unsupported::Unknown,
+		});
+	}
+
 	if kinds.len() > 1 {
 		return Some(Unsupported::MultipleTypes);
 	}
@@ -297,15 +294,7 @@ fn unsupported<'a>(object: &'a Map<String, Value>, kinds: &[&'a str]) -> Option<
 		return Some(Unsupported::NonStringConstant);
 	}
 
-	if kinds.is_empty()
-		&& !object.contains_key("properties")
-		&& !object.contains_key("items")
-		&& !object.contains_key("prefixItems")
-		&& !object.contains_key("additionalProperties")
-		&& !object.contains_key("enum")
-		&& !object.contains_key("const")
-		&& has_unmodeled_keyword(object)
-	{
+	if has_unmodeled_keyword(object) {
 		return Some(Unsupported::Unknown);
 	}
 
@@ -710,6 +699,18 @@ mod tests {
 			None,
 			"constraints alone still describe any JSON value"
 		);
+	}
+
+	#[test]
+	fn diagnostics_preserve_usable_types_beside_unsupported_constructs() {
+		for schema in [
+			json!({ "type": "string", "$ref": "https://example.invalid/type.json" }),
+			json!({ "type": "string", "allOf": [{ "minLength": 1 }, { "maxLength": 10 }] }),
+		] {
+			let result = analyze(&schema);
+			assert!(matches!(result.shape, Shape::String { .. }));
+			assert!(result.unsupported.is_some());
+		}
 	}
 
 	#[test]

@@ -298,7 +298,9 @@ Every schema becomes a type in each client, but some JSON Schemas describe more 
 | `allOf` with more than one member     | `unknown`  | `Any`     | `any`              | `serde_json::Value` | `dynamic`       |
 | `int64` / `uint64`                    | `number`   | `int`     | `int64` / `uint64` | `i64` / `u64`       | `int`           |
 
-The first row is deliberate free-form JSON and is not a loss. The others are: the generated type no longer shows the schema's shape, and a value that the server accepts may be awkward or impossible to express in that client. TypeScript is the one target that cannot represent every `int64` or `uint64` exactly, because `number` is an IEEE-754 double and rounds beyond 2<sup>53</sup>-1. Dart has one nullable field for both an absent property and an explicit `null`, so a required nullable property becomes optional and is left out when it is `null`; the other targets keep the two apart.
+Free-form JSON is intentional, so it does not produce a warning. Other mappings can lose structure for particular targets. TypeScript's `number` cannot represent every 64-bit integer exactly. Dart's `int` uses signed 64-bit values on the VM and has JavaScript number limits when compiled for the web; see [Dart's integer representation](https://api.dart.dev/dart-core/int-class.html). Strict generation diagnoses both targets unless the schema declares a range within JavaScript's safe integers.
+
+Dart omits nullable fields when they are null, including required fields. Go and Rust also omit optional nullable fields, so those fields cannot send explicit null separately from absence. Objects that combine named fields with explicit `additionalProperties` produce a warning because the generated model has no field or index signature for the extra keys.
 
 `leptoskit rpc generate` prints a warning for each such mapping, with the schema path that caused it:
 
@@ -312,7 +314,7 @@ The warning names the generated fallback, not a validation rule the client enfor
 leptoskit rpc generate --target typescript --strict
 ```
 
-Strict runs the same diagnostics for every requested target first. If one target loses a shape, nothing is written, not even for targets that would have been exact; fix the schema or generate that target without `--strict`. The OpenAPI target carries the schema verbatim, so it never reports a loss.
+Strict runs the same diagnostics for every requested target first. If a diagnostic is found, no client files are written; fix the schema or generate that target without `--strict`. These checks cover known representation losses, not full JSON Schema validation or proof that every value round-trips. The OpenAPI target preserves schema nodes and does not run typed-client diagnostics.
 
 ### What regeneration overwrites
 
