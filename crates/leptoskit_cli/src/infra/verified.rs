@@ -57,9 +57,9 @@ enum CheckState {
 pub(super) struct Descriptor {
 	format_version: u32,
 	kind: String,
-	inventory_sha256: String,
-	recipe: crate::verify::BuildRecipe,
-	executable_sha256: String,
+	pub(super) inventory_sha256: String,
+	pub(super) recipe: crate::verify::BuildRecipe,
+	pub(super) executable_sha256: String,
 	executable_mode: u32,
 	pub(super) migrations: String,
 	runtime_image: String,

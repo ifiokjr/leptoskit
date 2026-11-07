@@ -197,3 +197,34 @@ leptoskit verify record \
 The command prints the inventory's SHA-256 and refuses to overwrite an existing inventory. It records file paths, lengths, hashes, Unix file permissions where supported, and directory entries. Missing, changed and extra entries—including empty directories—fail a later check. Symbolic links and special files are rejected. Directory permissions, ownership, timestamps, ACLs and extended attributes are not checked. Use an extracted directory that is not being modified while checking it.
 
 The inventory is unsigned. Authenticate it separately before others rely on it. Both commands state explicitly that build provenance and the live deployment were not verified.
+
+## Require independent approval for a backend release
+
+For a server-only app, an operator can require reviewers to approve the complete backend image descriptor before deployment. Each reviewer checks the reproduced source, executable, image configuration, schema and RPC evidence, then signs the exact descriptor file:
+
+```sh
+lk verify keygen --out reviewer.key
+lk verify approve-backend --descriptor descriptor.json --key reviewer.key --out approval.json
+```
+
+Get reviewers' public keys independently of the publisher. In the operator's managed `infra/<deployment-name>/` directory, install `backend-trust.json`:
+
+```json
+{
+	"format_version": 1,
+	"repository": "https://github.com/example/backend",
+	"deployment": "production",
+	"publisher": "<publisher public key in hex>",
+	"approvers": ["<reviewer public key in hex>"],
+	"threshold": 1,
+	"deployment_keys": ["<deployment public key in hex>"]
+}
+```
+
+The publisher cannot count as an independent reviewer. Prepare `backend-authorization.json` with `format_version: 1`, `descriptor` containing the exact descriptor text as a JSON string, `approvals` containing the approval objects, and `deployment_policy` set to an empty string. Keep the original descriptor bytes, including whitespace.
+
+The deployment signer uses the existing `lk verify sign` command with a version 2 policy. Each release includes the existing commit, inventory and executable hashes plus a `backend` object containing `descriptor_sha256` and `engine_image_id` from that descriptor. Install the resulting signed envelope as `backend-deployment.json`. The operator then deploys with the existing descriptor and independent pin flags.
+
+Once trust is configured, missing approvals cannot fall back to an unsigned deployment. Reuse, rollback and recovery recheck the signatures and the current policy. To restore an older image, issue a newer policy that explicitly authorizes its descriptor and image; preserve `backend-policy-state.json` so older or conflicting policies remain rejected. Protect these operator files from the release publisher.
+
+This path targets managed Linux backend containers. Website and service-bearing releases remain unsupported. Approval does not prove code safety, RPC compatibility, or which executable is running on a server; runtime attestation is absent.

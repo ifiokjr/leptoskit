@@ -239,3 +239,21 @@ fn keys_are_private_and_never_overwritten() {
 	assert!(keygen(&KeygenArgs { out: path.clone() }).is_err());
 	assert_eq!(read_key(&path).unwrap().to_bytes(), key.to_bytes());
 }
+
+#[test]
+fn backend_binding_requires_v2_and_preserves_replay_protection() {
+	let mut value = policy();
+	value["releases"][0]["backend"] = serde_json::json!({"descriptor_sha256":"d".repeat(64),"engine_image_id":format!("sha256:{}","e".repeat(64))});
+	assert!(sign(&serde_json::to_vec(&value).unwrap(), &key(1)).is_err());
+	value["format_version"] = 2.into();
+	let verified = check(&signed(&value, &key(1)), "https://example.com").unwrap();
+	let dir = tempfile::tempdir().unwrap();
+	let state = dir.path().join("state.json");
+	remember(&state, &verified).unwrap();
+	value["releases"][0]["backend"]["descriptor_sha256"] = serde_json::json!("f".repeat(64));
+	let conflicting = check(&signed(&value, &key(1)), "https://example.com").unwrap();
+	assert!(remember(&state, &conflicting).is_err());
+	value["sequence"] = 4.into();
+	let replay = check(&signed(&value, &key(1)), "https://example.com").unwrap();
+	assert!(remember(&state, &replay).is_err());
+}

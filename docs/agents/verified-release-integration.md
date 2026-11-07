@@ -1,6 +1,6 @@
 # Verified backend image integration (A04)
 
-This is an opt-in backend-only path. Existing image builds remain legacy. It does not add signatures, reuse deployment-policy signatures, or reuse code-push approvals. An independently authenticated descriptor digest is the operator's trust root; a publisher-supplied JSON file and its adjacent hash are not authentication. SSH image observations are not runtime attestation.
+This is an opt-in backend-only path. Existing image builds remain legacy. The original operator-pin path remains available; independent backend approvals and version-two deployment policies can now enforce operator-managed authorization. An independently authenticated descriptor digest is the operator's trust root; a publisher-supplied JSON file and its adjacent hash are not authentication. SSH image observations are not runtime attestation.
 
 ## Commands
 
@@ -70,3 +70,21 @@ The fake remote command suite now exercises independently pinned descriptors thr
 These are local command tests with fake SSH and container observations, not real deployments or runtime attestations. The real Podman packaging evidence above predates this rebase; container build, extraction, and RPC execution are unchanged. No additional VM or registry publication is required for these release-boundary and descriptor-validation changes.
 
 Post-rebase focused validation passed: 561 CLI library tests (5 ignored), 45 infrastructure command tests, and 14 help/scaffold snapshot tests. The final three verified-release command tests passed again after strengthening the automatic-recovery stop assertion. The full normal pre-push gate was attempted twice; external removal of this clone’s build output and the shared Rust toolchain interrupted Clippy (exit 255, then SIGTERM/143). A completed gate remains required before republishing.
+
+## PR568 completed gate
+
+PR568 merged as `f7419898aaa71b3cdde3d6fb233504660e2789ce`. Its published signed head `de668724a3248097f2ed7aefd2325cad48fde97f` passed the unmodified full pre-push hook: 4,821 workspace tests passed (48 skipped), plus 16 file-routes tests and 43 DevTools tests. Clippy, formatting, docs, Kotlin, release metadata, schema, workflow security, secret scanning and dependency policy passed. This supersedes the interrupted-gate paragraph above. Packaging execution was unchanged after the recorded Podman acceptance.
+
+## Independent backend authorization
+
+The operator installs `backend-trust.json`, `backend-authorization.json`, and the current DSSE `backend-deployment.json` under `infra/<deployment-name>/`. These files are local operator state, not configuration accepted from a release publisher. Protect and back up this directory, including `backend-policy-state.json`; deleting or replacing replay state defeats local replay protection. Existing local infrastructure locking serializes policy state updates. This is not cross-operator consensus or a transparency log.
+
+Trust format version 1 names `repository`, `deployment`, `publisher` (hex public key), `approvers` (hex public keys), `threshold`, and `deployment_keys`. Key aliases are compared as decoded bytes. The publisher key is excluded from approvers. A configured trust file fails closed on malformed, missing, legacy or unsigned authorization; previously approved history cannot return to pin mode.
+
+Authorization format version 1 contains `descriptor` (the original JSON as a string), `approvals` (the objects emitted by `verify approve-backend`), and `deployment_policy` (the signed DSSE envelope as a string). Deployment replaces the latter with the current operator-selected `backend-deployment.json`, then stores that envelope with the original descriptor and approvals in history. Nothing deserialized is a trusted verification token.
+
+Approval statements use `leptoskit-backend-release-approval-v1` followed by a NUL as their signing domain, distinct from guest approvals. Exact statement bytes are signed using Ed25519, following code-push's exact-text convention. The versioned statement binds the SHA-256 of the entire original descriptor and repeats the repository and commit to reject conflicting source commitments. Consequently inventory, recipe, executable, image config/content, migration and RPC evidence are all covered. Embedded keys are only identifiers: only independently configured approvers count.
+
+Deployment policy version 2 adds `backend: {descriptor_sha256, engine_image_id}` to each release tuple. Version 1 remains readable but cannot carry this binding or authorize managed backend approval mode. The existing DSSE verifier checks pinned deployment keys, canonical origins/repository, expiry and sequence/equivocation state. Current policy must explicitly list a rollback/recovery target; operators issue a higher sequence policy retaining an old target rather than disabling replay checks. Automatic recovery also revalidates the current policy and approvals before starting the old image.
+
+Approvals authenticate a reviewer's statement, not code safety or a running executable. Website/services remain unsupported, RPC compatibility remains `not_checked`, and runtime attestation remains absent. The content-addressed engine image ID and descriptor config digest bind the image; the remote registry digest is observed and retained separately as before.

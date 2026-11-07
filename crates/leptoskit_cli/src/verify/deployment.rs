@@ -109,6 +109,16 @@ pub(crate) struct Release {
 	pub(crate) commit: String,
 	pub(crate) inventory_sha256: String,
 	pub(crate) executable_sha256: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub(crate) backend: Option<BackendBinding>,
+}
+
+/// Version two binds every descriptor field through its exact byte digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BackendBinding {
+	pub(crate) descriptor_sha256: String,
+	pub(crate) engine_image_id: String,
 }
 
 /// A Dead Simple Signing Envelope, as in-toto uses.
@@ -167,7 +177,7 @@ pub(crate) fn origin(value: &str) -> Result<String> {
 /// Checks a policy's own form, independent of time and of any verifier.
 pub(crate) fn validate(policy: &Policy) -> Result<()> {
 	ensure!(
-		policy.format_version == FORMAT_VERSION && policy.kind == KIND,
+		matches!(policy.format_version, FORMAT_VERSION | 2) && policy.kind == KIND,
 		"unsupported deployment policy format or kind"
 	);
 	super::validate_repository(&policy.repository)?;
@@ -199,6 +209,20 @@ pub(crate) fn validate(policy: &Policy) -> Result<()> {
 
 	for release in &policy.releases {
 		ensure!(
+			policy.format_version == 2 || release.backend.is_none(),
+			"legacy policies cannot bind backend evidence"
+		);
+		if let Some(binding) = &release.backend {
+			ensure!(
+				super::digest_is_valid(&binding.descriptor_sha256)
+					&& binding
+						.engine_image_id
+						.strip_prefix("sha256:")
+						.is_some_and(super::digest_is_valid),
+				"invalid backend binding"
+			);
+		}
+		ensure!(
 			super::is_commit(&release.commit)
 				&& super::digest_is_valid(&release.inventory_sha256)
 				&& super::digest_is_valid(&release.executable_sha256),
@@ -209,7 +233,7 @@ pub(crate) fn validate(policy: &Policy) -> Result<()> {
 	Ok(())
 }
 
-fn read_key(path: &Path) -> Result<SigningKey> {
+pub(crate) fn read_key(path: &Path) -> Result<SigningKey> {
 	let text = std::fs::read_to_string(path)
 		.with_context(|| format!("could not read the key at {}", path.display()))?;
 	let seed: [u8; 32] = hex::decode(text.trim())
@@ -219,7 +243,7 @@ fn read_key(path: &Path) -> Result<SigningKey> {
 	Ok(SigningKey::from_bytes(&seed))
 }
 
-fn create_new(path: &Path, bytes: &[u8], private: bool) -> Result<()> {
+pub(crate) fn create_new(path: &Path, bytes: &[u8], private: bool) -> Result<()> {
 	use std::io::Write as _;
 
 	let mut options = std::fs::File::options();
@@ -329,7 +353,7 @@ pub(crate) fn verify(
 
 /// Refuses a policy older than, or conflicting with, the newest one
 /// remembered in `path`, then remembers this one.
-fn remember(path: &Path, verified: &Verified) -> Result<()> {
+pub(crate) fn remember(path: &Path, verified: &Verified) -> Result<()> {
 	let current = State {
 		repository: verified.policy.repository.clone(),
 		deployment: verified.policy.deployment.clone(),
@@ -486,6 +510,15 @@ pub(super) fn deployment(args: &DeploymentArgs) -> Result<()> {
 			"  commit {}  inventory SHA-256 {}  executable SHA-256 {}",
 			release.commit, release.inventory_sha256, release.executable_sha256
 		);
+		match &release.backend {
+			Some(binding) => {
+				println!(
+					"    backend descriptor SHA-256 {}  image {}",
+					binding.descriptor_sha256, binding.engine_image_id
+				);
+			}
+			None => println!("    backend descriptor/image authorization: absent"),
+		}
 	}
 
 	println!(

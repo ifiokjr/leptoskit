@@ -21,6 +21,7 @@ use serde::Serialize;
 use serde_json::json;
 
 mod analytics;
+pub(crate) mod approvals;
 mod build;
 mod ci;
 mod operations;
@@ -764,6 +765,8 @@ pub fn generate(dir: &Path, config: &InfraConfig, force: bool) -> Result<()> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Release {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	authorization: Option<approvals::Evidence>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	evidence: Option<verified::Descriptor>,
 	version: String,
