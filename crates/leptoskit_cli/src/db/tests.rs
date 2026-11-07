@@ -2284,9 +2284,7 @@ fn a_missing_pack_needs_explicit_removal_even_with_destructive_consent() {
 		Schema::from_json(&std::fs::read_to_string(created.directory.join("schema.json")).unwrap())
 			.unwrap();
 	assert!(
-		snapshot
-			.pack_membership()
-			.is_some_and(|packs| packs.is_empty()),
+		snapshot.pack_membership().is_some_and(<[_]>::is_empty),
 		"the new snapshot records no packs"
 	);
 }

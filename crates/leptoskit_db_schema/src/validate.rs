@@ -238,7 +238,7 @@ impl Schema {
 				problems.push(
 					"schema",
 					"format 1 has no pack membership; remove `packs` or write format 2",
-				)
+				);
 			}
 			(format, false) if format >= 2 => {
 				problems.push(
@@ -247,7 +247,7 @@ impl Schema {
 						"format {format} requires a `packs` list; an empty list records that the \
 						 schema has no packs"
 					),
-				)
+				);
 			}
 			_ => {}
 		}

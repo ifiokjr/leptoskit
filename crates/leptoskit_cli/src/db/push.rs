@@ -247,8 +247,8 @@ pub(crate) fn prepare_squash(
 	Ok(prepared.map(|(db, rest, previous)| {
 		Squash {
 			db,
-			rest,
 			previous,
+			rest,
 			runtime,
 		}
 	}))

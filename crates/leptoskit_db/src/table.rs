@@ -349,11 +349,8 @@ inventory::collect!(ExpectedPack);
 /// symbols.
 fn registered_entries() -> Vec<&'static TableEntry> {
 	deduplicate_entries(
-		inventory::iter::<TableEntry>().into_iter().chain(
-			inventory::iter::<ExpectedPack>()
-				.into_iter()
-				.flat_map(|expected| expected.identity.tables),
-		),
+		inventory::iter::<TableEntry>()
+			.chain(inventory::iter::<ExpectedPack>().flat_map(|expected| expected.identity.tables)),
 	)
 }
 
@@ -583,10 +580,7 @@ fn expected_pack_problems_of(
 		.collect();
 
 	while let Some((name, required_by)) = pending.pop() {
-		if required
-			.get(name)
-			.is_some_and(|existing| existing.is_some())
-		{
+		if required.get(name).is_some_and(Option::is_some) {
 			continue;
 		}
 
