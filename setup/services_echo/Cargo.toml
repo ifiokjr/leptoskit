@@ -19,6 +19,9 @@ path = "src/main.rs"
 [dependencies]
 leptoskit_axum = { workspace = true }
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
 # What `lk` reads to run this crate as a service. The deploy checks declare
 # it `isolated` where the edge can strip cookies.
 [package.metadata.leptoskit.service]

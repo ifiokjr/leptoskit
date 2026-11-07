@@ -27,6 +27,30 @@ The iOS matrix separates widget verification, generated application journeys, an
 
 The coverage gate merges only the Linux, browser, iOS, and Android reports; see [CONTRIBUTING.md](../../CONTRIBUTING.md#coverage).
 
+## Deployments with services
+
+`services-deploy.yml` runs what `leptoskit generate deploy` and `lk infra` write for an app with [services](services.md), for real. It runs on pull requests and pushes to `main` that touch the generators, the service runtime, `examples/analytics`, or `Cargo.lock`, and weekly for the images and tools it pulls.
+
+The project is a copy of this checkout with `examples/analytics` at its root and a `leptoskit.toml` of its own (`setup/scripts/services_deploy_fixture.sh`). It adds the echo service from `setup/services_echo`, which reports the `Cookie` it receives, sets a cookie of its own, writes to a volume, calls the app's `/readyz`, and answers any other path with a marker. The image is built with the generated `Dockerfile`, changed in one line: crates.io has no CLI with this checkout's changes, so the build stage copies in the CLI built from it.
+
+| Job                                    | What it runs and checks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image and Compose (SQLite, Postgres)` | Builds the image, checks its `app` user is uid and gid 10001, and runs the generated Compose project with `docker compose up --wait`, once with the service on SQLite and once on Postgres. `services_deploy_compose.sh` and `services_deploy_checks.py` check, through the Caddy edge, everything listed below this table, and that only the edge publishes a port, a direct call inside the network sees the cookies the edge strips, and every process exits 0 on `SIGTERM`. On Postgres, they check the init script's role and database. |
+| `Kubernetes (kind, ingress-nginx)`     | Validates `kubernetes.yaml` with kubeconform against the cluster's version, applies it to a kind cluster behind ingress-nginx with the Secrets the next steps describe, and waits for every rollout. `services_deploy_kubernetes.sh` checks the probes, the Secrets reaching each process, that every Service is `ClusterIP`, and the same end-to-end checks through the Ingress, with the echo service `first-party`, since generation refuses an isolated public service there.                                                            |
+| `Kamal configuration`                  | Loads the `managed_kamal` and `managed_services` snapshots, the files `lk infra` releases with, into Kamal 2.10.1 with `kamal config`. Then it asks Kamal's own code for each role's `docker run` and kamal-proxy options (`services_deploy_kamal.sh`): network aliases, commands, volumes, the `NAME:SECRET` aliases resolved through `.kamal/secrets`, and path-prefix routing.                                                                                                                                                            |
+
+The end-to-end checks, on both Compose and Kubernetes:
+
+- the app's `/healthz` and `/readyz`;
+- a server-rendered page whose count comes from the service, and a capture through the service's public prefix that the next render counts;
+- the app-only operation refusing callers without the token;
+- the service's live socket upgrading (`101`) for the public origin and refusing another (`403`);
+- paths outside a public prefix, and near misses such as `/_leptoskit/services/echox/…`, reaching the app rather than the service;
+- cookies stripped for an isolated service on Compose and passed to a first-party one on Kubernetes;
+- the service's volume, its call to the app at `LEPTOSKIT_APP_URL`, and its data surviving a new container or pod.
+
+Kamal itself never deploys here. `lk infra release` drives Kamal against hosts OpenTofu made: it connects to them as root over SSH, waits for cloud-init, boots a Cloudflare tunnel with a real token, and pulls from an authenticated registry. A local stand-in for all of that would test the stand-in more than the configuration, so the job checks the configuration with Kamal's own code instead.
+
 ## The platform probe
 
 The [`platform_probe`](../../examples/platform_probe) binary exercises layout, renderer diffing, the wasm ABI runtime, and a code push delta update over HTTP. Its suite runs on the host, the iOS simulator, and an Android emulator:

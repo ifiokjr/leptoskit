@@ -7,9 +7,15 @@ name: services deploy
 # end through their edges. Kamal loads the configuration `lk infra` releases
 # with. docs/agents/platform-validation.md says what each job proves.
 
+# The same paths on pull requests and on main, and weekly for what changes
+# outside the repository: the base images, Caddy, Postgres, kind, and
+# ingress-nginx.
 on:
   pull_request:
     paths:
+      - "Cargo.lock"
+      - "crates/leptoskit_axum/src/health.rs"
+      - "crates/leptoskit_axum/src/service.rs"
       - "crates/leptoskit_cli/src/build.rs"
       - "crates/leptoskit_cli/src/deploy.rs"
       - "crates/leptoskit_cli/src/deploy/**"
@@ -17,15 +23,40 @@ on:
       - "crates/leptoskit_cli/src/infra/**"
       - "crates/leptoskit_cli/src/services.rs"
       - "crates/leptoskit_cli/src/services/**"
-      - "crates/leptoskit_axum/src/service.rs"
       - "crates/leptoskit_config/src/services.rs"
       - "crates/leptoskit_config/src/services/**"
+      - "crates/leptoskit_rpc/src/server/live/socket.rs"
       - "examples/analytics/**"
       - "setup/services_echo/**"
       - "setup/scripts/services_deploy*"
       - "rust-toolchain.toml"
       - ".github/actions/rust/**"
       - ".github/workflows/services-deploy.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "Cargo.lock"
+      - "crates/leptoskit_axum/src/health.rs"
+      - "crates/leptoskit_axum/src/service.rs"
+      - "crates/leptoskit_cli/src/build.rs"
+      - "crates/leptoskit_cli/src/deploy.rs"
+      - "crates/leptoskit_cli/src/deploy/**"
+      - "crates/leptoskit_cli/src/infra.rs"
+      - "crates/leptoskit_cli/src/infra/**"
+      - "crates/leptoskit_cli/src/services.rs"
+      - "crates/leptoskit_cli/src/services/**"
+      - "crates/leptoskit_config/src/services.rs"
+      - "crates/leptoskit_config/src/services/**"
+      - "crates/leptoskit_rpc/src/server/live/socket.rs"
+      - "examples/analytics/**"
+      - "setup/services_echo/**"
+      - "setup/scripts/services_deploy*"
+      - "rust-toolchain.toml"
+      - ".github/actions/rust/**"
+      - ".github/workflows/services-deploy.yml"
+  schedule:
+    - cron: "17 4 * * 1"
   workflow_dispatch: {}
 
 permissions:
@@ -95,6 +126,13 @@ jobs:
         run: |
           docker build --build-context leptoskit-cli="$RUNNER_TEMP/cli" \
             --tag "$IMAGE" --tag analytics_app "$RUNNER_TEMP/sqlite"
+
+      - name: check the image's user
+        run: |
+          set -euo pipefail
+          user="$(docker run --rm --entrypoint id "$IMAGE")"
+          echo "$user"
+          [ "$user" = "uid=10001(app) gid=10001(app) groups=10001(app)" ]
 
       - name: save the image for the Kubernetes job
         run: |

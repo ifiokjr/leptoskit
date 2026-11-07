@@ -30,6 +30,18 @@ pass() {
 	echo "PASS $*"
 }
 
+# Runs a command until it succeeds, at most <attempts> times, <delay>
+# seconds apart; fails when every attempt did.
+retry() {
+	local attempts="$1" delay="$2"
+	shift 2
+	for _ in $(seq 1 "$attempts"); do
+		"$@" && return 0
+		sleep "$delay"
+	done
+	return 1
+}
+
 finish() {
 	status=$?
 	if [ "$status" -ne 0 ]; then
@@ -78,11 +90,11 @@ kubectl --namespace ingress-nginx rollout status deployment/ingress-nginx-contro
 # ingressClassName gets.
 kubectl annotate ingressclass nginx ingressclass.kubernetes.io/is-default-class=true
 # The admission webhook answers only once its endpoint is ready.
-for _ in $(seq 1 30); do
+admission_ready() {
 	kubectl --namespace ingress-nginx get endpoints ingress-nginx-controller-admission \
-		--output jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null | grep -q . && break
-	sleep 2
-done
+		--output jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null | grep -q .
+}
+retry 30 2 admission_ready || fail "ingress-nginx's admission webhook never got an endpoint"
 
 # The Secrets, as the generator's next steps say to make them.
 analytics_token="$(openssl rand -hex 32)"
@@ -97,10 +109,7 @@ kubectl create secret generic analytics-app-echo \
 	--from-literal=LEPTOSKIT_SERVICE_TOKEN="$echo_token" \
 	--from-literal=LEPTOSKIT_PUBLIC_ORIGIN="$origin"
 
-for _ in $(seq 1 10); do
-	kubectl apply --filename "$work/kubernetes.yaml" && break
-	sleep 5
-done
+retry 10 5 kubectl apply --filename "$work/kubernetes.yaml" || fail "kubectl apply kept failing"
 for deployment in analytics-app-analytics analytics-app-echo analytics-app; do
 	kubectl rollout status "deployment/$deployment" --timeout 300s
 done
@@ -122,10 +131,8 @@ if grep -v '=ClusterIP$' <<<"$types"; then
 fi
 pass "every Service is ClusterIP: only the Ingress is published"
 
-for _ in $(seq 1 30); do
-	curl --silent --fail --max-time 5 http://127.0.0.1:8080/readyz >/dev/null && break
-	sleep 2
-done
+retry 30 2 curl --silent --fail --max-time 5 --output /dev/null http://127.0.0.1:8080/readyz ||
+	fail "the Ingress never answered /readyz"
 python3 "$scripts/services_deploy_checks.py" \
 	--base http://127.0.0.1:8080 \
 	--origin "$origin" \
@@ -141,9 +148,7 @@ summary() {
 before="$(summary)"
 kubectl rollout restart deployment/analytics-app-analytics
 kubectl rollout status deployment/analytics-app-analytics --timeout 300s
-for _ in $(seq 1 30); do
-	after="$(summary 2>/dev/null)" && break
-	sleep 2
-done
+retry 30 2 summary >/dev/null || fail "the service never answered after replacing its pod"
+after="$(summary)"
 [ "$before" = "$after" ] && [ "$after" -ge 1 ] || fail "the count was $before before replacing the pod and $after after"
 pass "the service's data survives replacing its pod ($after events)"

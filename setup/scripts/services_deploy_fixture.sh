@@ -107,6 +107,7 @@ EOF
 	fi
 )
 
+# shellcheck disable=SC2016 # the Dockerfile's own variable, kept as written
 install_line='RUN cargo install leptoskit_cli --version "${LEPTOSKIT_VERSION}" --locked'
 if ! grep -qxF "$install_line" "$destination/Dockerfile"; then
 	echo "the generated Dockerfile no longer installs the CLI with: $install_line" >&2
