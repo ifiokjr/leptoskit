@@ -265,6 +265,25 @@ class Page {
 	}
 }
 
+/**
+ * Removes Chrome's temporary profile. Chrome's helper processes can outlive
+ * the browser process for a moment and keep writing into the profile, so on
+ * Linux the first removal can fail with "Directory not empty". Retry briefly
+ * rather than let cleanup replace the test's own result.
+ */
+async function removeProfile(profile) {
+	for (let attempt = 1;; attempt++) {
+		try {
+			await Deno.remove(profile, { recursive: true });
+			return;
+		} catch (error) {
+			if (error instanceof Deno.errors.NotFound) return;
+			if (attempt === 20) throw error;
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+	}
+}
+
 Deno.test({
 	name: "the packaged live example mounts and counts presses",
 	async fn() {
@@ -362,7 +381,7 @@ Deno.test({
 			chrome.process.kill();
 			await chrome.process.status;
 			await server.shutdown();
-			await Deno.remove(profile, { recursive: true });
+			await removeProfile(profile);
 		}
 		assert(
 			errors.length === 0,
