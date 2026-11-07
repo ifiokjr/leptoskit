@@ -56,6 +56,9 @@ pub mod client;
 mod signed_in;
 mod siws;
 mod tables;
+#[cfg(feature = "server")]
+#[doc(hidden)]
+pub use tables::__LEPTOSKIT_PACK;
 
 #[cfg(all(feature = "leptos", any(feature = "postgres", feature = "sqlite")))]
 mod guards;

@@ -122,6 +122,10 @@ pub enum DbCommand {
 		/// Allow steps that delete data, such as dropping a column.
 		#[arg(long)]
 		allow_destructive: bool,
+		/// Remove this schema pack deliberately. Required when the database
+		/// still has a pack the tables no longer include.
+		#[arg(long = "drop-pack", value_name = "PACK")]
+		drop_packs: Vec<String>,
 	},
 	/// Lists or deletes the databases git branches use on the development
 	/// Postgres.
@@ -189,6 +193,11 @@ pub enum MigrationCommand {
 		/// Write an empty migration for changing data rather than tables.
 		#[arg(long)]
 		empty: bool,
+		/// Remove this schema pack deliberately. Required when the tables no
+		/// longer include a pack the latest migration knew about, even with
+		/// `--allow-destructive`; name each removed pack once.
+		#[arg(long = "drop-pack", value_name = "PACK")]
+		drop_packs: Vec<String>,
 	},
 	/// Folds every migration after the latest release marker into one, written
 	/// from a fresh diff of the release's baseline to the current tables, so
@@ -208,6 +217,10 @@ pub enum MigrationCommand {
 		/// Treat every disappeared table or column as dropped, never renamed.
 		#[arg(long)]
 		no_renames: bool,
+		/// Remove this schema pack deliberately. Required when the tables no
+		/// longer include a pack the latest migration knew about.
+		#[arg(long = "drop-pack", value_name = "PACK")]
+		drop_packs: Vec<String>,
 	},
 }
 
@@ -239,12 +252,14 @@ pub fn run(command: DbCommand) -> Result<()> {
 					allow_destructive,
 					no_renames,
 					empty,
+					drop_packs,
 				},
 		} => {
 			let target = project.export()?;
 			let options = CreateOptions {
 				allow_destructive,
 				empty,
+				drop_packs,
 			};
 			// In push mode, the migration takes over the development
 			// database's pushes.
@@ -280,8 +295,12 @@ pub fn run(command: DbCommand) -> Result<()> {
 			Ok(())
 		}
 		DbCommand::Migration {
-			command: MigrationCommand::Consolidate { keep, no_renames },
-		} => run_consolidate(&project, &keep, no_renames),
+			command: MigrationCommand::Consolidate {
+				keep,
+				no_renames,
+				drop_packs,
+			},
+		} => run_consolidate(&project, &keep, no_renames, &drop_packs),
 		DbCommand::Release {
 			command: ReleaseCommand::Record { version, id },
 		} => record_release(&project, &version, id.as_deref()),
@@ -368,10 +387,11 @@ pub fn run(command: DbCommand) -> Result<()> {
 		DbCommand::Push {
 			url,
 			allow_destructive,
+			drop_packs,
 		} => {
 			let target = project.export()?;
 			let (url, _server) = project.database(url)?;
-			push_command(&project, &target, &url, allow_destructive)
+			push_command(&project, &target, &url, allow_destructive, &drop_packs)
 		}
 		DbCommand::Branch { command } => {
 			branch(
@@ -391,8 +411,9 @@ fn push_command(
 	target: &Schema,
 	url: &str,
 	allow_destructive: bool,
+	drop_packs: &[String],
 ) -> Result<()> {
-	let pushed = push::push(project, url, target, allow_destructive)?;
+	let pushed = push::push(project, url, target, allow_destructive, drop_packs)?;
 	let refused = matches!(pushed, push::Pushed::Refused(_));
 	print!(
 		"{}",
@@ -809,6 +830,102 @@ impl History {
 pub(crate) struct CreateOptions {
 	pub allow_destructive: bool,
 	pub empty: bool,
+	/// Packs whose removal the developer named explicitly.
+	pub drop_packs: Vec<String>,
+}
+
+/// The packs `previous` records that `target` no longer owns, excluding
+/// leptoskit's builtin packs, whose tables follow the app's own flags.
+///
+/// A format 1 snapshot carries no membership evidence, so nothing can be
+/// called missing from it; that limitation is documented.
+pub(crate) fn removed_packs(previous: &Schema, target: &Schema) -> Result<Vec<String>> {
+	let Some(previous) = previous.pack_membership() else {
+		return Ok(Vec::new());
+	};
+
+	let Some(target) = target.pack_membership() else {
+		bail!(
+			"the exported tables carry no schema-pack membership (format 1); upgrade the \
+			 leptoskit version that exports them"
+		);
+	};
+
+	let present: HashSet<&str> = target.iter().map(|pack| pack.name.as_str()).collect();
+
+	Ok(previous
+		.iter()
+		.filter(|pack| !pack.builtin && !present.contains(pack.name.as_str()))
+		.map(|pack| pack.name.clone())
+		.collect())
+}
+
+/// Refuses a pack that disappeared unless the developer named it in
+/// `--drop-pack`. Generic `--allow-destructive` consent doesn't cover this:
+/// removing a pack by accident is far likelier than meaning to delete every
+/// table a library owns.
+pub(crate) fn check_packs(previous: &Schema, target: &Schema, drop_packs: &[String]) -> Result<()> {
+	let missing = removed_packs(previous, target)?;
+	let requested: HashSet<&str> = drop_packs.iter().map(String::as_str).collect();
+
+	ensure!(
+		requested.len() == drop_packs.len(),
+		"--drop-pack names each pack once"
+	);
+
+	if previous.pack_membership().is_none() && !drop_packs.is_empty() {
+		bail!(
+			"the recorded schema predates schema-pack membership, so there is no pack to drop; \
+			 remove --drop-pack"
+		);
+	}
+
+	let unexpected: Vec<&str> = requested
+		.iter()
+		.copied()
+		.filter(|name| !missing.iter().any(|pack| pack == name))
+		.collect();
+
+	if !unexpected.is_empty() {
+		bail!(
+			"--drop-pack names {} but the recorded schema doesn't lose it: a pack can only be \
+			 dropped when it is absent from the exported tables",
+			unexpected
+				.iter()
+				.map(|name| format!("`{name}`"))
+				.collect::<Vec<_>>()
+				.join(", ")
+		);
+	}
+
+	let unexplained: Vec<&String> = missing
+		.iter()
+		.filter(|name| !requested.contains(name.as_str()))
+		.collect();
+
+	if unexplained.is_empty() {
+		return Ok(());
+	}
+
+	let names = unexplained
+		.iter()
+		.map(|name| format!("`{name}`"))
+		.collect::<Vec<_>>()
+		.join(", ");
+	let drops = unexplained
+		.iter()
+		.map(|name| format!("--drop-pack {name}"))
+		.collect::<Vec<_>>()
+		.join(" ");
+
+	bail!(
+		"the tables no longer include the schema pack(s) {names}. Removing a pack from the schema \
+		 removes its tables, so this isn't an ordinary change: an omitted `packs!` entry, a lost \
+		 dependency, or a missing feature looks the same as a deliberate removal. \
+		 `--allow-destructive` doesn't cover it. If you meant to remove {} from the app, pass \
+		 {drops}; otherwise add the pack back with `leptoskit::db::packs!(…)`",
+		if unexplained.len() == 1 { "it" } else { "them" },
+	)
 }
 
 /// What `create` wrote.
@@ -867,6 +984,7 @@ pub(crate) fn create(
 	}
 
 	let slug = slug(name)?;
+	check_packs(&history.latest, target, &options.drop_packs)?;
 	let plan = leptoskit_db_schema::diff(&history.latest, target, renames)?;
 
 	if options.empty {
@@ -1000,7 +1118,15 @@ pub(crate) fn create_squashing(
 	dev_url: Option<&str>,
 ) -> Result<Created> {
 	let squash = match dev_url {
-		Some(url) => push::prepare_squash(project, url, target, options.allow_destructive)?,
+		Some(url) => {
+			push::prepare_squash(
+				project,
+				url,
+				target,
+				options.allow_destructive,
+				&options.drop_packs,
+			)?
+		}
 		None => None,
 	};
 
@@ -1029,9 +1155,20 @@ pub(crate) fn create_squashing(
 
 /// Fails when `target` differs from the latest snapshot, listing what changed.
 pub(crate) fn check(history: &History, target: &Schema) -> Result<()> {
+	check_with_drops(history, target, &[])
+}
+
+/// [`check`], with the packs the developer named as deliberate removals.
+pub(crate) fn check_with_drops(
+	history: &History,
+	target: &Schema,
+	drop_packs: &[String],
+) -> Result<()> {
 	let target = target.without_rename_hints();
 
-	if target == history.latest {
+	check_packs(&history.latest, &target, drop_packs)?;
+
+	if target.same_database(&history.latest) {
 		return Ok(());
 	}
 
@@ -1537,13 +1674,13 @@ fn amend_latest(
 			.with_context(|| format!("{} isn't a valid snapshot", path.display()))?
 	};
 
+	check_packs(&previous, target, &options.drop_packs)?;
 	let plan = leptoskit_db_schema::diff(&previous, target, renames)?;
 	ensure!(
 		!plan.is_empty(),
 		"the tables haven't changed since {name}; pass --empty to write a data migration"
 	);
 	refuse_destructive(&plan, options.allow_destructive)?;
-
 	let migration = leptoskit_db_schema::render(&plan, &previous, target);
 	let down = reverse_sql(&previous, target, &plan, false)?;
 	let directory = project.migrations_dir().join(&name);
@@ -1567,7 +1704,12 @@ fn amend_latest(
 }
 
 /// Runs `migration consolidate` with the tables the app exports now.
-fn run_consolidate(project: &Project, keep: &[String], no_renames: bool) -> Result<()> {
+fn run_consolidate(
+	project: &Project,
+	keep: &[String],
+	no_renames: bool,
+	drop_packs: &[String],
+) -> Result<()> {
 	let target = project.export()?;
 	let renames: &mut dyn RenameResolver = if no_renames {
 		&mut NoRenames
@@ -1576,7 +1718,7 @@ fn run_consolidate(project: &Project, keep: &[String], no_renames: bool) -> Resu
 	} else {
 		&mut RequireHints
 	};
-	consolidate(project, &target, keep, renames)
+	consolidate(project, &target, keep, drop_packs, renames)
 }
 
 /// Folds the migrations after the latest release marker into one, from a
@@ -1585,6 +1727,7 @@ fn consolidate(
 	project: &Project,
 	target: &Schema,
 	keep: &[String],
+	drop_packs: &[String],
 	renames: &mut dyn RenameResolver,
 ) -> Result<()> {
 	let directory = project.migrations_dir();
@@ -1592,7 +1735,7 @@ fn consolidate(
 
 	// The tables must match the latest migration, so the consolidated
 	// migration covers exactly what the folded ones did.
-	check(&history, target)?;
+	check_with_drops(&history, target, drop_packs)?;
 
 	let unreleased = &history.names[history.published..];
 
@@ -1641,6 +1784,11 @@ fn consolidate(
 				.with_context(|| format!("{} isn't a valid snapshot", path.display()))?
 		}
 	};
+
+	// The release baseline may still carry a pack that the drafts removed;
+	// consolidating writes that removal into fresh SQL, so it needs the same
+	// explicit intent.
+	check_packs(&baseline, target, drop_packs)?;
 
 	// A folded migration whose SQL no longer matches what the diff of its
 	// snapshots generates carries hand-written statements; folding it would

@@ -1,6 +1,7 @@
 //! Checks that a schema is internally consistent before anything is diffed or
 //! rendered from it.
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Write;
@@ -134,6 +135,7 @@ impl Schema {
 		let mut flat_names = HashSet::new();
 		let mut index_names = HashSet::new();
 
+		self.pack_problems(&mut problems);
 		self.table_problems(&mut flat_names, &mut index_names, &mut problems);
 
 		if self.geopackage && self.dialect != Dialect::Sqlite {
@@ -225,6 +227,75 @@ impl Schema {
 			self.validate_geo_names(table, flat_names, problems);
 			validate_vector_names(table, flat_names, problems);
 			self.validate_table(table, problems);
+		}
+	}
+
+	/// The schema-pack membership: a format that records it, stable unique
+	/// names, and each pack's tables claimed once and present in the schema.
+	fn pack_problems(&self, problems: &mut Problems) {
+		match (self.format, self.packs.is_some()) {
+			(1, true) => {
+				problems.push(
+					"schema",
+					"format 1 has no pack membership; remove `packs` or write format 2",
+				)
+			}
+			(format, false) if format >= 2 => {
+				problems.push(
+					"schema",
+					format!(
+						"format {format} requires a `packs` list; an empty list records that the \
+						 schema has no packs"
+					),
+				)
+			}
+			_ => {}
+		}
+
+		let Some(packs) = &self.packs else {
+			return;
+		};
+
+		let tables: HashSet<&TableName> = self.tables.iter().map(|table| &table.name).collect();
+		let mut names: HashSet<&str> = HashSet::new();
+		let mut owners: HashMap<&TableName, &str> = HashMap::new();
+
+		for pack in packs {
+			let location = format!("pack `{}`", pack.name);
+			problems.identifier(&location, "pack name", &pack.name);
+
+			if !names.insert(pack.name.as_str()) {
+				problems.push(&location, "another pack already has this name");
+			}
+
+			if pack.tables.is_empty() {
+				problems.push(
+					&location,
+					"owns no tables; a pack's identity is the tables it owns",
+				);
+			}
+
+			let mut seen = HashSet::new();
+
+			for table in &pack.tables {
+				if !seen.insert(table) {
+					problems.push(&location, format!("lists `{table}` more than once"));
+				}
+
+				if let Some(owner) = owners.insert(table, pack.name.as_str()) {
+					problems.push(
+						&location,
+						format!("and pack `{owner}` both claim `{table}`"),
+					);
+				}
+
+				if !tables.contains(table) {
+					problems.push(
+						&location,
+						format!("owns `{table}`, which isn't one of the schema's tables"),
+					);
+				}
+			}
 		}
 	}
 

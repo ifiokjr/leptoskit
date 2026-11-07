@@ -61,3 +61,5 @@ pub async fn add_note(connection: &impl Connection, body: &str, signer: &str) ->
 	.await?;
 	Ok(note)
 }
+
+leptoskit_db::schema_pack!(name = "sample", tables = [Note, Signature, RelatedNote],);

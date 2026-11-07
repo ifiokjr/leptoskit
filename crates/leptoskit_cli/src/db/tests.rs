@@ -7,6 +7,7 @@ use leptoskit_db_schema::ColumnType;
 use leptoskit_db_schema::Dialect;
 use leptoskit_db_schema::Index;
 use leptoskit_db_schema::NoRenames;
+use leptoskit_db_schema::Pack;
 use leptoskit_db_schema::RequireHints;
 use leptoskit_db_schema::Schema;
 use leptoskit_db_schema::Table;
@@ -44,6 +45,7 @@ fn options() -> CreateOptions {
 	CreateOptions {
 		allow_destructive: false,
 		empty: false,
+		drop_packs: Vec::new(),
 	}
 }
 
@@ -384,14 +386,14 @@ fn pushes_follow_the_tables_and_squash_into_one_migration() {
 				Column::new("bio", ColumnType::TEXT).nullable(),
 			],
 		);
-		let pushed = push(&project, &url, &grown, false).unwrap();
+		let pushed = push(&project, &url, &grown, false, &[]).unwrap();
 		assert_eq!(
 			pushed,
 			Pushed::Applied(vec!["+ column users.bio (text)".into()])
 		);
 		assert!(pushed.message().unwrap().contains("+ column users.bio"));
 		assert_eq!(
-			push(&project, &url, &grown, false).unwrap(),
+			push(&project, &url, &grown, false, &[]).unwrap(),
 			Pushed::Unchanged
 		);
 		assert_eq!(Pushed::Unchanged.message(), None);
@@ -405,7 +407,7 @@ fn pushes_follow_the_tables_and_squash_into_one_migration() {
 				Column::new("rank", ColumnType::Int32).nullable(),
 			],
 		);
-		let refused = push(&project, &url, &shrunk, false).unwrap();
+		let refused = push(&project, &url, &shrunk, false, &[]).unwrap();
 		let Pushed::Refused(steps) = &refused else {
 			panic!("dropping a column deletes data: {refused:?}");
 		};
@@ -417,7 +419,7 @@ fn pushes_follow_the_tables_and_squash_into_one_migration() {
 		);
 		assert!(refused.message().unwrap().contains("--allow-destructive"));
 		assert!(matches!(
-			push(&project, &url, &shrunk, true).unwrap(),
+			push(&project, &url, &shrunk, true, &[]).unwrap(),
 			Pushed::Applied(_)
 		));
 
@@ -446,6 +448,7 @@ fn pushes_follow_the_tables_and_squash_into_one_migration() {
 			&CreateOptions {
 				allow_destructive: true,
 				empty: false,
+				drop_packs: Vec::new(),
 			},
 			&mut NoRenames,
 			Some(&url),
@@ -518,6 +521,7 @@ fn squashing_catches_up_first_and_fails_closed() {
 			&url,
 			&users(dialect, vec![handle(), bio()]),
 			false,
+			&[],
 		)
 		.unwrap();
 
@@ -578,10 +582,11 @@ fn squashing_catches_up_first_and_fails_closed() {
 				],
 			),
 			false,
+			&[],
 		)
 		.unwrap();
 		assert!(applied_and_pushed(&url).1);
-		push(&project, &url, &rank, true).unwrap();
+		push(&project, &url, &rank, true, &[]).unwrap();
 		assert!(!applied_and_pushed(&url).1);
 
 		// With pushes, a teammate's migration doesn't land on top of them.
@@ -598,6 +603,7 @@ fn squashing_catches_up_first_and_fails_closed() {
 				],
 			),
 			false,
+			&[],
 		)
 		.unwrap();
 		std::thread::sleep(std::time::Duration::from_secs(1));
@@ -617,7 +623,7 @@ fn squashing_catches_up_first_and_fails_closed() {
 			&mut RequireHints,
 		)
 		.unwrap();
-		let error = push(&project, &url, &rank, true).unwrap_err();
+		let error = push(&project, &url, &rank, true, &[]).unwrap_err();
 		assert!(
 			format!("{error:#}").contains("pushed in development"),
 			"{error:#}"
@@ -637,6 +643,7 @@ fn the_push_and_branch_commands_say_what_they_did() {
 		&users(Dialect::Sqlite, vec![handle()]),
 		&url,
 		false,
+		&[],
 	)
 	.unwrap();
 	super::push_command(
@@ -644,10 +651,17 @@ fn the_push_and_branch_commands_say_what_they_did() {
 		&users(Dialect::Sqlite, vec![handle()]),
 		&url,
 		false,
+		&[],
 	)
 	.unwrap();
-	let refused =
-		super::push_command(&sqlite, &users(Dialect::Sqlite, Vec::new()), &url, false).unwrap_err();
+	let refused = super::push_command(
+		&sqlite,
+		&users(Dialect::Sqlite, Vec::new()),
+		&url,
+		false,
+		&[],
+	)
+	.unwrap_err();
 	assert!(
 		refused.to_string().contains("nothing was pushed"),
 		"{refused}"
@@ -1974,7 +1988,7 @@ fn consolidation_folds_the_drafts_since_a_release_into_one() {
 	std::thread::sleep(std::time::Duration::from_secs(1));
 	create(&project, "add karma", &third, &options(), &mut RequireHints).unwrap();
 
-	super::consolidate(&project, &third, &[], &mut RequireHints).unwrap();
+	super::consolidate(&project, &third, &[], &[], &mut RequireHints).unwrap();
 
 	let history = History::read(&project.migrations_dir(), project.dialect()).unwrap();
 	assert_eq!(
@@ -2058,7 +2072,7 @@ fn consolidation_refuses_hand_edits_and_keeps_the_newest() {
 		.join("migration.sql");
 	let sql = std::fs::read_to_string(&hand_written).unwrap();
 	std::fs::write(&hand_written, format!("{sql}\n-- hand written\n")).unwrap();
-	let error = super::consolidate(&project, &third, &[], &mut RequireHints)
+	let error = super::consolidate(&project, &third, &[], &[], &mut RequireHints)
 		.unwrap_err()
 		.to_string();
 	assert!(
@@ -2067,7 +2081,7 @@ fn consolidation_refuses_hand_edits_and_keeps_the_newest() {
 	);
 
 	let keep = [kept.name.clone()];
-	super::consolidate(&project, &third, &keep, &mut RequireHints).unwrap();
+	super::consolidate(&project, &third, &keep, &[], &mut RequireHints).unwrap();
 	let history = History::read(&project.migrations_dir(), project.dialect()).unwrap();
 	assert_eq!(history.names.len(), 3, "released, consolidated, kept");
 	assert_eq!(history.names[2], kept.name, "the kept migration runs last");
@@ -2127,4 +2141,298 @@ fn amend_mode_rewrites_the_draft_since_the_release() {
 		"{:?}",
 		amended.notes
 	);
+}
+
+/// `schema` with a `sample` pack owning its `users` table.
+fn sample_pack(schema: &Schema) -> Schema {
+	let tables = schema
+		.tables
+		.iter()
+		.map(|table| table.name.clone())
+		.collect();
+	schema.clone().with_packs(vec![Pack::new("sample", tables)])
+}
+
+/// Rewrites the latest snapshot as format 1, which has no pack membership.
+fn make_latest_format_one(project: &Project) {
+	let history = History::read(&project.migrations_dir(), project.dialect()).unwrap();
+	let name = history.names.last().unwrap();
+	let path = project.migrations_dir().join(name).join("schema.json");
+	let mut json: serde_json::Value =
+		serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+	json["format"] = serde_json::json!(1);
+	json.as_object_mut().unwrap().remove("packs");
+	std::fs::write(path, serde_json::to_string_pretty(&json).unwrap()).unwrap();
+}
+
+#[test]
+fn a_missing_pack_needs_explicit_removal_even_with_destructive_consent() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let dialect = Dialect::Sqlite;
+	let baseline = sample_pack(&users(
+		dialect,
+		vec![Column::new("handle", ColumnType::TEXT)],
+	));
+	create(&project, "users", &baseline, &options(), &mut RequireHints).unwrap();
+	let before = History::read(&project.migrations_dir(), dialect)
+		.unwrap()
+		.names
+		.len();
+	let removed = Schema::new(dialect, Vec::new());
+	let consent = CreateOptions {
+		allow_destructive: true,
+		..options()
+	};
+
+	// `--allow-destructive` only consents to table data loss; it doesn't say
+	// the pack itself was meant to go.
+	let error = create(&project, "drop", &removed, &consent, &mut RequireHints)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("schema pack(s) `sample`"), "{error}");
+	assert!(error.contains("--drop-pack sample"), "{error}");
+	assert_eq!(
+		History::read(&project.migrations_dir(), dialect)
+			.unwrap()
+			.names
+			.len(),
+		before,
+		"nothing was written"
+	);
+
+	// A name that isn't actually disappearing is a typo, not consent.
+	let typo = CreateOptions {
+		drop_packs: vec!["auth".into()],
+		..consent
+	};
+	let error = create(&project, "drop", &removed, &typo, &mut RequireHints)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("doesn't lose it"), "{error}");
+	assert_eq!(
+		History::read(&project.migrations_dir(), dialect)
+			.unwrap()
+			.names
+			.len(),
+		before
+	);
+
+	// Naming the pack is explicit intent, and the new snapshot records that
+	// the schema has no packs left.
+	let explicit = CreateOptions {
+		drop_packs: vec!["sample".into()],
+		..consent
+	};
+	let created = create(&project, "drop", &removed, &explicit, &mut RequireHints).unwrap();
+	assert!(
+		created.steps.iter().any(|step| step == "- table users"),
+		"{:?}",
+		created.steps
+	);
+	let snapshot: Schema =
+		Schema::from_json(&std::fs::read_to_string(created.directory.join("schema.json")).unwrap())
+			.unwrap();
+	assert!(
+		snapshot
+			.pack_membership()
+			.is_some_and(|packs| packs.is_empty()),
+		"the new snapshot records no packs"
+	);
+}
+
+#[test]
+fn changes_within_a_present_pack_stay_ordinary() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let dialect = Dialect::Sqlite;
+	let handle = Column::new("handle", ColumnType::TEXT);
+	create(
+		&project,
+		"users",
+		&sample_pack(&users(dialect, vec![handle.clone()])),
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+
+	let grown = sample_pack(&users(
+		dialect,
+		vec![handle, Column::new("bio", ColumnType::TEXT).nullable()],
+	));
+	let created = create(&project, "bio", &grown, &options(), &mut RequireHints).unwrap();
+	assert_eq!(created.steps, ["+ column users.bio (text)"]);
+	let snapshot: Schema =
+		Schema::from_json(&std::fs::read_to_string(created.directory.join("schema.json")).unwrap())
+			.unwrap();
+	assert!(
+		snapshot
+			.pack("sample")
+			.is_some_and(|pack| pack.owns(&TableName::new("users")))
+	);
+}
+
+#[test]
+fn a_legacy_snapshot_has_no_membership_evidence() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let dialect = Dialect::Sqlite;
+	create(
+		&project,
+		"users",
+		&sample_pack(&users(
+			dialect,
+			vec![Column::new("handle", ColumnType::TEXT)],
+		)),
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+	make_latest_format_one(&project);
+
+	// The old snapshot can't prove the pack was ever there, so it can't call
+	// its disappearance a missing pack. Writing the next snapshot upgrades
+	// the history to format 2.
+	let consent = CreateOptions {
+		allow_destructive: true,
+		..options()
+	};
+	create(
+		&project,
+		"drop",
+		&Schema::new(dialect, Vec::new()),
+		&consent,
+		&mut RequireHints,
+	)
+	.unwrap();
+}
+
+#[test]
+fn check_reports_a_missing_pack() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let dialect = Dialect::Sqlite;
+	create(
+		&project,
+		"users",
+		&sample_pack(&users(
+			dialect,
+			vec![Column::new("handle", ColumnType::TEXT)],
+		)),
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+	let history = History::read(&project.migrations_dir(), dialect).unwrap();
+	let error = check(&history, &Schema::new(dialect, Vec::new()))
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("schema pack(s) `sample`"), "{error}");
+}
+
+#[test]
+fn watch_reports_a_missing_pack_before_writing() {
+	use super::watch::Change;
+	use super::watch::classify;
+
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let dialect = Dialect::Sqlite;
+	create(
+		&project,
+		"users",
+		&sample_pack(&users(
+			dialect,
+			vec![Column::new("handle", ColumnType::TEXT)],
+		)),
+		&options(),
+		&mut RequireHints,
+	)
+	.unwrap();
+	let history = History::read(&project.migrations_dir(), dialect).unwrap();
+	let change = classify(&history, &Schema::new(dialect, Vec::new()));
+	assert_eq!(change, Change::MissingPacks(vec!["sample".into()]));
+	let message = change.message(leptoskit_config::DbWatch::Migrate).unwrap();
+	assert!(message.contains("--drop-pack sample"), "{message}");
+}
+
+#[test]
+fn pushes_refuse_a_missing_pack_and_keep_its_pushed_state() {
+	let root = tempfile::tempdir().unwrap();
+
+	for (project, url, _server) in push_databases(root.path()) {
+		let dialect = project.dialect();
+		let handle = Column::new("handle", ColumnType::TEXT);
+		let bio = Column::new("bio", ColumnType::TEXT).nullable();
+		create(
+			&project,
+			"users",
+			&sample_pack(&users(dialect, vec![handle.clone()])),
+			&options(),
+			&mut RequireHints,
+		)
+		.unwrap();
+
+		let pushed = sample_pack(&users(dialect, vec![handle.clone(), bio]));
+		super::push::push(&project, &url, &pushed, false, &[]).unwrap();
+		assert!(applied_and_pushed(&url).1);
+
+		// The SQLite connection holds a row, so a refused push must leave it
+		// exactly where the successful one left it.
+		let count = || {
+			match dialect {
+				Dialect::Sqlite => {
+					scalar(
+						&url,
+						"SELECT count(*) FROM pragma_table_info('users') WHERE name = 'bio'",
+					)
+				}
+				Dialect::Postgres => {
+					scalar(
+						&url,
+						"SELECT count(*) FROM information_schema.columns WHERE table_name = \
+						 'users' AND column_name = 'bio'",
+					)
+				}
+			}
+		};
+		assert_eq!(count(), 1);
+
+		let without = Schema::new(dialect, Vec::new());
+		let error = super::push::push(&project, &url, &without, true, &[])
+			.unwrap_err()
+			.to_string();
+		assert!(error.contains("schema pack(s) `sample`"), "{error}");
+		assert!(applied_and_pushed(&url).1, "the push state survives");
+		assert_eq!(count(), 1, "no SQL ran");
+
+		// Squashing and creating both refuse the same loss before writing.
+		let consent = CreateOptions {
+			allow_destructive: true,
+			..options()
+		};
+		let error = super::create_squashing(
+			&project,
+			"drop",
+			&without,
+			&consent,
+			&mut RequireHints,
+			Some(&url),
+		)
+		.unwrap_err()
+		.to_string();
+		assert!(error.contains("schema pack(s) `sample`"), "{error}");
+		assert_eq!(
+			History::read(&project.migrations_dir(), dialect)
+				.unwrap()
+				.names
+				.len(),
+			1,
+			"no migration was written"
+		);
+
+		// Naming the pack lets the push remove it.
+		super::push::push(&project, &url, &without, true, &["sample".into()]).unwrap();
+		assert!(!applied_and_pushed(&url).1);
+	}
 }

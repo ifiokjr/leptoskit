@@ -352,3 +352,20 @@ pub struct DpopProof {
 	pub jti_hash: Vec<u8>,
 	pub expires_at: Timestamp,
 }
+
+leptoskit_db::schema_pack!(
+	name = "idp",
+	requires = ["auth"],
+	tables = [
+		Client,
+		Grant,
+		Family,
+		RefreshToken,
+		Authorization,
+		SigningKey,
+		PushedRequest,
+		DeviceCode,
+		Assertion,
+		DpopProof,
+	],
+);

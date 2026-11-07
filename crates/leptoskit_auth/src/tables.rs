@@ -519,3 +519,23 @@ pub struct RateLimit {
 	#[db(min = 0)]
 	pub count: i32,
 }
+
+leptoskit_db::schema_pack!(
+	name = "auth",
+	tables = [
+		Account,
+		EmailAddress,
+		Session,
+		Challenge,
+		Event,
+		TotpSecret,
+		Password,
+		RecoveryCode,
+		Passkey,
+		Identity,
+		ProviderToken,
+		Wallet,
+		MergedAccount,
+		RateLimit,
+	],
+);

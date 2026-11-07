@@ -204,6 +204,16 @@ mod stream;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub mod testing;
 
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+leptoskit_db::schema_pack!(
+	name = "rpc",
+	tables = [
+		server::receipts::Receipt,
+		server::jobs::JobRow,
+		server::inbox::InboxRow,
+	],
+);
+
 /// Re-exports the macros and the generated clients expand to; not part of
 /// the public API.
 #[doc(hidden)]

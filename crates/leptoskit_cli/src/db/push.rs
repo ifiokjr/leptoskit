@@ -102,8 +102,13 @@ pub(crate) fn push(
 	url: &str,
 	target: &Schema,
 	allow_destructive: bool,
+	drop_packs: &[String],
 ) -> Result<Pushed> {
 	let history = History::read(&project.migrations_dir(), project.dialect())?;
+	// Check the migration baseline before even connecting: removing a pack
+	// whose tables the latest migration recorded must not depend on a
+	// database being reachable, and must not apply pending migrations first.
+	super::check_packs(&history.latest, target, drop_packs)?;
 	let migrations = if history.names.is_empty() {
 		Vec::new()
 	} else {
@@ -112,8 +117,17 @@ pub(crate) fn push(
 
 	super::runtime()?.block_on(async {
 		let db = Db::connect(url).await?;
+
+		// Pushes record the schema they left, so a pack that only exists in
+		// push state is caught before the pending migrations run.
+		if let Some(json) = db.pushed_schema().await? {
+			let pushed = Schema::from_json(&json)
+				.context("the development database's pushed schema is invalid")?;
+			super::check_packs(&pushed, target, drop_packs)?;
+		}
+
 		db.migrate(&migrations).await?;
-		push_to(&db, &history, target, allow_destructive).await
+		push_to(&db, &history, target, allow_destructive, drop_packs).await
 	})
 }
 
@@ -122,9 +136,11 @@ async fn push_to(
 	history: &History,
 	target: &Schema,
 	allow_destructive: bool,
+	drop_packs: &[String],
 ) -> Result<Pushed> {
 	let target = target.without_rename_hints();
 	let current = holds(db, history).await?;
+	super::check_packs(&current, &target, drop_packs)?;
 	let plan = leptoskit_db_schema::diff(&current, &target, &mut RequireHints)?;
 
 	if plan.is_empty() {
@@ -142,7 +158,7 @@ async fn push_to(
 		.await?;
 
 	// Back where the latest migration left it: nothing is pushed any more.
-	if target == history.latest {
+	if target.same_database(&history.latest) {
 		db.run_script(&format!(
 			"DELETE FROM {}",
 			leptoskit_db_schema::quote_identifier(leptoskit_db::PUSH_TABLE)
@@ -171,8 +187,10 @@ pub(crate) fn prepare_squash(
 	url: &str,
 	target: &Schema,
 	allow_destructive: bool,
+	drop_packs: &[String],
 ) -> Result<Option<Squash>> {
 	let history = History::read(&project.migrations_dir(), project.dialect())?;
+	super::check_packs(&history.latest, target, drop_packs)?;
 	let runtime = super::runtime()?;
 	let target = target.without_rename_hints();
 	let prepared = runtime.block_on(async {
@@ -183,6 +201,7 @@ pub(crate) fn prepare_squash(
 		}
 
 		let current = holds(&db, &history).await?;
+		super::check_packs(&current, &target, drop_packs)?;
 		let plan = leptoskit_db_schema::diff(&current, &target, &mut RequireHints)?;
 
 		anyhow::ensure!(
