@@ -34,6 +34,14 @@ pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
 	// toolchain or Cargo manifest on the machine serving them.
 	let backend = if config.build.backend == Some(false) {
 		false
+	} else if !root
+		.ancestors()
+		.any(|directory| directory.join("Cargo.toml").is_file())
+	{
+		// A copied static artifact may predate build.backend. With no
+		// Cargo workspace there is no backend to detect; explicit backend,
+		// SSR and probe requirements must still fail instead of falling back.
+		config.backend_enabled(false)?
 	} else {
 		let metadata = crate::wasm::cargo_metadata(root.as_std_path())?;
 		crate::server::backend_package(&config, &metadata, leptoskit_config::Platform::Web)?

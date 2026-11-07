@@ -426,6 +426,26 @@ fn serving_declared_static_files_needs_no_cargo_manifest() {
 }
 
 #[test]
+fn serving_without_cargo_never_hides_a_required_backend() {
+	for (tag, config) in [
+		("declared-backend", "[build]\nbackend=true\n"),
+		("ssr-backend", "[app]\nrender='ssr'\n"),
+		("probe-backend", "[serve]\nprobes=true\n"),
+	] {
+		let scratch = Scratch::new(tag);
+		std::fs::create_dir(scratch.path.join("dist")).unwrap();
+		std::fs::write(scratch.path.join("leptoskit.toml"), config).unwrap();
+		let serve = leptoskit(&scratch.path, &["serve"]);
+		assert!(!serve.status.success());
+		assert!(
+			text(&serve.stderr).contains("must name a package with a backend binary"),
+			"{tag}: {}",
+			text(&serve.stderr)
+		);
+	}
+}
+
+#[test]
 fn ssr_fails_clearly_when_the_server_has_no_ssr_feature() {
 	let scratch = Scratch::new("missing");
 	let root = &scratch.path;
