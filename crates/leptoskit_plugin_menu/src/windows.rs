@@ -16,6 +16,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::MSG;
 use windows_sys::Win32::UI::WindowsAndMessaging::SetMenu;
 use windows_sys::Win32::UI::WindowsAndMessaging::TranslateAcceleratorW;
 
+use crate::Definition;
 use crate::DesktopMenu;
 use crate::Error;
 
@@ -81,6 +82,17 @@ impl WindowMenu {
 			previous,
 			installed,
 		})
+	}
+
+	/// Builds a native menu from `definition` and attaches it in one step.
+	/// Prefer a tree from [`crate::MenuBar`] so the root-submenu convention
+	/// matches macOS application menus.
+	///
+	/// # Safety
+	/// Same contract as [`Self::attach`].
+	pub unsafe fn install(definition: Definition, hwnd: HWND) -> Result<Self, Error> {
+		// SAFETY: forwarded to attach under the same caller contract.
+		unsafe { Self::attach(Rc::new(DesktopMenu::new(definition)?), hwnd) }
 	}
 
 	/// Consumes keyboard accelerators before the host calls `TranslateMessage`

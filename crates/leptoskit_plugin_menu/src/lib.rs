@@ -1,9 +1,10 @@
 //! <!-- {=p_menuSummary|trim|linePrefix:"//! ":true} -->
 //!
 //! Native hosts construct it explicitly; it is not a guest plugin and installs
-//! nothing by default. The desktop host owns the menu and installs it on its
-//! own windows; definitions are validated before any native allocation, and
-//! mobile and the browser expose no menu.
+//! nothing by default. Prefer the chained builders (`MenuBar`, `Submenu`,
+//! `Command`, …). The desktop host owns the menu and installs it on its own
+//! windows; definitions are validated before any native allocation, and mobile
+//! and the browser expose no menu.
 //!
 //! <!-- {/p_menuSummary} -->
 //!
@@ -15,6 +16,15 @@
 //! integration.
 
 use std::collections::HashSet;
+
+/// Chained constructors (`Menu`, `MenuBar`, `Command`, …) for menu trees.
+pub mod builder;
+pub use builder::Check;
+pub use builder::Command;
+pub use builder::Menu;
+pub use builder::MenuBar;
+pub use builder::Separator;
+pub use builder::Submenu;
 
 #[cfg(any(
 	target_os = "macos",
@@ -28,6 +38,8 @@ mod desktop;
 	all(target_os = "linux", not(target_env = "ohos"))
 ))]
 pub use desktop::*;
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
 #[cfg(target_os = "windows")]
