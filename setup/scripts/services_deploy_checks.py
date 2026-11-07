@@ -23,6 +23,8 @@ import urllib.request
 
 ANALYTICS = "/_leptoskit/services/analytics"
 ECHO = "/_leptoskit/services/echo"
+# What the echo service answers on any path it doesn't serve.
+ECHO_FALLBACK = "echo-fallback"
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -122,7 +124,6 @@ def main():
         choices=["isolated", "first-party"],
         help="the echo service's trust: whether the edge strips its cookies",
     )
-    parser.add_argument("--host", help="the Host header, for an Ingress with a host rule")
     arguments = parser.parse_args()
     base = arguments.base.rstrip("/")
     checks = Checks()
@@ -183,10 +184,15 @@ def main():
     checks.check("the live socket refuses a foreign origin", status == 403, str(status))
 
     # Only the public prefixes reach a service: everything else is the app's.
-    status, _, body = request(base, "/api/capture", "POST", {"event": "x", "distinct_id": "x", "properties": {}})
-    checks.check("the service's operation isn't served outside its prefix", status == 404, f"{status} {body}")
-    status, _, body = request(base, "/headers")
-    checks.check("the echo service isn't reached outside its prefix", "cookie:" not in body, f"{status} {body}")
+    # The echo service answers every path it doesn't serve with a marker, so
+    # a path the edge sends it is told apart from one it sends to the app.
+    status, _, body = request(base, f"{ECHO}/no-such-path")
+    checks.check("a path under the echo prefix reaches the echo service", ECHO_FALLBACK in body, f"{status} {body}")
+    for path in ("/headers", "/_leptoskit/services/echox/headers", "/_leptoskit/services/echo-headers", "/_leptoskit/services"):
+        status, _, body = request(base, path)
+        checks.check(f"{path} goes to the app, not the echo service", ECHO_FALLBACK not in body and "cookie:" not in body, f"{status} {body}")
+    status, _, body = request(base, "/_leptoskit/services/analyticsx/api/summary", "POST", {"days": 7})
+    checks.check("a near miss of the analytics prefix isn't the service's", '"total"' not in body, f"{status} {body}")
 
     # Cookies on the echo service's public paths.
     status, headers, body = request(base, f"{ECHO}/headers", headers={"Cookie": "session=the-apps-session"})

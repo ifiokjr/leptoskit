@@ -9590,6 +9590,7 @@ name = "services_echo"
 version = "0.3.0"
 dependencies = [
  "leptoskit_axum",
+ "tokio",
 ]
 
 [[package]]

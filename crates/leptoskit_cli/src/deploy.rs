@@ -830,11 +830,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \\
 
 FROM debian:bookworm-slim
 # curl answers the health check, and `app` is the unprivileged user the
-# server runs as.
+# server runs as, with uid and gid 10001.
 RUN apt-get update \\
  && apt-get install --yes --no-install-recommends curl \\
  && rm -rf /var/lib/apt/lists/* \\
- && useradd --system --user-group --uid 10001 --no-create-home app",
+ && groupadd --system --gid {APP_UID} app \\
+ && useradd --system --uid {APP_UID} --gid app --no-create-home app",
 	);
 
 	// The directories volumes mount at, made in the image and owned by
@@ -1976,6 +1977,10 @@ const SPLIT_ROLES: [(&str, u32, &str); 4] = [
 /// One Deployment per role, the same image in each with `LEPTOSKIT_ROLE`
 /// set, with Services and disruption budgets for the two that serve
 /// traffic.
+#[expect(
+	clippy::too_many_lines,
+	reason = "one manifest per resource reads best beside the others"
+)]
 fn kubernetes_split(project: &Project) -> String {
 	let image = project.image();
 	let resource = project.kubernetes_name();

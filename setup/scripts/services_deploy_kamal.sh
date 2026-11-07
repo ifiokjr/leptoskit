@@ -34,45 +34,71 @@ body() {
 
 kamal version
 
-for name in managed_kamal managed_services; do
+# Each configuration, with the snapshot of the secrets file `lk infra`
+# writes beside it.
+for pair in managed_kamal:managed_secret_references managed_services:managed_services_secret_references; do
+	name="${pair%%:*}"
+	secrets="${pair#*:}"
 	dir="$work/$name"
 	mkdir -p "$dir/.kamal"
 	body "$snapshots/leptoskit_cli__infra__tests__$name.snap" >"$dir/release.yml"
-	body "$snapshots/leptoskit_cli__infra__tests__${name/managed_kamal/managed_secret_references}.snap" >"$dir/.kamal/secrets"
+	body "$snapshots/leptoskit_cli__infra__tests__$secrets.snap" >"$dir/.kamal/secrets"
 	[ -s "$dir/release.yml" ] && [ -s "$dir/.kamal/secrets" ] || fail "$name: empty snapshot"
+	grep -q '^{' "$dir/release.yml" || fail "$name: release.yml isn't the configuration"
+	grep -q '^[A-Z_][A-Z0-9_]*=' "$dir/.kamal/secrets" || fail "$name: .kamal/secrets isn't a secrets file"
 	printf '#!/bin/bash\n' >"$dir/db-init.sh"
 	: >"$dir/nats.conf"
+	# The names the file reads from the environment, to give them values.
+	grep -o '^[A-Z_][A-Z0-9_]*=\$[A-Z_][A-Z0-9_]*$' "$dir/.kamal/secrets" | cut -d= -f1 >"$dir/names"
+	[ -s "$dir/names" ] || fail "$name: the secrets file reads nothing from the environment"
+done
 
-	# Every secret the file refers to, with a placeholder value.
-	while IFS= read -r variable; do
-		export "$variable=placeholder-$variable"
-	done < <(grep -o '^[A-Z_][A-Z0-9_]*=\$[A-Z_][A-Z0-9_]*$' "$dir/.kamal/secrets" | cut -d= -f1)
+# Every secret a configuration's file refers to, with a placeholder value,
+# in a subshell of its own so one configuration's values never reach the
+# other's.
+with_secrets() {
+	local dir="$1"
+	shift
+	(
+		cd "$dir"
+		while IFS= read -r variable; do
+			export "$variable=placeholder-$variable"
+		done <names
+		"$@"
+	)
+}
 
-	(cd "$dir" && kamal config -c release.yml) >"$dir/config.out"
+for name in managed_kamal managed_services; do
+	with_secrets "$work/$name" kamal config --config-file release.yml --version check >"$work/$name/config.out"
 	pass "$name: kamal config loads and validates release.yml"
 done
 
 dir="$work/managed_services"
-(cd "$dir" && ruby -rkamal -rjson -e '
+with_secrets "$dir" ruby -rkamal -rjson -e '
 config = Kamal::Configuration.create_from(config_file: Pathname.new("release.yml"), version: "check")
 report = {}
 config.roles.each do |role|
   app = Kamal::Commands::App.new(config, role: role, host: role.hosts.first)
   entry = {
     "run" => app.run.flatten.map(&:to_s).join(" "),
-    "secrets" => role.secrets_io.string,
+    "secrets" => role.secrets_io(role.hosts.first).string,
   }
-  entry["proxy"] = Kamal::Utils.optionize(role.proxy.deploy_options).join(" ") if role.running_proxy?
+  entry["proxy"] = role.proxy.deploy_command_args(target: "container").join(" ") if role.running_proxy?
   report[role.name] = entry
 end
 puts JSON.pretty_generate(report)
-') >"$dir/roles.json"
+' >"$dir/roles.json"
 cat "$dir/roles.json"
 
 python3 - "$dir/roles.json" <<'EOF'
 import json, sys
 
 roles = json.load(open(sys.argv[1]))
+# Kamal quotes option values; the checks read them without the quotes.
+for role in roles.values():
+    for key in ("run", "proxy"):
+        if key in role:
+            role[key] = role[key].replace('"', "")
 
 
 def check(condition, message):
@@ -129,12 +155,13 @@ check(
 
 # kamal-proxy keeps the public prefixes on the app's host.
 check("proxy" in analytics, "service-analytics is behind kamal-proxy")
-check(
-    "--path-prefix=\"/_leptoskit/services/analytics,/_analytics\"" in analytics["proxy"]
-    or "--path-prefix=/_leptoskit/services/analytics,/_analytics" in analytics["proxy"],
-    "service-analytics routes its public prefixes",
-)
+# Kamal splits the comma-separated list into one flag per prefix.
+for prefix in ("/_leptoskit/services/analytics", "/_analytics"):
+    check(f"--path-prefix={prefix} " in analytics["proxy"], f"service-analytics routes {prefix}")
+check("--path-prefix" not in web["proxy"], "the app takes every other path on the host")
 check("--strip-path-prefix=false" in analytics["proxy"], "service-analytics keeps the prefix on its paths")
-check("app.example.com" in analytics["proxy"], "service-analytics shares the app's host")
+check("--host=app.example.com " in analytics["proxy"], "service-analytics shares the app's host")
+check("--target=container:3100 " in analytics["proxy"], "kamal-proxy sends service-analytics its own port")
+check("--health-check-path=/readyz " in analytics["proxy"], "kamal-proxy checks service-analytics at /readyz")
 check("proxy" not in cards, "service-cards, private, isn't behind kamal-proxy")
 EOF
