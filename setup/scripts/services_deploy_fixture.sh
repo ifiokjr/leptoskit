@@ -70,6 +70,7 @@ render = "ssr"
 [serve]
 address = "127.0.0.1"
 port = 3000
+probes = true
 EOF
 	if [ "$dialect" = postgres ]; then
 		cat <<'EOF'
