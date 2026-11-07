@@ -74,6 +74,24 @@ pub async fn hook_history(cx: &rpc::QueryCx, page: rpc::PageArgs) -> rpc::Result
 	})
 }
 
+/// Every message as a row, oldest first: a list the hub patches.
+#[rpc::query]
+pub async fn hook_rows(cx: &rpc::QueryCx) -> rpc::Result<Vec<Row>> {
+	let messages = Message::query()
+		.order_by(|message| message.id.asc())
+		.all(cx.db())
+		.await?;
+	Ok(messages
+		.into_iter()
+		.map(|message| {
+			Row {
+				id: message.id.to_string(),
+				body: message.body,
+			}
+		})
+		.collect())
+}
+
 /// Writes a message.
 #[rpc::mutation]
 pub async fn hook_write(cx: &rpc::MutationCx, body: String) -> rpc::Result<()> {
@@ -116,9 +134,28 @@ pub struct HookRoom {
 	pub room: String,
 }
 
+/// The same room, but its messages are raw JSON, so a test can send one
+/// that doesn't fit what the screen expects.
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+pub struct HookRoomAnything {
+	pub room: String,
+}
+
+impl rpc::Channel for HookRoomAnything {
+	type Message = serde_json::Value;
+	type Presence = Seat;
+
+	const NAME: &'static str = "hook_room";
+}
+
 #[allow(clippy::unused_async, reason = "the signature the macro expects")]
 async fn may_sit(cx: &rpc::QueryCx, room: &HookRoom) -> rpc::Result<()> {
-	let _ = (cx, room);
+	let _ = cx;
+
+	if room.room == "secret" {
+		return Err(rpc::Error::forbidden("that room is private"));
+	}
+
 	Ok(())
 }
 
@@ -175,6 +212,8 @@ pub async fn hooks(db: Db) {
 				clients.install(&ClientConfig::new()),
 				"one client a process"
 			);
+			// A second configure finds the client already installed.
+			rpc::client::configure(ClientConfig::new());
 			let owner = Owner::new();
 			owner.set();
 			QueryClient::new().provide();
@@ -183,10 +222,14 @@ pub async fn hooks(db: Db) {
 
 			the_default_mutation_hook_reads_its_writes(&db, &clients).await;
 			pages_load_more_and_stay_live(&db).await;
+			a_row_list_patches_on_screen(&db).await;
+			a_live_query_whose_arguments_change().await;
 			a_stream_on_screen().await;
 			the_status_follows_the_connection(&clients).await;
 			mutations_and_actions_over_the_connection(&db).await;
 			a_channel_on_screen(&clients).await;
+			a_refused_channel_on_screen().await;
+			a_channel_whose_arguments_change().await;
 		})
 		.await;
 }
@@ -274,6 +317,77 @@ async fn pages_load_more_and_stay_live(db: &Db) {
 	})
 	.await;
 	assert_eq!(history.items().len(), 5);
+}
+
+/// A live query whose arguments change subscribes to the new ones and
+/// leaves the old subscription behind.
+async fn a_live_query_whose_arguments_change() {
+	let limit = RwSignal::new(1_u32);
+	let history = rpc::use_live(move || {
+		HookHistory {
+			page: rpc::PageArgs::first(limit.get()),
+		}
+	});
+	let rows = move || history.data().map(|page| page.items.len());
+	eventually("the first page size", || (rows() == Some(1)).then_some(())).await;
+
+	limit.set(2);
+	eventually("the second page size", || (rows() == Some(2)).then_some(())).await;
+}
+
+/// A channel whose arguments change leaves the old instance and joins the
+/// new one.
+async fn a_channel_whose_arguments_change() {
+	let room = RwSignal::new("changing-a".to_owned());
+	let handle = rpc::use_channel(move || HookRoom { room: room.get() });
+	eventually("the first room", || {
+		(handle.members().get().len() == 1).then_some(())
+	})
+	.await;
+
+	room.set("changing-b".to_owned());
+	eventually("the second room", || {
+		(handle.members().get().len() == 1).then_some(())
+	})
+	.await;
+}
+
+/// A list of rows arrives as a patch to the cached value.
+async fn a_row_list_patches_on_screen(db: &Db) {
+	let rows = rpc::use_live(|| HookRows {});
+	let bodies = move || {
+		rows.data()
+			.unwrap_or_default()
+			.into_iter()
+			.map(|row| row.body)
+			.collect::<Vec<_>>()
+	};
+	let initial_rows = eventually("the row list", || rows.data()).await;
+	let initial: Vec<String> = initial_rows.into_iter().map(|row| row.body).collect();
+	assert!(
+		initial.ends_with(&["p2".to_owned(), "p3".to_owned(), "p4".to_owned()]),
+		"{initial:?}"
+	);
+	let initial = initial.len();
+
+	write(db, "p5").await;
+	eventually("the patched row", || {
+		let bodies = bodies();
+		(bodies.len() == initial + 1 && bodies.last().is_some_and(|last| last == "p5"))
+			.then_some(())
+	})
+	.await;
+
+	Message::query()
+		.filter(|message| message.body.eq("p2".to_owned()))
+		.delete(db)
+		.await
+		.unwrap();
+	eventually("the removed row", || {
+		let bodies = bodies();
+		(bodies.len() == initial && !bodies.iter().any(|body| body == "p2")).then_some(())
+	})
+	.await;
 }
 
 /// A stream's items arrive on screen, and it ends.
@@ -380,6 +494,34 @@ async fn a_channel_on_screen(clients: &LiveClients) {
 	room.clear_signals();
 	assert_eq!(room.signals().get(), Vec::<Wave>::new());
 
+	// A message that doesn't fit the screen's type is dropped.
+	other.signal::<HookRoomAnything>(&key, &serde_json::json!({ "not": "a wave" }));
+	// The newest 100 are kept, oldest first.
+	for n in 0..101 {
+		other.signal::<HookRoom>(
+			&key,
+			&Wave {
+				from: n.to_string(),
+			},
+		);
+		let expected = usize::try_from(n + 1).unwrap().min(100);
+		eventually("the newest signals", || {
+			(room.signals().get().len() == expected).then_some(())
+		})
+		.await;
+	}
+	eventually("the 101st signal", || {
+		room.signals()
+			.get()
+			.last()
+			.is_some_and(|wave| wave.from == "100")
+			.then_some(())
+	})
+	.await;
+	let signals = room.signals().get();
+	assert_eq!(signals[0].from, "1", "the oldest was dropped");
+	assert_eq!(signals[99].from, "100");
+
 	room.signal(Wave { from: "me".into() });
 	let received = tokio::time::timeout(Duration::from_secs(20), async {
 		while let Some(event) = futures::StreamExt::next(&mut events).await {
@@ -392,4 +534,20 @@ async fn a_channel_on_screen(clients: &LiveClients) {
 	.await
 	.expect("the wave arrives");
 	assert_eq!(received, serde_json::json!({ "from": "me" }));
+}
+
+/// A refused join is ignored on screen rather than shown as a move.
+async fn a_refused_channel_on_screen() {
+	let room = rpc::use_channel(|| {
+		HookRoom {
+			room: "secret".into(),
+		}
+	});
+	// Before its effect joins, a signal has nowhere to go.
+	room.signal(Wave {
+		from: "early".into(),
+	});
+	tokio::time::sleep(Duration::from_millis(100)).await;
+	assert_eq!(room.members().get(), [] as [rpc::live::PresenceMember; 0]);
+	assert_eq!(room.signals().get(), [] as [Wave; 0]);
 }
