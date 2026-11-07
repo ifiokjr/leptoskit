@@ -787,3 +787,154 @@ fn rollback_schema(
 		anyhow::Ok(())
 	})
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn args() -> ReleaseArgs {
+		ReleaseArgs {
+			version: None,
+			rollback: None,
+			setup: false,
+			maintenance: false,
+			recover: false,
+			rollback_schema: false,
+			yes: false,
+		}
+	}
+
+	fn recorded(version: &str, migrations: &str) -> Release {
+		Release {
+			version: version.into(),
+			migrations: migrations.into(),
+			schema: Vec::new(),
+			image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+			completed_at: None,
+		}
+	}
+
+	fn infra() -> InfraConfig {
+		let raw = format!(
+			"[app]\nname = 'notes'\n[db]\ndialect = 'postgres'\n[infra]\nname = \
+			 'notes-production'\ndomain = 'app.example.com'\nlocation = 'hel1'\nserver_type = \
+			 'cx23'\nssh_key_ids = [123]\nssh_cidrs = ['192.0.2.1/32']\naccount_id = \
+			 '{}'\nzone_id = '{}'\nimage = 'ghcr.io/team/notes'\nregistry = \
+			 'ghcr.io'\nregistry_username = 'team'\nupdates_domain = \
+			 'updates.example.com'\nupdates_bucket = 'notes-releases'\nbackup_bucket = \
+			 'notes-backups'",
+			"a".repeat(32),
+			"b".repeat(32)
+		);
+		LeptoskitConfig::from_toml(&raw, Path::new("."))
+			.unwrap()
+			.infra
+			.unwrap()
+	}
+
+	#[test]
+	fn versions_come_from_either_flag_and_are_validated() {
+		let mut flags = args();
+		flags.version = Some("v1".into());
+		assert_eq!(release_version(&flags).unwrap(), "v1");
+		flags.version = None;
+		flags.rollback = Some("v0".into());
+		assert_eq!(release_version(&flags).unwrap(), "v0");
+		flags.rollback = None;
+		assert!(
+			release_version(&flags)
+				.unwrap_err()
+				.to_string()
+				.contains("pass --version or --rollback")
+		);
+		flags.version = Some("latest".into());
+		assert!(
+			release_version(&flags)
+				.unwrap_err()
+				.to_string()
+				.contains("use a unique immutable image tag")
+		);
+		flags.version = Some("v/1".into());
+		assert!(release_version(&flags).is_err());
+	}
+
+	#[test]
+	fn a_new_tag_must_beat_setup_history_and_schema_checks() {
+		let mut flags = args();
+		flags.version = Some("v1".into());
+		assert!(
+			target_release(&flags, &[], "v1", "m1")
+				.unwrap_err()
+				.to_string()
+				.contains("first release requires --setup")
+		);
+		flags.setup = true;
+		assert!(target_release(&flags, &[], "v1", "m1").unwrap().is_none());
+
+		let history = [recorded("v1", "m1")];
+		assert!(
+			target_release(&flags, &history, "v1", "m1")
+				.unwrap_err()
+				.to_string()
+				.contains("tag already recorded")
+		);
+		flags.setup = false;
+		assert!(
+			target_release(&flags, &history, "v2", "m2")
+				.unwrap_err()
+				.to_string()
+				.contains("schema changes require --maintenance")
+		);
+		flags.maintenance = true;
+		assert!(
+			target_release(&flags, &history, "v2", "m2")
+				.unwrap()
+				.is_none()
+		);
+		flags.version = Some("v2".into());
+		assert!(
+			target_release(&flags, &history, "v2", "m2")
+				.unwrap()
+				.is_none()
+		);
+	}
+
+	#[test]
+	fn rollbacks_and_recoveries_must_name_a_recorded_version() {
+		let history = [recorded("v1", "m1")];
+		let mut flags = args();
+		flags.rollback = Some("v1".into());
+		let target = target_release(&flags, &history, "v1", "m1")
+			.unwrap()
+			.unwrap();
+		assert_eq!(target.version, "v1");
+		flags.rollback = Some("v9".into());
+		assert!(
+			target_release(&flags, &history, "v9", "m1")
+				.unwrap_err()
+				.to_string()
+				.contains("version is absent from shared release history")
+		);
+		flags.rollback = None;
+		flags.recover = true;
+		flags.version = Some("v1".into());
+		assert_eq!(
+			target_release(&flags, &history, "v1", "m1")
+				.unwrap()
+				.unwrap()
+				.version,
+			"v1"
+		);
+	}
+
+	#[test]
+	fn images_are_prefixed_with_the_registry_exactly_once() {
+		let mut config = infra();
+		config.image = "team/notes".into();
+		assert_eq!(image(&config), "ghcr.io/team/notes");
+		config.image = "ghcr.io/team/notes".into();
+		assert_eq!(image(&config), "ghcr.io/team/notes");
+		config.image = "ghcr.io/team/other".into();
+		assert_eq!(image(&config), "ghcr.io/team/other");
+	}
+}
