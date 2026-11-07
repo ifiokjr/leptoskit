@@ -20,7 +20,8 @@ leptoskit::extension::entry!(main: extension::main, background: extension::backg
 
 - `main(surface)` returns the function that renders that surface, usually `Navigation::new(Route::parse(surface.route())…)` and `move || navigation.render()`.
 - `background(&worker)` registers handlers: `on_message`, `on_installed`, `on_alarm`, `on_context_menu`, `on_command`, `on_tab_updated`.
-- Surfaces talk to the worker with `leptoskit::extension::runtime::send(&message)`; the message and reply are the app's own serde types.
+- Surfaces talk to the worker with `leptoskit::extension::runtime::send(&message)`; the message and reply are the app's own serde types. For a long-lived channel, use `runtime::connect("name")` and `Background::on_connect` (list `runtime.connect` in `[extension.background].events`).
+- `storage` also has `clear`, `keys`, and `get_bytes_in_use`. `permissions` has `get_all`, `on_added`, and `on_removed`.
 - The website's own `#[wasm_bindgen(start)]` must be off in extension builds: `#[cfg(all(feature = "web", not(feature = "extension")))]`.
 
 ## Content scripts

@@ -87,7 +87,13 @@ fn listener(event: &str) -> (&'static str, &'static str, &'static str) {
 	match event {
 		"runtime.installed" => ("runtime.onInstalled", "(details)", "details"),
 		"runtime.startup" => ("runtime.onStartup", "()", "null"),
-		"runtime.connect" => ("runtime.onConnect", "(port)", "({ name: port.name })"),
+		"runtime.connect" => {
+			(
+				"runtime.onConnect",
+				"(port)",
+				"({ id, name: port.name, sender: port.sender ?? null })",
+			)
+		}
 		"alarms" => ("alarms.onAlarm", "(alarm)", "alarm"),
 		"context_menus" => ("contextMenus.onClicked", "(info, tab)", "({ info, tab })"),
 		"commands" => ("commands.onCommand", "(command, tab)", "({ command, tab })"),
@@ -140,9 +146,20 @@ pub fn background_js(module: &Module<'_>, events: Option<&[String]>, dev: Option
 		if event == "runtime.connect" {
 			let _ = write!(
 				listeners,
-				"api.{path}.addListener({parameters} => {{\n  // A content script's private \
-				 channel belongs to its frame.\n  if (port.name.startsWith(\"leptoskit-page:\")) \
-				 return;\n  deliver({}, {detail});\n}});\n",
+				"const ports = new Map();\nlet nextPort = 1;\nglobalThis.__leptoskit_port_post = \
+				 (id, message) => {{\n  const port = ports.get(id);\n  if (!port) throw new \
+				 Error(\"port \" + id + \" is closed\");\n  \
+				 port.postMessage(message);\n}};\nglobalThis.__leptoskit_port_disconnect = (id) \
+				 => {{\n  const port = ports.get(id);\n  if (!port) return;\n  \
+				 ports.delete(id);\n  \
+				 port.disconnect();\n}};\napi.{path}.addListener({parameters} => {{\n  // A \
+				 content script's private channel belongs to its frame.\n  if \
+				 (port.name.startsWith(\"leptoskit-page:\")) return;\n  const id = nextPort++;\n  \
+				 ports.set(id, port);\n  port.onMessage.addListener((message) => \
+				 deliver(\"runtime.port.message\", {{ id, name: port.name, message }}));\n  \
+				 port.onDisconnect.addListener(() => {{\n    ports.delete(id);\n    \
+				 deliver(\"runtime.port.disconnect\", {{ id, name: port.name }});\n  }});\n  \
+				 deliver({}, {detail});\n}});\n",
 				js_string(event)
 			);
 			continue;
@@ -488,6 +505,11 @@ mod tests {
 			"background_dev_js",
 			background_js(&module, None, Some("http://127.0.0.1:3000"))
 		);
+		let connect = background_js(&module, Some(&["runtime.connect".into()]), None);
+		assert!(connect.contains("globalThis.__leptoskit_port_post"));
+		assert!(connect.contains("runtime.port.message"));
+		assert!(connect.contains("runtime.port.disconnect"));
+		assert!(connect.contains("leptoskit-page:"));
 		let content = content_js("clipper", "/overlay/clipper");
 		assert!(content.contains("const name = \"clipper\";"));
 		assert!(content.contains("route: \"/overlay/clipper\""));

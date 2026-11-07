@@ -30,6 +30,7 @@ leptoskit_config = { workspace = true }
 leptoskit_db = { workspace = true, optional = true }
 leptoskit_devtools = { workspace = true, optional = true, default-features = false }
 leptoskit_extension = { workspace = true, optional = true }
+leptoskit_service_worker = { workspace = true, optional = true }
 leptoskit_form = { workspace = true, optional = true }
 leptoskit_idp = { workspace = true, optional = true }
 leptoskit_l10n = { workspace = true, optional = true }
@@ -238,6 +239,9 @@ web = [
 # A browser extension built from the web client: `leptoskit::extension`, with
 # the surfaces' runtime and typed WebExtensions APIs.
 extension = ["web", "dep:leptoskit_extension"]
+# Page-side service workers for Progressive Web Apps: register, message, cache
+# strategies, and Web Push. Unavailable outside a secure browser context.
+service-worker = ["dep:leptoskit_service_worker"]
 windows = ["dep:leptoskit_windows"]
 
 [lints]

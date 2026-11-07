@@ -54,6 +54,8 @@ pub mod tabs;
 
 pub use background::Background;
 pub use js::Listener;
+pub use runtime::Port;
+pub use runtime::PortSender;
 pub use surface::PageName;
 pub use surface::Surface;
 

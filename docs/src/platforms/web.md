@@ -73,3 +73,30 @@ let todos = query(RetryPolicy::reads(), || async {
 ```
 
 The same call works in the browser and during SSR. Native apps run their interface as a Wasm guest without server-function code, so this call doesn't exist there; see [server functions](../guide/06-server-functions.md) for how a native app reaches the server.
+
+## Service workers
+
+A Progressive Web App needs a service worker for offline caching and Web Push. Enable leptoskit's `service-worker` feature and ship a worker script with your web assets (for example `web/sw.js`). The page registers it and talks to it in Rust:
+
+```rust,ignore
+use leptoskit::service_worker::prelude::*;
+
+let registration = register("/sw.js", RegisterOptions::default()).await?;
+let _ = ready().await?;
+
+send(&WorkerMessage::SetCacheRules {
+	rules: vec![
+		CacheRule::new("static-v1", Strategy::cache_first()).prefixes(["/assets/"]),
+		CacheRule::new("pages", Strategy::network_first_within(2_000)),
+	],
+})?;
+
+let push = registration.push_manager()?;
+let subscription = push
+	.subscribe(&PushOptions::new(vapid_public_key))
+	.await?;
+```
+
+`Strategy` values describe cache-first, network-first, stale-while-revalidate, network-only, and cache-only behaviour. Post them to your worker script (or read them inside one) so routes stay defined in one place. `caches` helpers open Cache Storage from the page when you need to precache or inspect entries yourself.
+
+This is the page side only: you still write the worker script that handles `fetch`, `push`, and `message` events. Calls return `Unavailable` outside a secure browser context, so the same app code compiles in tests and on native targets. Browser extensions use a different background worker through [extensions](extension.md); do not mix the two.

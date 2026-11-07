@@ -351,6 +351,13 @@ pub mod extension {
 	pub use leptoskit_extension::*;
 }
 
+#[cfg(feature = "service-worker")]
+pub mod service_worker {
+	//! Page-side service workers for Progressive Web Apps: registration,
+	//! messages, Cache Storage, caching strategies, and Web Push.
+	pub use leptoskit_service_worker::*;
+}
+
 #[cfg(feature = "auth")]
 pub mod auth {
 	//! Sign-in: the `auth` schema pack, sessions, email codes, and the

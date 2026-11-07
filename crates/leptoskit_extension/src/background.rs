@@ -17,12 +17,16 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::runtime::Port;
+use crate::runtime::PortSender;
 use crate::tabs::Tab;
 
 type Handler = Rc<dyn Fn(Value) -> LocalBoxFuture<'static, Result<Value, String>>>;
+type ConnectHandler = Rc<dyn Fn(Port, PortSender)>;
 
 thread_local! {
 	static HANDLERS: RefCell<HashMap<String, Handler>> = RefCell::new(HashMap::new());
+	static CONNECT_HANDLER: RefCell<Option<ConnectHandler>> = RefCell::new(None);
 }
 
 /// Who sent a message.
@@ -213,6 +217,54 @@ impl Background {
 	{
 		self.on("tabs.updated", handler);
 	}
+
+	/// Runs when a surface opens a long-lived [`Port`] with
+	/// [`runtime::connect`](crate::runtime::connect). Content-script page
+	/// channels (`leptoskit-page:…`) are handled by the generated bridge and
+	/// never reach this handler.
+	pub fn on_connect(&self, handler: impl Fn(Port, PortSender) + 'static) {
+		CONNECT_HANDLER.with_borrow_mut(|slot| *slot = Some(Rc::new(handler)));
+		self.on("runtime.connect", |event: ConnectEvent| {
+			async move {
+				let port = Port::from_background(event.id, event.name);
+				let sender = event.sender.unwrap_or_default();
+				CONNECT_HANDLER.with_borrow(|slot| {
+					if let Some(handler) = slot.as_ref() {
+						handler(port, sender);
+					}
+				});
+			}
+		});
+		self.on("runtime.port.message", |event: PortMessageEvent| {
+			async move {
+				crate::runtime::deliver_background_message(event.id, &event.message);
+			}
+		});
+		self.on("runtime.port.disconnect", |event: PortDisconnectEvent| {
+			async move {
+				crate::runtime::deliver_background_disconnect(event.id);
+			}
+		});
+	}
+}
+
+#[derive(Deserialize)]
+struct ConnectEvent {
+	id: i64,
+	name: String,
+	#[serde(default)]
+	sender: Option<PortSender>,
+}
+
+#[derive(Deserialize)]
+struct PortMessageEvent {
+	id: i64,
+	message: Value,
+}
+
+#[derive(Deserialize)]
+struct PortDisconnectEvent {
+	id: i64,
 }
 
 /// Runs the app's `background` function, once, when the wasm is ready.

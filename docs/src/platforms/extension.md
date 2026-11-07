@@ -98,13 +98,28 @@ pub fn background(worker: &leptoskit::extension::Background) {
 
 An extension build turns on your `web` feature too, so keep your website's own start function out of it with `#[cfg(all(feature = "web", not(feature = "extension")))]`.
 
-Any surface sends the worker a message with `runtime::send`, and the worker's `on_message` handler returns the reply. The message and reply are your own serde types:
+Any surface sends the worker a one-shot message with `runtime::send`, and the worker's `on_message` handler returns the reply. The message and reply are your own serde types:
 
 ```rust,ignore
 let reply: Reply = leptoskit::extension::runtime::send(&Message::Clip(input)).await?;
 ```
 
-`leptoskit::extension` also has `storage`, `tabs`, `action` (the toolbar button's badge), `scripting`, `permissions`, `alarms`, `context_menus`, `commands`, `notifications`, `side_panel`, and `devtools`. Each works the same in every browser, returns `Error::Unavailable` where a browser lacks it, and stops listening when its handle is dropped.
+For many messages on one channel, such as a content script streaming highlights, open a long-lived port. List `runtime.connect` in `[extension.background].events`, then:
+
+```rust,ignore
+// In a page or content script:
+let port = leptoskit::extension::runtime::connect("highlights")?;
+port.post_message(&HighlightEvent::Ready)?;
+let _listen = port.on_message(|event: HighlightEvent| { /* … */ })?;
+
+// In the background worker:
+worker.on_connect(|port, sender| {
+	let _ = (port.name(), sender.url);
+	let _listen = port.on_message(|event: HighlightEvent| { /* … */ });
+});
+```
+
+`storage` has `get` / `set` / `remove`, plus `clear`, `keys`, and `get_bytes_in_use`, with `on_changed` across every surface. `permissions` can `request` host patterns, `get_all`, and listen with `on_added` / `on_removed`. `leptoskit::extension` also has `tabs`, `action` (the toolbar button's badge), `scripting`, `alarms`, `context_menus`, `commands`, `notifications`, `side_panel`, and `devtools`. Each works the same in every browser, returns `Error::Unavailable` where a browser lacks it, and stops listening when its handle is dropped.
 
 ## Content scripts
 

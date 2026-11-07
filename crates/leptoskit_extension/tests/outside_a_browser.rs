@@ -113,11 +113,27 @@ fn notifications_permissions_and_the_runtime_name_their_apis() {
 		block_on(permissions::remove(&origins)),
 		Err(unavailable("permissions.remove"))
 	);
+	assert_eq!(
+		block_on(permissions::get_all()),
+		Err(unavailable("permissions.getAll"))
+	);
+	assert!(matches!(
+		permissions::on_added(|_| {}),
+		Err(error) if error == unavailable("permissions.onAdded")
+	));
+	assert!(matches!(
+		permissions::on_removed(|_| {}),
+		Err(error) if error == unavailable("permissions.onRemoved")
+	));
 
 	assert_eq!(
 		block_on(runtime::send::<_, Value>(&json!({ "kind": "ping" }))),
 		Err(unavailable("runtime.sendMessage"))
 	);
+	assert!(matches!(
+		runtime::connect("highlights"),
+		Err(error) if error == unavailable("runtime.connect")
+	));
 	assert_eq!(runtime::id(), Err(unavailable("runtime.id")));
 	assert_eq!(
 		block_on(runtime::url("assets/icon-128.png")),
@@ -185,6 +201,18 @@ fn each_storage_area_calls_its_own_api() {
 		assert_eq!(
 			block_on(area.remove("draft")),
 			Err(unavailable(&format!("{path}.remove")))
+		);
+		assert_eq!(
+			block_on(area.clear()),
+			Err(unavailable(&format!("{path}.clear")))
+		);
+		assert_eq!(
+			block_on(area.keys()),
+			Err(unavailable(&format!("{path}.get")))
+		);
+		assert_eq!(
+			block_on(area.get_bytes_in_use(Some("draft"))),
+			Err(unavailable(&format!("{path}.getBytesInUse")))
 		);
 		assert!(matches!(
 			storage::on_changed(area, |_, _| {}),
@@ -293,6 +321,25 @@ fn worker(worker: &Background) {
 			assert_eq!(update.tab.url.as_deref(), Some("https://example.org/"));
 		}
 	});
+	worker.on_connect(|port, sender| {
+		assert_eq!(port.name(), "highlights");
+		assert_eq!(port.id(), Some(3));
+		assert_eq!(sender.url.as_deref(), Some("https://example.org/"));
+		// Keep the listener for the port.message simulation below.
+		PORT_LISTENERS.with_borrow_mut(|listeners| {
+			listeners.push(
+				port.on_message(|message: String| {
+					assert_eq!(message, "ping");
+				})
+				.expect("background ports listen without a browser"),
+			);
+		});
+	});
+}
+
+thread_local! {
+	static PORT_LISTENERS: std::cell::RefCell<Vec<leptoskit_extension::Listener>> =
+		const { std::cell::RefCell::new(Vec::new()) };
 }
 
 #[test]
@@ -324,6 +371,14 @@ fn the_worker_answers_each_browser_event() {
 				"tab": { "id": 9, "url": "https://example.org/" },
 			}),
 		),
+		(
+			"runtime.connect",
+			json!({
+				"id": 3,
+				"name": "highlights",
+				"sender": { "url": "https://example.org/" },
+			}),
+		),
 	] {
 		assert_eq!(
 			block_on(background::simulate(kind, detail)),
@@ -331,6 +386,21 @@ fn the_worker_answers_each_browser_event() {
 			"{kind}"
 		);
 	}
+
+	assert_eq!(
+		block_on(background::simulate(
+			"runtime.port.message",
+			json!({ "id": 3, "message": "ping" }),
+		)),
+		Ok(Value::Null)
+	);
+	assert_eq!(
+		block_on(background::simulate(
+			"runtime.port.disconnect",
+			json!({ "id": 3 }),
+		)),
+		Ok(Value::Null)
+	);
 
 	// An event whose detail doesn't fit is refused rather than handled.
 	assert!(block_on(background::simulate("alarms", json!({ "name": 3 }))).is_err());
