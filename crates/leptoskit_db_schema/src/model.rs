@@ -16,8 +16,15 @@ use crate::SchemaError;
 use crate::Sequence;
 use crate::Trigger;
 
-/// The version of the `schema.json` format this crate reads and writes.
-pub const FORMAT_VERSION: u32 = 1;
+/// The version of the `schema.json` format this crate writes.
+///
+/// Format 2 adds schema-pack membership. Format 1 snapshots remain readable,
+/// but they carry no membership evidence: a pack that vanished before the
+/// snapshot was written can't be detected from them.
+pub const FORMAT_VERSION: u32 = 2;
+
+/// The oldest `schema.json` format this crate reads.
+pub const LEGACY_FORMAT_VERSION: u32 = 1;
 
 /// The SQL dialect a schema targets. A project has exactly one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -47,6 +54,11 @@ pub struct Schema {
 	pub format: u32,
 	/// The dialect every table is rendered for.
 	pub dialect: Dialect,
+	/// The schema packs this schema carries, sorted by name. `None` only in
+	/// a format 1 snapshot, which predates pack membership: absence of a pack
+	/// there is unknown, not verified.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub packs: Option<Vec<Pack>>,
 	/// The tables, sorted by name.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub tables: Vec<Table>,
@@ -79,6 +91,7 @@ impl Schema {
 		Self {
 			format: FORMAT_VERSION,
 			dialect,
+			packs: Some(Vec::new()),
 			tables: Vec::new(),
 			views: Vec::new(),
 			geopackage: false,
@@ -97,6 +110,7 @@ impl Schema {
 		Self {
 			format: FORMAT_VERSION,
 			dialect,
+			packs: Some(Vec::new()),
 			tables,
 			views: Vec::new(),
 			geopackage: false,
@@ -113,6 +127,45 @@ impl Schema {
 		views.sort_by(|left, right| left.name.cmp(&right.name));
 		self.views = views;
 		self
+	}
+
+	/// The same schema with this schema-pack membership, sorted by name and
+	/// table.
+	#[must_use]
+	pub fn with_packs(mut self, mut packs: Vec<Pack>) -> Self {
+		for pack in &mut packs {
+			pack.tables.sort();
+		}
+		packs.sort_by(|left, right| left.name.cmp(&right.name));
+		self.packs = Some(packs);
+		self
+	}
+
+	/// The packs this schema carries, or `None` for a format 1 snapshot:
+	/// its membership is unknown, not verified as empty.
+	pub fn pack_membership(&self) -> Option<&[Pack]> {
+		self.packs.as_deref()
+	}
+
+	/// The pack with this name, if the schema records one.
+	pub fn pack(&self, name: &str) -> Option<&Pack> {
+		self.packs.as_ref()?.iter().find(|pack| pack.name == name)
+	}
+
+	/// Whether the two schemas describe the same database, comparing
+	/// everything except the file format and pack membership. A format 1
+	/// snapshot has no membership evidence, so comparing it directly with a
+	/// format 2 export would otherwise report a change that no migration can
+	/// express.
+	pub fn same_database(&self, other: &Self) -> bool {
+		let normalized = |schema: &Self| {
+			let mut schema = schema.clone();
+			schema.format = FORMAT_VERSION;
+			schema.packs = None;
+			schema
+		};
+
+		normalized(self) == normalized(other)
 	}
 
 	/// The same schema, keeping GeoPackage's metadata tables or not.
@@ -273,11 +326,12 @@ impl Schema {
 		self.tables.iter().find(|table| &table.name == name)
 	}
 
-	/// Reads a `schema.json` snapshot and validates it.
+	/// Reads a `schema.json` snapshot and validates it. Format 1 snapshots
+	/// are accepted, with unknown pack membership.
 	pub fn from_json(json: &str) -> Result<Self, SchemaError> {
 		let schema: Self = serde_json::from_str(json).map_err(SchemaError::Json)?;
 
-		if schema.format != FORMAT_VERSION {
+		if !(LEGACY_FORMAT_VERSION..=FORMAT_VERSION).contains(&schema.format) {
 			return Err(SchemaError::UnsupportedFormat {
 				found: schema.format,
 				supported: FORMAT_VERSION,
@@ -319,6 +373,50 @@ impl Schema {
 		}
 
 		schema
+	}
+}
+
+/// A schema pack: a library's tables, which an app links as a whole.
+///
+/// The identity is the pack's name, not a table namespace: a pack may put a
+/// table in another namespace, and a namespace may hold tables from several
+/// packs. Ownership is therefore recorded explicitly.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Pack {
+	/// The pack's stable name, such as `auth` or `idp`.
+	pub name: String,
+	/// The tables the pack owns, sorted by name.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub tables: Vec<TableName>,
+	/// Whether leptoskit itself adds this pack from a table flag rather than
+	/// from the app's `packs!` list: `live` and `audit`. A builtin pack
+	/// disappearing is an ordinary schema change, not a missing dependency.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub builtin: bool,
+}
+
+impl Pack {
+	/// A pack owning `tables`, sorted by name.
+	pub fn new(name: impl Into<String>, mut tables: Vec<TableName>) -> Self {
+		tables.sort();
+		Self {
+			name: name.into(),
+			tables,
+			builtin: false,
+		}
+	}
+
+	/// The same pack as one leptoskit adds itself.
+	#[must_use]
+	pub fn builtin(mut self) -> Self {
+		self.builtin = true;
+		self
+	}
+
+	/// Whether this pack owns `table`.
+	pub fn owns(&self, table: &TableName) -> bool {
+		self.tables.contains(table)
 	}
 }
 

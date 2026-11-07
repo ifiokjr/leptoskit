@@ -20,6 +20,8 @@ fn pack_tables_join_the_schema_in_their_namespace() {
 	assert!(names.contains(&&TableName::namespaced("sample", "notes")));
 	assert!(names.contains(&&TableName::namespaced("sample", "signatures")));
 	assert_eq!(<Note as leptoskit_db::Table>::PACK, Some("sample"));
+	let pack = schema.pack("sample").expect("the sample pack is recorded");
+	assert!(pack.owns(&TableName::namespaced("sample", "notes")));
 
 	// The same tables export for SQLite, as `sample_notes`.
 	leptoskit_db::schema(Dialect::Sqlite).unwrap();

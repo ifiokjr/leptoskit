@@ -537,10 +537,56 @@ pub struct UnknownVariant {
 /// its own. A dependency nothing refers to isn't linked into the program, so
 /// without this its tables would silently vanish from the schema, and the
 /// next migration would drop them.
+///
+/// This also records the packs the app expects. Export refuses when a
+/// declared pack exports no tables, and `leptoskit db` refuses to drop a
+/// pack that the latest migration knew about unless `--drop-pack <name>` says
+/// the removal was intended. `--allow-destructive` does not cover a missing
+/// pack.
 #[macro_export]
 macro_rules! packs {
 	($($pack:ident),* $(,)?) => {
 		$(extern crate $pack as _;)*
+		$crate::__server! {
+			$(
+				$crate::__private::inventory::submit! {
+					$crate::__private::ExpectedPack::of($pack::__LEPTOSKIT_PACK)
+				}
+			)*
+		}
+	};
+}
+
+/// Declares a schema pack's identity and the tables it owns, for
+/// [`packs!`](crate::packs) to link. A pack crate writes it once:
+///
+/// ```ignore
+/// leptoskit_db::schema_pack!(
+/// 	name = "auth",
+/// 	tables = [Account, EmailAddress, Session],
+/// );
+/// ```
+///
+/// `requires = ["auth"]` names the packs this one builds on, so an app that
+/// links only this pack is told to link the ones it needs.
+#[macro_export]
+macro_rules! schema_pack {
+	(
+		name = $name:literal
+		$(, requires = [$($requires:literal),* $(,)?])?
+		, tables = [$($table:ty),* $(,)?]
+		$(,)?
+	) => {
+		$crate::__server! {
+			/// The pack's identity and tables, linked by `packs!`.
+			#[doc(hidden)]
+			pub const __LEPTOSKIT_PACK: $crate::__private::PackIdentity =
+				$crate::__private::PackIdentity::new(
+					$name,
+					&[$($($requires),*)?],
+					&[$($crate::__private::TableEntry::of::<$table>()),*],
+				);
+		}
 	};
 }
 
@@ -612,6 +658,10 @@ pub mod __private {
 	pub use crate::cascade::SoftCascade;
 	#[cfg(feature = "server")]
 	pub use crate::settings::SettingEntry;
+	#[cfg(feature = "server")]
+	pub use crate::table::ExpectedPack;
+	#[cfg(feature = "server")]
+	pub use crate::table::PackIdentity;
 	#[cfg(feature = "server")]
 	pub use crate::table::TableBuilder;
 	#[cfg(feature = "server")]

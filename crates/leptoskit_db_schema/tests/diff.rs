@@ -249,13 +249,13 @@ fn snapshots_round_trip_without_hints() {
 fn snapshots_from_another_format_are_refused() {
 	let json = Schema::empty(Dialect::Sqlite)
 		.to_json()
-		.replace("\"format\": 1", "\"format\": 2");
+		.replace("\"format\": 2", "\"format\": 3");
 	let error = Schema::from_json(&json).unwrap_err();
 	assert!(matches!(
 		error,
 		SchemaError::UnsupportedFormat {
-			found: 2,
-			supported: 1
+			found: 3,
+			supported: 2
 		}
 	));
 }
@@ -1727,4 +1727,111 @@ fn publications_name_tables_and_columns_of_the_schema() {
 		&problems(&sqlite),
 		&["publication feed: SQLite has no publications"],
 	);
+}
+
+#[test]
+fn pack_membership_round_trips_and_format_one_has_no_evidence() {
+	let schema = blog(Dialect::Postgres).with_packs(vec![
+		Pack::new("live", vec![TableName::new("users")]).builtin(),
+		Pack::new(
+			"blog",
+			vec![TableName::new("posts"), TableName::new("tags")],
+		),
+	]);
+	let json = schema.to_json();
+	assert!(json.contains("\"packs\""), "{json}");
+	assert!(json.contains("\"builtin\": true"), "{json}");
+	assert_eq!(Schema::from_json(&json).unwrap(), schema);
+
+	// A format 1 snapshot predates membership: absent is unknown, not an
+	// empty membership list.
+	let mut legacy: serde_json::Value = serde_json::from_str(&json).unwrap();
+	legacy["format"] = serde_json::json!(1);
+	legacy.as_object_mut().unwrap().remove("packs");
+	let legacy = Schema::from_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
+	assert_eq!(legacy.pack_membership(), None);
+	assert!(legacy.same_database(&schema.without_rename_hints()));
+}
+
+#[test]
+fn malformed_pack_membership_is_refused() {
+	let users = TableName::new("users");
+	let posts = TableName::new("posts");
+	let unknown = TableName::new("missing");
+
+	let schema = blog(Dialect::Postgres).with_packs(vec![
+		Pack::new("one", vec![users.clone(), users.clone()]),
+		Pack::new("one", vec![posts.clone()]),
+		Pack::new("two", vec![users, unknown]),
+		Pack::new("empty", Vec::new()),
+	]);
+	let error = schema.validate().unwrap_err().to_string();
+
+	for expected in [
+		"pack `one`: another pack already has this name",
+		"pack `one`: lists `users` more than once",
+		"pack `two`: and pack `one` both claim `users`",
+		"pack `two`: owns `missing`, which isn't one of the schema's tables",
+		"pack `empty`: owns no tables; a pack's identity is the tables it owns",
+	] {
+		assert!(error.contains(expected), "{expected}\n{error}");
+	}
+}
+
+#[test]
+fn only_reserved_pack_names_can_be_builtin() {
+	for pack in [
+		Pack::new("custom", vec![TableName::new("users")]).builtin(),
+		Pack::new("live", vec![TableName::new("users")]),
+	] {
+		let schema = blog(Dialect::Postgres).with_packs(vec![pack]);
+		let error = schema.validate().unwrap_err().to_string();
+		assert!(
+			error.contains("only the reserved `live` and `audit` packs are builtin"),
+			"{error}"
+		);
+	}
+}
+
+#[test]
+fn a_format_two_snapshot_must_record_its_pack_membership() {
+	let mut json: serde_json::Value =
+		serde_json::from_str(&blog(Dialect::Sqlite).to_json()).unwrap();
+	json.as_object_mut().unwrap().remove("packs");
+	let error = Schema::from_json(&serde_json::to_string(&json).unwrap())
+		.unwrap_err()
+		.to_string();
+	assert!(
+		error.contains("format 2 requires a `packs` list"),
+		"{error}"
+	);
+
+	let mut json: serde_json::Value =
+		serde_json::from_str(&blog(Dialect::Sqlite).to_json()).unwrap();
+	json["format"] = serde_json::json!(1);
+	let error = Schema::from_json(&serde_json::to_string(&json).unwrap())
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("format 1 has no pack membership"), "{error}");
+}
+
+#[test]
+fn pack_identity_is_independent_of_the_table_namespace() {
+	// A pack may put its table in another namespace, and a namespace may hold
+	// tables from another pack: membership never guesses from the spelling.
+	let table = TableName::namespaced("billing", "invoices");
+	let schema = Schema::new(
+		Dialect::Postgres,
+		vec![Table::new(
+			table.clone(),
+			vec![Column::new("id", ColumnType::Uuid)],
+			vec!["id".into()],
+		)],
+	)
+	.with_packs(vec![Pack::new("custom", vec![table])]);
+
+	schema.validate().unwrap();
+	let pack = schema.pack("custom").unwrap();
+	assert_eq!(pack.tables, [TableName::namespaced("billing", "invoices")]);
+	assert!(pack.owns(&TableName::namespaced("billing", "invoices")));
 }

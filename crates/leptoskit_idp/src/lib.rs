@@ -38,6 +38,9 @@ mod api;
 #[cfg(feature = "client")]
 pub mod client;
 mod tables;
+#[cfg(feature = "server")]
+#[doc(hidden)]
+pub use tables::__LEPTOSKIT_PACK;
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod assertions;

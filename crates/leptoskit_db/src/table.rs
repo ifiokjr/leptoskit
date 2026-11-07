@@ -217,6 +217,7 @@ pub trait Table: Sized + 'static {
 /// without listing tables by hand.
 #[doc(hidden)]
 pub struct TableEntry {
+	type_id: fn() -> std::any::TypeId,
 	pub(crate) name: fn() -> TableName,
 	pub(crate) definition: fn() -> leptoskit_db_schema::Table,
 	pack: Option<&'static str>,
@@ -252,6 +253,7 @@ type VisibleImages = fn(
 impl TableEntry {
 	pub const fn of<T: Table>() -> Self {
 		Self {
+			type_id: std::any::TypeId::of::<T>,
 			name: T::table_name,
 			definition: T::definition,
 			pack: T::PACK,
@@ -286,12 +288,89 @@ impl TableEntry {
 
 inventory::collect!(TableEntry);
 
+/// The builtin pack holding the change log that live tables capture into.
+pub const LIVE_PACK: &str = "live";
+
+/// The builtin pack holding the audit log that audited tables write.
+pub const AUDIT_PACK: &str = "audit";
+
+/// A schema pack's identity and the tables it owns, as its crate exports it
+/// for `packs!` to link and for export to verify.
+///
+/// Not part of the public API: [`schema_pack!`](crate::schema_pack) writes it.
+#[doc(hidden)]
+pub struct PackIdentity {
+	/// The pack's stable name, such as `auth`.
+	pub name: &'static str,
+	/// The packs this one builds on, which must be linked too.
+	pub requires: &'static [&'static str],
+	/// The tables the pack owns. Linking this identity links them.
+	pub tables: &'static [TableEntry],
+}
+
+impl PackIdentity {
+	/// A pack with this name and tables, requiring `requires`.
+	#[doc(hidden)]
+	pub const fn new(
+		name: &'static str,
+		requires: &'static [&'static str],
+		tables: &'static [TableEntry],
+	) -> Self {
+		Self {
+			name,
+			requires,
+			tables,
+		}
+	}
+}
+
+/// One `packs!` entry: a pack the app says it links. The app registers this,
+/// not the pack, so an omitted pack leaves an expectation behind that export
+/// can report even when no table was linked.
+#[doc(hidden)]
+pub struct ExpectedPack {
+	/// The pack the app declared.
+	pub identity: PackIdentity,
+}
+
+impl ExpectedPack {
+	/// The app's expectation for `identity`.
+	#[doc(hidden)]
+	pub const fn of(identity: PackIdentity) -> Self {
+		Self { identity }
+	}
+}
+
+inventory::collect!(ExpectedPack);
+
+/// Every table this program links: those whose own crate registered them,
+/// and those a `packs!` declaration names. The latter keeps a pack's tables
+/// in the export even when nothing else in the app mentions the pack's
+/// symbols.
+fn registered_entries() -> Vec<&'static TableEntry> {
+	deduplicate_entries(
+		inventory::iter::<TableEntry>()
+			.chain(inventory::iter::<ExpectedPack>().flat_map(|expected| expected.identity.tables)),
+	)
+}
+
+fn deduplicate_entries<'a>(entries: impl Iterator<Item = &'a TableEntry>) -> Vec<&'a TableEntry> {
+	let mut types = std::collections::HashSet::new();
+	// A pack may also link its ordinary inventory registration. Deduplicate
+	// that Rust type, not its SQL name: two types claiming one name must reach
+	// schema validation and be rejected, never silently replace one another.
+	entries
+		.filter(|entry| types.insert((entry.type_id)()))
+		.collect()
+}
+
 /// Every registered table, by name.
 pub(crate) fn entries() -> &'static std::collections::HashMap<TableName, &'static TableEntry> {
 	static ENTRIES: std::sync::OnceLock<std::collections::HashMap<TableName, &'static TableEntry>> =
 		std::sync::OnceLock::new();
 	ENTRIES.get_or_init(|| {
-		inventory::iter::<TableEntry>()
+		registered_entries()
+			.into_iter()
 			.map(|entry| ((entry.name)(), entry))
 			.collect()
 	})
@@ -312,12 +391,24 @@ pub(crate) fn live_entry(table: &TableName) -> Option<&'static TableEntry> {
 /// against the latest migration's snapshot. A schema pack's tables must also
 /// work on the other dialect, since packs serve apps on either.
 pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
-	let entries: Vec<&TableEntry> = inventory::iter::<TableEntry>().collect();
+	let entries = registered_entries();
 	let mut tables: Vec<leptoskit_db_schema::Table> =
 		entries.iter().map(|entry| (entry.definition)()).collect();
+	let mut pack_tables: std::collections::BTreeMap<&'static str, Vec<TableName>> =
+		std::collections::BTreeMap::new();
+
+	for entry in &entries {
+		if let Some(pack) = entry.pack {
+			pack_tables.entry(pack).or_default().push((entry.name)());
+		}
+	}
 
 	if entries.iter().any(|entry| entry.audit) {
 		tables.push(crate::AuditEntry::definition());
+		pack_tables
+			.entry(AUDIT_PACK)
+			.or_default()
+			.push(<crate::AuditEntry as Table>::table_name());
 	}
 
 	// A live table brings the `live` pack: its tables, and on Postgres the
@@ -336,17 +427,60 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 			));
 		}
 
-		tables.extend(crate::live::tables(dialect));
+		let live = crate::live::tables(dialect);
+		pack_tables
+			.entry(LIVE_PACK)
+			.or_default()
+			.extend(live.iter().map(|table| table.name.clone()));
+		tables.extend(live);
 		(sequences, functions)
 	} else {
 		(Vec::new(), Vec::new())
 	};
 
+	let packs: Vec<leptoskit_db_schema::Pack> = pack_tables
+		.into_iter()
+		.map(|(name, tables)| {
+			let pack = leptoskit_db_schema::Pack::new(name, tables);
+
+			if name == LIVE_PACK || name == AUDIT_PACK {
+				pack.builtin()
+			} else {
+				pack
+			}
+		})
+		.collect();
+
 	let schema = Schema::new(dialect, tables)
 		.with_views(crate::view::views())
-		.with_routines(sequences, functions, triggers);
-	let mut problems = schema.problems();
+		.with_routines(sequences, functions, triggers)
+		.with_packs(packs);
+	let mut problems = expected_pack_problems(schema.pack_membership().unwrap_or_default());
 
+	for entry in &entries {
+		if matches!(entry.pack, Some(LIVE_PACK | AUDIT_PACK)) {
+			problems.push(leptoskit_db_schema::Problem {
+				location: format!("table `{}`", (entry.name)()),
+				message: "the `live` and `audit` pack names are reserved for leptoskit".into(),
+			});
+		}
+	}
+
+	problems.extend(schema.problems());
+
+	problems.extend(pack_portability_problems(&entries));
+
+	if problems.is_empty() {
+		Ok(schema)
+	} else {
+		Err(SchemaError::Invalid(problems))
+	}
+}
+
+/// Check pack portability alongside dependency packs, reporting each problem
+/// only under the pack that owns its table.
+fn pack_portability_problems(entries: &[&TableEntry]) -> Vec<leptoskit_db_schema::Problem> {
+	let mut problems = Vec::new();
 	let mut packs: Vec<&str> = entries.iter().filter_map(|entry| entry.pack).collect();
 	packs.sort_unstable();
 	packs.dedup();
@@ -392,10 +526,148 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 		}
 	}
 
-	if problems.is_empty() {
-		Ok(schema)
+	problems
+}
+
+/// Problems with the packs an app declared in `packs!`, checked against the
+/// packs that linked: every declared pack, and every pack one of them
+/// requires, must own at least one exported table. This is checked even
+/// before the first migration exists, so a pack whose tables failed to link
+/// can't become a destructive removal later.
+fn expected_pack_problems(
+	actual: &[leptoskit_db_schema::Pack],
+) -> Vec<leptoskit_db_schema::Problem> {
+	let expected: Vec<&ExpectedPack> = inventory::iter::<ExpectedPack>().collect();
+	expected_pack_problems_of(&expected, actual)
+}
+
+/// [`expected_pack_problems`], with the declared packs given rather than
+/// read from the inventory, so the rules can be tested directly.
+fn expected_pack_problems_of(
+	expected: &[&ExpectedPack],
+	actual: &[leptoskit_db_schema::Pack],
+) -> Vec<leptoskit_db_schema::Problem> {
+	use std::collections::BTreeMap;
+	use std::collections::BTreeSet;
+	use std::collections::HashMap;
+	use std::collections::HashSet;
+
+	if expected.is_empty() {
+		return Vec::new();
+	}
+
+	let mut declared: HashMap<&str, &PackIdentity> = HashMap::new();
+	let mut declared_names = HashSet::new();
+	let mut problems = Vec::new();
+
+	for pack in expected {
+		if !declared_names.insert(pack.identity.name) {
+			problems.push(leptoskit_db_schema::Problem {
+				location: format!("pack `{}`", pack.identity.name),
+				message: "is declared more than once in packs!".to_owned(),
+			});
+		}
+
+		problems.extend(pack_identity_problems(&pack.identity));
+
+		declared.insert(pack.identity.name, &pack.identity);
+	}
+
+	let actual_names: BTreeSet<&str> = actual.iter().map(|pack| pack.name.as_str()).collect();
+	let mut required: BTreeMap<&str, Option<&str>> = BTreeMap::new();
+	let mut pending: Vec<(&str, Option<&str>)> = expected
+		.iter()
+		.map(|pack| (pack.identity.name, None))
+		.collect();
+
+	while let Some((name, required_by)) = pending.pop() {
+		if required.get(name).is_some_and(Option::is_some) {
+			continue;
+		}
+
+		required.insert(name, required_by);
+
+		if let Some(pack) = declared.get(name) {
+			for dependency in pack.requires {
+				pending.push((*dependency, Some(name)));
+			}
+		}
+	}
+
+	for pack in expected {
+		if pack.identity.name == LIVE_PACK || pack.identity.name == AUDIT_PACK {
+			problems.push(leptoskit_db_schema::Problem {
+				location: format!("pack `{}`", pack.identity.name),
+				message: "is reserved for leptoskit's builtin pack; a packs! entry can't declare \
+				          it"
+				.to_owned(),
+			});
+		}
+	}
+
+	for (name, required_by) in required {
+		let empty = declared
+			.get(name)
+			.is_some_and(|pack| pack.tables.is_empty());
+
+		if actual_names.contains(name) && !empty {
+			continue;
+		}
+
+		let message = missing_pack_message(name, required_by, empty);
+
+		problems.push(leptoskit_db_schema::Problem {
+			location: format!("pack `{name}`"),
+			message,
+		});
+	}
+
+	problems
+}
+
+/// A pack cannot claim a table another pack owns.
+fn pack_identity_problems(pack: &PackIdentity) -> Vec<leptoskit_db_schema::Problem> {
+	let mut problems = Vec::new();
+
+	for entry in pack.tables {
+		if entry.pack != Some(pack.name) {
+			problems.push(leptoskit_db_schema::Problem {
+				location: format!("pack `{}`", pack.name),
+				message: format!(
+					"declares the table `{}` as its own, but that table belongs to pack `{}`",
+					(entry.name)(),
+					entry.pack.unwrap_or("none")
+				),
+			});
+		}
+	}
+
+	problems
+}
+
+/// Explain which link in the declared pack graph is missing.
+fn missing_pack_message(name: &str, required_by: Option<&str>, empty: bool) -> String {
+	if empty {
+		format!(
+			"packs! declares the `{name}` schema pack, but it owns no tables; check that the \
+			 pack's feature set exports its tables"
+		)
 	} else {
-		Err(SchemaError::Invalid(problems))
+		match required_by {
+			Some(by) => {
+				format!(
+					"the `{by}` schema pack requires the `{name}` pack, but no `{name}` tables \
+					 are linked; add the `{name}` pack's crate to packs!"
+				)
+			}
+			None => {
+				format!(
+					"packs! declares the `{name}` schema pack, but no `{name}` tables are linked; \
+					 check that the pack's crate is a dependency with its server and database \
+					 features, and that it exports its pack with schema_pack!"
+				)
+			}
+		}
 	}
 }
 
@@ -1014,4 +1286,102 @@ fn serve_studio() {
 		"this build has no studio: it needs the `studio` feature of leptoskit_db, a database \
 		 driver, and debug assertions, which release builds turn off"
 	);
+}
+
+#[cfg(test)]
+mod tests {
+	use leptoskit_db_schema::Pack;
+	use leptoskit_db_schema::TableName;
+
+	use super::ExpectedPack;
+	use super::PackIdentity;
+	use super::expected_pack_problems_of;
+
+	fn messages(expected: &[&ExpectedPack], actual: &[Pack]) -> Vec<String> {
+		expected_pack_problems_of(expected, actual)
+			.into_iter()
+			.map(|problem| problem.to_string())
+			.collect()
+	}
+
+	#[test]
+	fn declared_packs_must_link_tables_even_on_the_first_export() {
+		let idp = ExpectedPack::of(PackIdentity::new("idp", &["auth"], &[]));
+		let declared = [&idp];
+
+		let found = messages(&declared, &[]);
+		assert!(
+			found.iter().any(|message| {
+				message.contains("declares the `idp` schema pack, but it owns no tables")
+			}),
+			"{found:#?}"
+		);
+		assert!(
+			found
+				.iter()
+				.any(|message| message.contains("`idp` schema pack requires the `auth` pack")),
+			"{found:#?}"
+		);
+
+		let actual = [Pack::new("idp", vec![TableName::new("clients")])];
+		let found = messages(&declared, &actual);
+		assert_eq!(found.len(), 2, "{found:#?}");
+		assert!(
+			found
+				.iter()
+				.any(|message| message.contains("requires the `auth` pack")),
+			"{found:#?}"
+		);
+
+		let actual = [
+			Pack::new("idp", vec![TableName::new("clients")]),
+			Pack::new("auth", vec![TableName::new("accounts")]),
+		];
+		let found = messages(&declared, &actual);
+		assert_eq!(found.len(), 1, "{found:#?}");
+		assert!(found[0].contains("owns no tables"), "{found:#?}");
+	}
+
+	#[test]
+	fn a_pack_cannot_claim_another_packs_table() {
+		static TABLES: [super::TableEntry; 1] = [super::TableEntry::of::<crate::AuditEntry>()];
+		let fake = ExpectedPack::of(PackIdentity::new("fake", &[], &TABLES));
+		let found = messages(
+			&[&fake],
+			&[Pack::new("fake", vec![TableName::new("_leptoskit_audit")])],
+		);
+		assert_eq!(found.len(), 1, "{found:#?}");
+		assert!(found[0].contains("belongs to pack `none`"), "{found:#?}");
+	}
+
+	#[test]
+	fn builtin_pack_names_are_reserved() {
+		let live = ExpectedPack::of(PackIdentity::new("live", &[], &[]));
+		let found = messages(
+			&[&live],
+			&[Pack::new("live", vec![TableName::new("changes")]).builtin()],
+		);
+		assert!(
+			found.iter().any(|message| message.contains("reserved")),
+			"{found:#?}"
+		);
+	}
+
+	#[test]
+	fn registration_deduplicates_rust_types_without_hiding_sql_name_collisions() {
+		let first = super::TableEntry::of::<crate::AuditEntry>();
+		let repeated = super::TableEntry::of::<crate::AuditEntry>();
+		let mut conflicting = super::TableEntry::of::<crate::AuditEntry>();
+		conflicting.type_id = std::any::TypeId::of::<()>;
+		let entries = super::deduplicate_entries([&first, &repeated, &conflicting].into_iter());
+		assert_eq!(entries.len(), 2);
+		let schema = leptoskit_db_schema::Schema::new(
+			leptoskit_db_schema::Dialect::Sqlite,
+			entries.iter().map(|entry| (entry.definition)()).collect(),
+		);
+		assert!(
+			schema.validate().is_err(),
+			"distinct types claiming one SQL table must be rejected"
+		);
+	}
 }

@@ -180,7 +180,9 @@ impl DevDatabase {
 				);
 			};
 
-			if let Some(message) = super::push::push(&self.project, url, target, false)?.message() {
+			if let Some(message) =
+				super::push::push(&self.project, url, target, false, &[])?.message()
+			{
 				print!("{message}");
 			}
 
@@ -229,6 +231,9 @@ pub(crate) enum Change {
 	/// In a way that needs an answer first, such as whether a column was
 	/// renamed.
 	Unresolved(String),
+	/// By losing schema packs the latest migration recorded, which needs
+	/// `--drop-pack <name>` rather than an ordinary migration.
+	MissingPacks(Vec<String>),
 }
 
 impl Change {
@@ -273,6 +278,30 @@ impl Change {
 					"[db] the tables changed, but nothing was written or applied: {error}"
 				);
 			}
+			Self::MissingPacks(packs) => {
+				let names = packs
+					.iter()
+					.map(|name| format!("`{name}`"))
+					.collect::<Vec<_>>()
+					.join(", ");
+				let drops = packs
+					.iter()
+					.map(|name| format!("--drop-pack {name}"))
+					.collect::<Vec<_>>()
+					.join(" ");
+				let _ = writeln!(
+					message,
+					"[db] the tables no longer include the schema pack(s) {names}, so nothing was \
+					 written or applied: an omitted `packs!` entry, a lost dependency, or a \
+					 missing feature looks the same as a deliberate removal"
+				);
+				let _ = writeln!(
+					message,
+					"[db] if you meant to remove them, run `{command} db migration create <name> \
+					 --allow-destructive {drops}`; otherwise add the pack back with \
+					 `leptoskit::db::packs!(…)`"
+				);
+			}
 		}
 
 		Some(message)
@@ -288,7 +317,15 @@ fn write_steps(message: &mut String, steps: &[String]) {
 /// How `target` differs from the latest migration's snapshot. Renames count
 /// only when `#[db(renamed_from = …)]` marks them: the dev loop never asks.
 pub(crate) fn classify(history: &History, target: &Schema) -> Change {
-	if target.without_rename_hints() == history.latest {
+	let target_without_hints = target.without_rename_hints();
+
+	match super::removed_packs(&history.latest, &target_without_hints) {
+		Ok(missing) if !missing.is_empty() => return Change::MissingPacks(missing),
+		Ok(_) => {}
+		Err(error) => return Change::Unresolved(error.to_string()),
+	}
+
+	if target_without_hints.same_database(&history.latest) {
 		return Change::Unchanged;
 	}
 
@@ -332,6 +369,7 @@ fn create_dev_migration(project: &Project, target: &Schema) -> Result<Created> {
 	let options = CreateOptions {
 		allow_destructive: false,
 		empty: false,
+		drop_packs: Vec::new(),
 	};
 	super::create(
 		project,

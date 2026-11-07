@@ -1381,14 +1381,30 @@ leptoskit::db::packs!(leptoskit_auth);
 
 The pack's tables join your schema, in the pack's own namespace (`auth.sessions` on Postgres, `auth_sessions` on SQLite). They show up in your next `leptoskit db migration create` for you to review, like changes to your own tables. Your code reads them, and links to them with `Id<auth::Account>`, under the pack's policies. Only the pack's own functions write them: their generated write methods are private to the pack's crate.
 
-To write a pack, give its tables a `pack`:
+`packs!` is also the app's declaration of which packs it expects. The snapshot written beside each migration records every pack and the tables it owns, so a pack cannot quietly fall out of the link and turn into a set of dropped tables:
+
+- Export refuses when `packs!` names a pack that exports no tables, including before the first migration exists.
+- `db migration create`, `db push`, `db migration consolidate`, and the development watch refuse to remove a pack the latest snapshot recorded, or one a push recorded, until you name it with `--drop-pack <name>`. `--allow-destructive` does not cover a pack removal: accidentally dropping an omitted dependency looks exactly like deliberately deleting every table the pack owns.
+- A pack that a declared pack builds on is expected too, so `packs!(leptoskit_idp)` without the `auth` pack says which one is missing.
+- Changes inside a present pack, such as adding a column to one of its tables, are ordinary changes and need no special flag.
+
+Snapshots written by older leptoskit versions use format 1, which has no pack membership. They remain readable, and the next migration writes format 2. A pack that had already vanished before such a snapshot existed cannot be detected from it; the limitation is the missing evidence, not an inference from the pack's namespace.
+
+Push mode records changes to pack membership even when the tables stay the same. That record protects a newly linked pack on the next push. To commit a membership change that needs no SQL, use `db migration create record_packs --empty`; migration creation also checks the pack membership in any development push it adopts. Amending or consolidating a draft checks both the schema being replaced and its earlier migration baseline.
+
+To write a pack, give its tables a `pack`, and declare the pack's identity and tables once, so `packs!` can link every one of them even when the app never names a pack type:
 
 ```rust
 #[db::table(name = "sessions", pack = "auth")]
 pub struct Session { … }
+
+leptoskit_db::schema_pack!(
+	name = "auth",
+	tables = [Session, /* every table the pack owns */],
+);
 ```
 
-A pack serves apps on either database, so its tables must work on both. Exporting the schema refuses pack tables with a type only one database has, a raw SQL default or check, or a link to a table outside the pack.
+A pack serves apps on either database, so its tables must work on both. Exporting the schema refuses pack tables with a type only one database has, a raw SQL default or check, or a link to a table outside the pack. A pack must own at least one table; `live` and `audit` are leptoskit's builtin packs and follow the `live` and `audit` table flags instead.
 
 ## When two accounts merge
 
@@ -1448,6 +1464,7 @@ It needs no database, so it gives the same result on every machine.
 
 - **Renames.** When a column disappears and another appears, it asks whether that was a rename. Say so in the code to skip the question: `#[db(renamed_from = "handle")]`. Once the migration exists the hint does nothing, so remove it whenever you like.
 - **Deleting data.** A step that would delete data, such as dropping a column, stops unless you pass `--allow-destructive`.
+- **Removing a schema pack.** A pack the latest snapshot recorded can only disappear when you name it with `--drop-pack <name>`; `--allow-destructive` alone is not enough, because a missing `packs!` entry or dependency looks the same as a deliberate removal. Name each pack once, and only when it is actually gone from the export.
 - **Data changes.** `--empty` writes a migration with no schema changes, for SQL you write yourself.
 - **SQLite rebuilds.** Changes that SQLite can't make in place, such as adding a check, rebuild the table and copy its rows across.
 

@@ -83,15 +83,16 @@ pub enum SchemaError {
 	/// The snapshot isn't valid JSON for this format.
 	#[error("the schema snapshot isn't valid: {0}")]
 	Json(#[source] serde_json::Error),
-	/// The snapshot was written by a newer or older format.
+	/// The snapshot was written by a newer format, or one this crate no
+	/// longer reads.
 	#[error(
-		"the schema snapshot uses format {found}, and this version of leptoskit reads format \
-		 {supported}"
+		"the schema snapshot uses format {found}, and this version of leptoskit reads formats 1 \
+		 through {supported}"
 	)]
 	UnsupportedFormat {
 		/// The snapshot's format.
 		found: u32,
-		/// The format this crate reads.
+		/// The newest format this crate reads.
 		supported: u32,
 	},
 	/// The schema contradicts itself.
