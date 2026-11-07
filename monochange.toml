@@ -85,6 +85,7 @@ packages = [
 	"leptoskit_plugin_home_widgets",
 	"leptoskit_plugin_battery",
 	"leptoskit_plugin_device",
+	"leptoskit_plugin_device_policy",
 	"leptoskit_plugin_secure_store",
 	"leptoskit_plugin_linking",
 	"leptoskit_plugin_live_activities",
@@ -295,6 +296,9 @@ path = "crates/leptoskit_plugin_battery"
 
 [package.leptoskit_plugin_device]
 path = "crates/leptoskit_plugin_device"
+
+[package.leptoskit_plugin_device_policy]
+path = "crates/leptoskit_plugin_device_policy"
 
 [package.leptoskit_plugin_secure_store]
 path = "crates/leptoskit_plugin_secure_store"
