@@ -6,6 +6,8 @@
 
 use analytics_app::server::router;
 use leptos::prelude::*;
+use leptoskit::server::GracefulShutdown;
+use leptoskit::server::Readiness;
 use leptoskit::server::tokio;
 
 #[tokio::main]
@@ -17,10 +19,15 @@ async fn main() {
 	let listener = tokio::net::TcpListener::bind(address)
 		.await
 		.expect("bind the server address");
+	// `/healthz` and `/readyz`, which every deployment's health checks call.
+	let readiness = Readiness::new();
+	let app = router(options).merge(readiness.routes());
 	println!("listening on http://{address}");
-	// Ctrl-C, or the SIGTERM a container runtime sends, finishes the requests
-	// in flight, then exits cleanly.
-	leptoskit::server::serve_listener(listener, router(options))
+	// Ctrl-C, or the SIGTERM a container runtime sends, fails `/readyz`, gives
+	// the load balancer a few seconds to notice, then finishes the requests in
+	// flight and exits cleanly.
+	let shutdown = GracefulShutdown::new().readiness(&readiness);
+	leptoskit::server::serve_listener_with(listener, app, shutdown)
 		.await
 		.expect("serve");
 }

@@ -1,0 +1,31 @@
+[package]
+name = "services_echo"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "A test service that reports what reaches it, for the deploy checks in services-deploy.yml."
+
+# The library is empty: `service::main!` links it, as it links a real
+# service's operations.
+[[bin]]
+name = "services_echo"
+path = "src/main.rs"
+
+[dependencies]
+leptoskit_axum = { workspace = true }
+
+# What `lk` reads to run this crate as a service. The deploy checks declare
+# it `isolated` where the edge can strip cookies.
+[package.metadata.leptoskit.service]
+name = "echo"
+port = 3300
+public = true
+volumes = ["notes"]
+
+[lints]
+workspace = true

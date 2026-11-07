@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_cli/src/deploy/tests.rs
-assertion_line: 483
+assertion_line: 484
 expression: pinned
 ---
 $ leptoskit generate deploy --target kubernetes
@@ -153,6 +153,12 @@ spec:
         app: notes
     spec:
       terminationGracePeriodSeconds: 30
+      # The image's `app` user by number, which the kubelet needs to check
+      # it isn't root; volumes are made writable to its group.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: notes
           image: notes
@@ -252,6 +258,12 @@ spec:
         app: notes-analytics
     spec:
       terminationGracePeriodSeconds: 30
+      # The image's `app` user by number, which the kubelet needs to check
+      # it isn't root; volumes are made writable to its group.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: analytics
           image: notes
@@ -357,6 +369,12 @@ spec:
         app: notes-cards
     spec:
       terminationGracePeriodSeconds: 30
+      # The image's `app` user by number, which the kubelet needs to check
+      # it isn't root; volumes are made writable to its group.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: cards
           image: notes
