@@ -1,0 +1,26 @@
+[package]
+name = "leptoskit_plugin_live_activities"
+version = "0.3.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "iOS Live Activities and Dynamic Island updates for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "live-activities"
+apple-module = "LeptosKitLiveActivities"
+apple-type = "LiveActivitiesPlugin"
+android-type = "dev.leptoskit.plugins.liveactivities.LiveActivitiesPlugin"
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[lints]
+workspace = true

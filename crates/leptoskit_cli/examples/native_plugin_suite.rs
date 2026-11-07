@@ -59,6 +59,7 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 	("screen-capture", "leptoskit_plugin_screen_capture"),
 	("sharing", "leptoskit_plugin_sharing"),
 	("store-review", "leptoskit_plugin_store_review"),
+	("live-activities", "leptoskit_plugin_live_activities"),
 	(
 		"tracking-transparency",
 		"leptoskit_plugin_tracking_transparency",

@@ -3398,6 +3398,7 @@ dependencies = [
  "leptoskit_plugin_keep_awake",
  "leptoskit_plugin_light_sensor",
  "leptoskit_plugin_linking",
+ "leptoskit_plugin_live_activities",
  "leptoskit_plugin_local_authentication",
  "leptoskit_plugin_localization",
  "leptoskit_plugin_location",
@@ -5891,6 +5892,13 @@ dependencies = [
  "open",
  "url",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_live_activities"
+version = "0.3.0"
+dependencies = [
+ "leptoskit_bridge",
 ]
 
 [[package]]
