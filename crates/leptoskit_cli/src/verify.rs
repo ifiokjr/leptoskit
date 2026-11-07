@@ -18,7 +18,7 @@ use serde::Serialize;
 use sha2::Digest as _;
 use sha2::Sha256;
 
-mod build;
+pub(crate) mod build;
 mod deployment;
 
 const FORMAT_VERSION: u32 = 1;
@@ -113,7 +113,9 @@ pub(crate) enum Entry {
 pub fn run(command: VerifyCommand) -> Result<()> {
 	match command {
 		VerifyCommand::Build(args) => build::build(&args)?,
-		VerifyCommand::Reproduce(args) => build::reproduce(&args)?,
+		VerifyCommand::Reproduce(args) => {
+			build::reproduce(&args)?;
+		}
 		VerifyCommand::Keygen(args) => deployment::keygen(&args)?,
 		VerifyCommand::Sign(args) => deployment::sign_file(&args)?,
 		VerifyCommand::Deployment(args) => deployment::deployment(&args)?,

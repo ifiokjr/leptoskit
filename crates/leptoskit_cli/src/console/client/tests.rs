@@ -61,6 +61,8 @@ fn save_pending(root: &Path, value: &serde_json::Value) {
 
 fn release_args() -> crate::infra::ReleaseArgs {
 	crate::infra::ReleaseArgs {
+		verified_descriptor: None,
+		descriptor_sha256: None,
 		version: None,
 		rollback: None,
 		setup: false,
@@ -500,6 +502,26 @@ fn apply_refuses_a_plan_without_an_identifier() {
 	assert!(
 		error.to_string().contains("invalid saved plan"),
 		"unexpected error: {error}"
+	);
+}
+
+#[test]
+fn connected_deploy_cannot_ignore_verified_evidence() {
+	let root = tempfile::tempdir().unwrap();
+	let connection = Connection {
+		url: "http://127.0.0.1:1".into(),
+		key: KEY.into(),
+		project: "demo".into(),
+		root: root.path().to_path_buf(),
+	};
+	let mut args = release_args();
+	args.verified_descriptor = Some(root.path().join("descriptor.json"));
+	args.descriptor_sha256 = Some("a".repeat(64));
+	assert!(
+		deploy(&connection, &args)
+			.unwrap_err()
+			.to_string()
+			.contains("direct managed deployment")
 	);
 }
 

@@ -1,0 +1,8 @@
+[app]
+name="verified-backend"
+platforms=["server"]
+default_platform="server"
+render="ssr"
+[db]
+dialect="postgres"
+migrations="migrations"

@@ -26,8 +26,26 @@ use super::remote_history;
 use super::runtime;
 
 pub(super) fn history(ip: &str, c: &InfraConfig) -> Result<Vec<Release>> {
-	serde_json::from_slice(&remote::read(ip, &c.name, "releases.json")?)
-		.context("invalid shared release history; refusing to overwrite")
+	let history: Vec<Release> =
+		serde_json::from_slice(&remote::read(ip, &c.name, "releases.json")?)
+			.context("invalid shared release history; refusing to overwrite")?;
+	let mut verified = false;
+	for release in &history {
+		if let Some(evidence) = &release.evidence {
+			evidence.validate()?;
+			ensure!(
+				evidence.migrations == release.migrations,
+				"history evidence schema differs"
+			);
+			verified = true;
+		} else {
+			ensure!(
+				!verified,
+				"shared history discarded verified evidence; refusing to overwrite"
+			);
+		}
+	}
+	Ok(history)
 }
 
 pub(super) fn stop(hosts: &[String], c: &InfraConfig) -> Result<()> {
@@ -138,6 +156,15 @@ fn prepare_recorded(
 		);
 	}
 	verify_schema_labels(hosts, c, &release.version, &release.migrations)?;
+	if let Some(evidence) = &release.evidence {
+		for host in hosts {
+			evidence.check_remote(
+				host,
+				&format!("{}:{}", image(c), release.version),
+				&release.migrations,
+			)?;
+		}
+	}
 	Ok(())
 }
 
@@ -275,6 +302,25 @@ struct Flight<'a> {
 	finished: bool,
 }
 
+impl Flight<'_> {
+	fn checked(&self, result: Result<String>, hosts: &[String]) -> Result<String> {
+		match result {
+			Ok(image) => Ok(image),
+			Err(error) => {
+				stop(hosts, self.config)?;
+				record(
+					self.ip,
+					self.config,
+					self.owner,
+					"verification-failed-app-stopped",
+					self.version,
+				)?;
+				Err(error)
+			}
+		}
+	}
+}
+
 impl Drop for Flight<'_> {
 	fn drop(&mut self) {
 		if self.finished {
@@ -384,6 +430,11 @@ fn verify_release(
 		);
 	}
 	if let Some(target) = target {
+		if let Some(evidence) = &target.evidence {
+			for host in hosts {
+				evidence.check_remote(host, &image, expected)?;
+			}
+		}
 		ensure!(
 			target.image_digest.as_ref() == Some(&image),
 			"running image differs from recorded digest"
@@ -436,6 +487,10 @@ fn recover_previous(
 	if let Some(previous) = history.last()
 		&& actual == previous.migrations
 	{
+		ensure!(
+			!history.iter().any(|r| r.evidence.is_some()) || previous.evidence.is_some(),
+			"automatic recovery cannot downgrade verified evidence"
+		);
 		prepare_recorded(dir, c, hosts, previous, env, reservation)?;
 		execute(
 			dir,
@@ -509,6 +564,48 @@ fn target_release(
 	Ok(target)
 }
 
+fn release_evidence(
+	args: &ReleaseArgs,
+	target: Option<&Release>,
+	history: &[Release],
+	local_hash: &str,
+) -> Result<Option<super::verified::Descriptor>> {
+	let evidence = match (&args.verified_descriptor, &args.descriptor_sha256) {
+		(Some(path), Some(pin)) => {
+			ensure!(
+				target.is_none(),
+				"recorded releases use their recorded evidence"
+			);
+			Some(super::verified::read(path, pin)?)
+		}
+		(None, None) => target.and_then(|r| r.evidence.clone()),
+		_ => anyhow::bail!("descriptor and independent pin are both required"),
+	};
+	ensure!(
+		!history.iter().any(|r| r.evidence.is_some()) || evidence.is_some(),
+		"verified release history cannot downgrade to legacy evidence"
+	);
+	if let Some(evidence) = &evidence {
+		evidence.validate()?;
+		ensure!(
+			evidence.migrations == *target.map_or(local_hash, |r| &r.migrations),
+			"verified source schema differs from release schema"
+		);
+	}
+	Ok(evidence)
+}
+
+fn ensure_restore_ready(ip: &str, name: &str) -> Result<()> {
+	let reset: serde_json::Value =
+		serde_json::from_slice(&remote::read(ip, name, "derived-reset-required.json")?)?;
+	ensure!(
+		reset.is_array(),
+		"database restore has unfinished relay/cache recovery; retry `lk infra restore --snapshot \
+		 <id> --yes` before starting applications"
+	);
+	Ok(())
+}
+
 pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let c = managed_settings(&config)?;
@@ -529,17 +626,15 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 		"invalid primary private address"
 	);
 	let reservation = Reservation::acquire(ip, &c.name)?;
-	let reset: serde_json::Value =
-		serde_json::from_slice(&remote::read(ip, &c.name, "derived-reset-required.json")?)?;
-	ensure!(
-		reset.is_array(),
-		"database restore has unfinished relay/cache recovery; retry `lk infra restore --snapshot \
-		 <id> --yes` before starting applications"
-	);
+	ensure_restore_ready(ip, &c.name)?;
 	let mut history = history(ip, c)?;
 	let local_schema = schema(&root, &config)?;
 	let local_hash = history_fingerprint(local_schema.clone())?;
 	let target = target_release(args, &history, version, &local_hash)?;
+	let evidence = release_evidence(args, target.as_ref(), &history, &local_hash)?;
+	if evidence.is_some() {
+		super::verified::backend_only(&root, &config)?;
+	}
 	let env = runtime_files(&dir, c, &root, &config, &hosts, &private)?;
 	if c.backups.enabled && args.setup {
 		super::recovery::credentials()?;
@@ -566,6 +661,15 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 			&reservation,
 		)?;
 		verify_schema_labels(&hosts, c, version, &local_hash)?;
+	}
+	if let Some(evidence) = &evidence {
+		for host in &hosts {
+			evidence.check_remote(
+				host,
+				&format!("{}:{version}", image(c)),
+				&evidence.migrations,
+			)?;
+		}
 	}
 	execute(&dir, &["proxy", "boot"], &env, &reservation)?;
 	if !args.setup && target.is_none() {
@@ -601,6 +705,7 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	if let Err(error) = result {
 		record(ip, c, &reservation.owner, "failed", version)?;
 		if recover_previous(&dir, c, &hosts, &history, &env, &reservation).is_err() {
+			stop(&hosts, c).context("automatic recovery failed and application stop failed")?;
 			eprintln!(
 				"Automatic recovery did not complete; inspect shared status and recover \
 				 explicitly."
@@ -611,22 +716,18 @@ pub(super) fn run(args: &ReleaseArgs) -> Result<()> {
 	let expected = target
 		.as_ref()
 		.map_or(&local_hash, |target| &target.migrations);
-	let verified = verify_release(&hosts, c, version, expected, target.as_ref());
-	let image = match verified {
-		Ok(image) => image,
-		Err(error) => {
-			stop(&hosts, c)?;
-			record(
-				ip,
-				c,
-				&reservation.owner,
-				"verification-failed-app-stopped",
-				version,
-			)?;
-			return Err(error);
+	let verified = (|| {
+		let digest = verify_release(&hosts, c, version, expected, target.as_ref())?;
+		if let Some(evidence) = &evidence {
+			for host in &hosts {
+				evidence.check_remote(host, &digest, expected)?;
+			}
 		}
-	};
+		anyhow::Ok(digest)
+	})();
+	let image = flight.checked(verified, &hosts)?;
 	history.push(Release {
+		evidence,
 		version: version.clone(),
 		migrations: expected.clone(),
 		schema: target.as_ref().map_or(local_schema, |t| t.schema.clone()),
@@ -795,6 +896,8 @@ mod tests {
 
 	fn args() -> ReleaseArgs {
 		ReleaseArgs {
+			verified_descriptor: None,
+			descriptor_sha256: None,
 			version: None,
 			rollback: None,
 			setup: false,
@@ -807,12 +910,77 @@ mod tests {
 
 	fn recorded(version: &str, migrations: &str) -> Release {
 		Release {
+			evidence: None,
 			version: version.into(),
 			migrations: migrations.into(),
 			schema: Vec::new(),
 			image_digest: Some(format!("sha256:{}", "a".repeat(64))),
 			completed_at: None,
 		}
+	}
+
+	#[test]
+	fn verified_history_rejects_legacy_reuse_rollback_and_recovery() {
+		let descriptor = serde_json::json!({
+			"format_version": 1, "kind": "leptoskit-verified-backend-image",
+			"inventory_sha256": "a".repeat(64),
+			"recipe": {"repository": "https://github.com/example/backend", "commit": "a".repeat(40),
+				"builder_image": format!("builder@sha256:{}", "a".repeat(64)),
+				"target": "aarch64-unknown-linux-musl", "package": "backend", "binary": "backend",
+				"features": [], "no_default_features": false, "rustflags": []},
+			"executable_sha256": "b".repeat(64), "executable_mode": 493,
+			"migrations": &"a".repeat(64), "runtime_image": format!("runtime@sha256:{}", "a".repeat(64)),
+			"runtime_config_sha256": "c".repeat(64), "engine_image_id": format!("sha256:{}", "d".repeat(64)),
+			"image_config_sha256": "e".repeat(64), "platform": "linux/arm64",
+			"assets": "not_applicable", "services": "unsupported",
+			"rpc_contract": {"state": "not_applicable", "declaration": "operator_declares_no_rpc"},
+			"native_guest_compatibility": "not_applicable", "runtime_attestation": "absent"
+		});
+		let mut verified = recorded("verified", &"a".repeat(64));
+		verified.evidence = Some(serde_json::from_value(descriptor).unwrap());
+		let legacy = recorded("legacy", &"a".repeat(64));
+		for recover in [false, true] {
+			let mut options = args();
+			options.recover = recover;
+			assert!(
+				release_evidence(
+					&options,
+					Some(&legacy),
+					std::slice::from_ref(&verified),
+					&"a".repeat(64)
+				)
+				.is_err()
+			);
+			assert!(
+				release_evidence(
+					&options,
+					Some(&verified),
+					std::slice::from_ref(&legacy),
+					&"a".repeat(64)
+				)
+				.unwrap()
+				.is_some()
+			);
+			assert!(
+				release_evidence(
+					&options,
+					None,
+					std::slice::from_ref(&verified),
+					&"a".repeat(64)
+				)
+				.is_err()
+			);
+		}
+		assert!(
+			release_evidence(
+				&args(),
+				Some(&legacy),
+				std::slice::from_ref(&legacy),
+				&"a".repeat(64)
+			)
+			.unwrap()
+			.is_none()
+		);
 	}
 
 	fn infra() -> InfraConfig {

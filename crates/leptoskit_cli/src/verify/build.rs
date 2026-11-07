@@ -54,7 +54,7 @@ pub struct BuildArgs {
 	/// A local clone holding the recipe's commit. Without it, the commit is
 	/// fetched from the recipe's repository without credentials.
 	#[arg(long)]
-	checkout: Option<PathBuf>,
+	pub(crate) checkout: Option<PathBuf>,
 	/// The name of an environment variable the backend reads a secret from;
 	/// repeat for each. Values are never read.
 	#[arg(long = "secret", value_name = "NAME")]
@@ -65,7 +65,7 @@ pub struct BuildArgs {
 	/// The container engine. Defaults to docker, then podman, whichever
 	/// responds.
 	#[arg(long, value_enum)]
-	engine: Option<Engine>,
+	pub(crate) engine: Option<Engine>,
 }
 
 /// Rebuilds a pinned bundle and compares it with its sources.
@@ -73,25 +73,25 @@ pub struct BuildArgs {
 pub struct ReproduceArgs {
 	/// The extracted backend bundle directory.
 	#[arg(long)]
-	bundle: PathBuf,
+	pub(crate) bundle: PathBuf,
 	/// The inventory written with the bundle.
 	#[arg(long)]
-	manifest: PathBuf,
+	pub(crate) manifest: PathBuf,
 	/// The expected inventory digest, obtained independently of the bundle.
 	#[arg(long)]
-	sha256: String,
+	pub(crate) sha256: String,
 	/// Compare the source with this local clone instead of fetching the
 	/// recipe's commit from its repository.
 	#[arg(long)]
-	checkout: Option<PathBuf>,
+	pub(crate) checkout: Option<PathBuf>,
 	/// Skip the steps that need the network: fetching the commit and
 	/// re-resolving dependencies. Only the executable is rebuilt.
 	#[arg(long)]
-	offline: bool,
+	pub(crate) offline: bool,
 	/// The container engine. Defaults to docker, then podman, whichever
 	/// responds.
 	#[arg(long, value_enum)]
-	engine: Option<Engine>,
+	pub(crate) engine: Option<Engine>,
 }
 
 /// A container engine with a docker-compatible command line.
@@ -104,14 +104,14 @@ pub enum Engine {
 }
 
 impl Engine {
-	const fn program(self) -> &'static str {
+	pub(crate) const fn program(self) -> &'static str {
 		match self {
 			Self::Docker => "docker",
 			Self::Podman => "podman",
 		}
 	}
 
-	fn detect(choice: Option<Self>) -> Result<Self> {
+	pub(crate) fn detect(choice: Option<Self>) -> Result<Self> {
 		if let Some(engine) = choice {
 			return Ok(engine);
 		}
@@ -270,6 +270,7 @@ impl<'a> Builder<'a> {
 			("RUSTUP_AUTO_INSTALL", "0".to_owned()),
 			("CARGO_TERM_COLOR", "never".to_owned()),
 			("CARGO_INCREMENTAL", "0".to_owned()),
+			("CARGO_BUILD_JOBS", "4".to_owned()),
 			("SOURCE_DATE_EPOCH", SOURCE_DATE_EPOCH.to_owned()),
 			("TZ", "UTC".to_owned()),
 			("LC_ALL", "C".to_owned()),
@@ -789,10 +790,51 @@ pub(super) fn build(args: &BuildArgs) -> Result<()> {
 }
 
 /// `leptoskit verify reproduce`.
-pub(super) fn reproduce(args: &ReproduceArgs) -> Result<()> {
+/// A capability held only after successful reproduction. It owns the frozen
+/// inputs; it cannot be deserialized from a publisher's claim.
+#[derive(Debug)]
+pub(crate) struct ReproducedBundle {
+	frozen: tempfile::TempDir,
+	pub(crate) recipe: BuildRecipe,
+	pub(crate) inventory_sha256: String,
+	pub(crate) full: bool,
+}
+
+impl ReproducedBundle {
+	pub(crate) fn root(&self) -> &Path {
+		self.frozen.path()
+	}
+}
+
+/// Copy first, then check the independent pin. All subsequent reads and
+/// builds use this private snapshot, never publisher-writable input paths.
+fn freeze(args: &ReproduceArgs) -> Result<tempfile::TempDir> {
+	let frozen = tempfile::tempdir()?;
+	for (relative, entry) in super::walk(&args.bundle)? {
+		let dest = frozen.path().join(&relative);
+		match entry {
+			Entry::Directory => fs::create_dir_all(dest)?,
+			Entry::File { unix_mode, .. } => {
+				fs::create_dir_all(dest.parent().context("bundle file parent")?)?;
+				fs::copy(args.bundle.join(relative), &dest)?;
+				#[cfg(unix)]
+				if let Some(mode) = unix_mode {
+					set_mode(&dest, mode)?;
+				}
+				#[cfg(not(unix))]
+				let _ = unix_mode;
+			}
+		}
+	}
+	super::check(frozen.path(), &args.manifest, &args.sha256)?;
+	Ok(frozen)
+}
+
+pub(crate) fn reproduce(args: &ReproduceArgs) -> Result<ReproducedBundle> {
 	let count = super::check(&args.bundle, &args.manifest, &args.sha256)?;
 	println!("bundle matches the pinned inventory ({count} entries)");
-	let bundle = args.bundle.canonicalize()?;
+	let frozen = freeze(args)?;
+	let bundle = frozen.path();
 	let recipe: BuildRecipe = super::read_json(&bundle.join("build.json"))?;
 	let engine = Engine::detect(args.engine)?;
 	let scratch = tempfile::tempdir()?;
@@ -871,7 +913,12 @@ pub(super) fn reproduce(args: &ReproduceArgs) -> Result<()> {
 		recipe.builder_image
 	);
 	println!("Not verified: which executable a live server runs, or whether the code is safe.");
-	Ok(())
+	Ok(ReproducedBundle {
+		frozen,
+		recipe,
+		inventory_sha256: args.sha256.clone(),
+		full: !args.offline && args.checkout.is_none(),
+	})
 }
 
 #[cfg(test)]

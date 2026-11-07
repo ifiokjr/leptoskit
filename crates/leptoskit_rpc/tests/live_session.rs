@@ -165,6 +165,7 @@ async fn may_join(cx: &rpc::QueryCx, room: &Room) -> rpc::Result<()> {
 }
 
 struct Server {
+	live: Live,
 	url: String,
 	task: JoinHandle<()>,
 }
@@ -177,13 +178,14 @@ impl Drop for Server {
 
 async fn serve(db: Db, identify: impl rpc::server::Identify) -> Server {
 	let live = Live::new(db).identify(identify);
-	let app = live.router::<()>();
+	let app = live.clone().router::<()>();
 	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let address = listener.local_addr().unwrap();
 	let task = tokio::spawn(async move {
 		axum::serve(listener, app).await.unwrap();
 	});
 	Server {
+		live,
 		url: format!("ws://{address}/live"),
 		task,
 	}
@@ -964,21 +966,30 @@ async fn a_slow_reader_gets_a_full_transition() {
 
 	// Neither the socket nor the session is read while these commit. One
 	// at a time, so each makes its own transition.
-	for n in 0..40 {
+	for n in 0..128 {
+		let sent = server.live.stats().transitions;
 		Doc::update()
 			.filter(move |doc| doc.id.eq(doc_id))
 			.set(|doc| doc.body, format!("{}{n}", "b".repeat(200_000)))
 			.run(&db)
 			.await
 			.unwrap();
-		tokio::time::sleep(Duration::from_millis(30)).await;
+		// Observe the transition before committing again: under load, a
+		// fixed sleep lets the hub coalesce writes and never fills the queue.
+		tokio::time::timeout(Duration::from_secs(10), async {
+			while server.live.stats().transitions == sent {
+				tokio::time::sleep(Duration::from_millis(1)).await;
+			}
+		})
+		.await
+		.expect("each commit produces a transition");
 	}
 	tokio::time::sleep(Duration::from_millis(300)).await;
 
 	// Drain what queued, then change the value once more: the replay says
 	// it is full and repeats the subscription.
 	let mut full = None;
-	for _ in 0..120 {
+	for _ in 0..256 {
 		match next_within(&mut socket, Duration::from_millis(200)).await {
 			Some(ServerFrame::Transition(transition)) => {
 				if transition.full && transition.updates.iter().any(|update| update.id == 1) {

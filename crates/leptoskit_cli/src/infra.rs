@@ -31,11 +31,14 @@ mod releases;
 mod remote;
 mod resources;
 mod runtime;
+mod verified;
 use resources::resources;
 
 /// Managed infrastructure operations. `lk tofu` is an alias.
 #[derive(Debug, clap::Subcommand)]
 pub enum InfraCommand {
+	/// Reproduce and package a backend without rebuilding it in the image.
+	BuildVerified(verified::Args),
 	/// Queries read-only JSON evidence from one app instance, not a fleet
 	/// total.
 	Analytics,
@@ -190,6 +193,12 @@ pub enum BackupCommand {
 	reason = "clap flags have explicit conflicts and requirements"
 )]
 pub struct ReleaseArgs {
+	/// Packaging descriptor whose digest was independently authenticated.
+	#[arg(long, requires = "descriptor_sha256")]
+	pub verified_descriptor: Option<PathBuf>,
+	/// Independently authenticated SHA-256 of the packaging descriptor.
+	#[arg(long, requires = "verified_descriptor")]
+	pub descriptor_sha256: Option<String>,
 	/// Immutable image tag, or a Git commit for the connected deployment
 	/// service.
 	#[arg(long, conflicts_with = "rollback")]
@@ -218,6 +227,9 @@ pub struct ReleaseArgs {
 
 /// Runs a managed infrastructure command from the nearest project.
 pub fn run(command: InfraCommand) -> Result<()> {
+	if let InfraCommand::BuildVerified(args) = &command {
+		return verified::run(args);
+	}
 	if let InfraCommand::Offers { min_memory_gb } = &command {
 		return pricing::print(*min_memory_gb);
 	}
@@ -230,6 +242,7 @@ pub fn run(command: InfraCommand) -> Result<()> {
 	);
 	let dir = directory(&root, infra);
 	match command {
+		InfraCommand::BuildVerified(args) => verified::run(&args),
 		InfraCommand::Analytics => analytics::query(infra),
 		InfraCommand::Plugins => {
 			println!(
@@ -749,7 +762,10 @@ pub fn generate(dir: &Path, config: &InfraConfig, force: bool) -> Result<()> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Release {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	evidence: Option<verified::Descriptor>,
 	version: String,
 	migrations: String,
 	#[serde(default)]

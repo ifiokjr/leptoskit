@@ -945,6 +945,26 @@ esac
 	}
 
 	#[test]
+	fn frozen_bundle_is_independent_of_later_publisher_changes() {
+		let original = offline_bundle("reproduced bytes\n");
+		let args = ReproduceArgs {
+			bundle: original.bundle.clone(),
+			manifest: original.manifest,
+			sha256: original.digest,
+			checkout: None,
+			offline: true,
+			engine: None,
+		};
+		let frozen = freeze(&args).unwrap();
+		fs::write(args.bundle.join("artifacts/backend"), b"substituted").unwrap();
+		assert_eq!(
+			fs::read(frozen.path().join("artifacts/backend")).unwrap(),
+			b"reproduced bytes\n"
+		);
+		assert!(freeze(&args).is_err());
+	}
+
+	#[test]
 	fn helper() {
 		let Ok(scenario) = std::env::var("LEPTOSKIT_TEST_SCENARIO") else {
 			return;

@@ -139,6 +139,7 @@ fn help_text_is_pinned() {
 		&["infra", "analytics", "--help"][..],
 		&["infra", "generate", "--help"][..],
 		&["infra", "build", "--help"][..],
+		&["infra", "build-verified", "--help"][..],
 		&["infra", "prepare", "--help"][..],
 		&["infra", "plan", "--help"][..],
 		&["infra", "apply", "--help"][..],

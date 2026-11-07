@@ -7,25 +7,26 @@ Generates and manages the app's `OpenTofu` infrastructure
 Usage: leptoskit infra <COMMAND>
 
 Commands:
-  analytics  Queries read-only JSON evidence from one app instance, not a fleet total
-  plugins    Prints the versioned capability catalog, enabled plugins and bindings as JSON
-  build      Builds the server/website image with migration metadata; optionally pushes it
-  generate   Writes inspectable main.tf.json and deployment instructions
-  plan       Initializes `OpenTofu` and saves an infrastructure plan. Does not apply it
-  apply      Applies the saved plan, refusing configuration changes since planning
-  prepare    Prepares private services and the backup worker without starting an app or taking an initial backup. Use before disaster recovery
-  output     Prints public endpoints and the server address as JSON. Omits secrets
-  releases   Lists successful releases from the primary host's shared history
-  status     Reports application containers, the database, backups, and operation owner
-  offers     Lists current x86 offers from providers with configured credentials, sorted by currency and base monthly price. Never provisions resources
-  ci         Writes a push-to-deploy GitHub Actions workflow for a prepared Linux runner with Docker, Rust, lk, `OpenTofu`, Kamal, and an SSH agent
-  backups    Encrypted scheduled backups and isolated restore checks
-  restore    Restores a verified snapshot, retaining the previous database and leaving all app containers stopped. Recover its recorded image afterward
-  unlock     Releases a stale operation lock after checking that its runner has stopped
-  stop       Stops app containers and their workers, retaining Postgres and the tunnel. Use before explicitly rolling back the database
-  publish    Publishes an already signed code-push release to the provisioned bucket
-  backup     Writes a consistent Postgres custom-format backup. Copy it off-site
-  help       Print this message or the help of the given subcommand(s)
+  build-verified  Reproduce and package a backend without rebuilding it in the image
+  analytics       Queries read-only JSON evidence from one app instance, not a fleet total
+  plugins         Prints the versioned capability catalog, enabled plugins and bindings as JSON
+  build           Builds the server/website image with migration metadata; optionally pushes it
+  generate        Writes inspectable main.tf.json and deployment instructions
+  plan            Initializes `OpenTofu` and saves an infrastructure plan. Does not apply it
+  apply           Applies the saved plan, refusing configuration changes since planning
+  prepare         Prepares private services and the backup worker without starting an app or taking an initial backup. Use before disaster recovery
+  output          Prints public endpoints and the server address as JSON. Omits secrets
+  releases        Lists successful releases from the primary host's shared history
+  status          Reports application containers, the database, backups, and operation owner
+  offers          Lists current x86 offers from providers with configured credentials, sorted by currency and base monthly price. Never provisions resources
+  ci              Writes a push-to-deploy GitHub Actions workflow for a prepared Linux runner with Docker, Rust, lk, `OpenTofu`, Kamal, and an SSH agent
+  backups         Encrypted scheduled backups and isolated restore checks
+  restore         Restores a verified snapshot, retaining the previous database and leaving all app containers stopped. Recover its recorded image afterward
+  unlock          Releases a stale operation lock after checking that its runner has stopped
+  stop            Stops app containers and their workers, retaining Postgres and the tunnel. Use before explicitly rolling back the database
+  publish         Publishes an already signed code-push release to the provisioned bucket
+  backup          Writes a consistent Postgres custom-format backup. Copy it off-site
+  help            Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help     Print help
