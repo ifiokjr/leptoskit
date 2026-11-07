@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_uikit"
-version = "0.3.0"
+version = "0.3.1"
 authors.workspace = true
 categories = ["gui", "os", "rendering"]
 edition.workspace = true
