@@ -34,6 +34,27 @@ The `macos/` folder is yours: `App.swift` starts the app and owns its window, `I
 - The generated macOS app doesn't check for [code push](../guide/05-code-push.md) updates; ship a new build to update it. The iOS and Android apps do.
 - AppKit follows the system's light or dark appearance until the app calls `NativeSurface::set_dark_mode`. An app with a fixed light theme should call `set_dark_mode(false)` before it shows its first screen.
 
+## Application menus
+
+The generated Swift host still ships a small hardcoded Edit menu. A Rust desktop host that owns AppKit itself builds a menu bar with `leptoskit_plugin_menu` and installs it on the main thread. Prefer the chained builders (`MenuBar`, `Submenu`, `Command`, `Check`) so the tree matches leptoskit's usual call style; validation still runs before any `NSMenu` is allocated. Root entries must be submenus, which is AppKit's rule.
+
+```rust
+use leptoskit_plugin_menu::{Command, MenuBar, Submenu, macos};
+use std::rc::Rc;
+
+let definition = MenuBar()
+	.submenu(
+		Submenu("file")
+			.label("File")
+			.item(Command("save").label("Save").accelerator("CmdOrCtrl+S")),
+	)
+	.build()?;
+let application = macos::application(main_thread);
+let lease = macos::ApplicationMenu::install(definition, &application)?;
+```
+
+Keep the lease for as long as the menu should stay installed; dropping it restores the previous menu when nothing else replaced the slot. Status-item / tray menus reuse the same `DesktopMenu` through `leptoskit_plugin_tray::TrayHost::set_menu` and do not take this lease. Menu is a host-owned desktop API, not a guest plugin: list it as a host dependency, not under `native.plugins`. See the [plugin inventory](plugin-inventory.md) for Windows and Linux parity.
+
 ## See more screens
 
 The [examples](../examples.md) page shows seven screens rendered with AppKit. To open them yourself, clone the leptoskit repository and run the gallery:

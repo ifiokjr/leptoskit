@@ -1,4 +1,10 @@
 //! AppKit menu ownership on the host's main thread.
+//!
+//! This module mirrors how [`crate::DesktopMenu`] owns muda state on desktop:
+//! the host obtains `NSApplication` explicitly, builds a validated tree (prefer
+//! [`crate::MenuBar`]), then leases the process's `mainMenu` slot. Status-item
+//! / tray menus reuse the same [`DesktopMenu`] through
+//! `leptoskit_plugin_tray::TrayHost::set_menu`; they do not take this lease.
 #![allow(unsafe_code)]
 
 use std::cell::Cell;
@@ -11,6 +17,7 @@ use objc2::rc::Retained;
 use objc2_app_kit::NSApplication;
 use objc2_app_kit::NSMenu;
 
+use crate::Definition;
 use crate::DesktopMenu;
 use crate::Error;
 use crate::Item;
@@ -63,6 +70,13 @@ impl ApplicationMenu {
 			previous,
 			installed,
 		})
+	}
+
+	/// Builds a native menu from `definition` and attaches it in one step.
+	/// Prefer a tree from [`crate::MenuBar`] so the root-submenu rule is
+	/// checked before any AppKit call.
+	pub fn install(definition: Definition, application: &NSApplication) -> Result<Self, Error> {
+		Self::attach(Rc::new(DesktopMenu::new(definition)?), application)
 	}
 
 	/// The owned menu; updating its items preserves the installed native tree.

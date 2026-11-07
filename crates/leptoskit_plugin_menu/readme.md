@@ -76,33 +76,46 @@ The Windows-only test creates a hidden HWND, sends `WM_COMMAND` to its menu subc
 
 <!-- {=p_menuSummary} -->
 
-Native hosts construct it explicitly; it is not a guest plugin and installs nothing by default. The desktop host owns the menu and installs it on its own windows; definitions are validated before any native allocation, and mobile and the browser expose no menu.
+Native hosts construct it explicitly; it is not a guest plugin and installs nothing by default. Prefer the chained builders (`MenuBar`, `Submenu`, `Command`, …). The desktop host owns the menu and installs it on its own windows; definitions are validated before any native allocation, and mobile and the browser expose no menu.
 
 <!-- {/p_menuSummary} -->
 
 ## Use it
 
+Build the tree with the chained constructors (`MenuBar`, `Submenu`, `Command`,
+…), then hand the validated definition to the desktop host. On macOS, attach it
+with `macos::ApplicationMenu::install` on the main thread. Tray / status-item
+menus reuse the same `DesktopMenu` through `leptoskit_plugin_tray::TrayHost::set_menu`
+and do not take the application-menu lease. Linux has no standalone menu bar
+(`supports_menu_bar()` is false; `linux::attach_menu_bar` returns `Unavailable`);
+Windows installs through an explicit HWND lease.
+
 ```rust,no_run
 # #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 # fn example() -> Result<(), leptoskit_plugin_menu::Error> {
-use leptoskit_plugin_menu::{Definition, DesktopMenu, EventChannel, Item, muda};
+use leptoskit_plugin_menu::{
+    Check, Command, DesktopMenu, EventChannel, MenuBar, Submenu, muda,
+};
 
 let events = EventChannel::new(64)?;
 let sender = events.sender();
 // Exactly once, before any menu or tray can emit an activation:
 muda::MenuEvent::set_event_handler(Some(move |event| sender.forward(event)));
 
-let menu = DesktopMenu::new(Definition::new(vec![Item::Submenu {
-    id: "file".into(),
-    label: "File".into(),
-    enabled: true,
-    items: vec![Item::Command {
-        id: "save".into(),
-        label: "Save".into(),
-        enabled: true,
-        accelerator: Some("CmdOrCtrl+S".into()),
-    }],
-}])?)?;
+let definition = MenuBar()
+    .submenu(
+        Submenu("file")
+            .label("File")
+            .item(
+                Command("save")
+                    .label("Save")
+                    .accelerator("CmdOrCtrl+S"),
+            )
+            .separator()
+            .item(Check("autosave").label("Autosave").checked(true)),
+    )
+    .build()?;
+let menu = DesktopMenu::new(definition)?;
 
 // During each host event-loop turn, drain a bounded batch:
 for _ in 0..64 {

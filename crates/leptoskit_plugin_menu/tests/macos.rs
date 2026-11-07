@@ -22,11 +22,15 @@ fn main() {
 fn application_menu_events_updates_and_lease_restoration() {
 	use std::rc::Rc;
 
+	use leptoskit_plugin_menu::Check;
+	use leptoskit_plugin_menu::Command;
 	use leptoskit_plugin_menu::Definition;
 	use leptoskit_plugin_menu::DesktopMenu;
 	use leptoskit_plugin_menu::Error;
 	use leptoskit_plugin_menu::EventChannel;
 	use leptoskit_plugin_menu::Item;
+	use leptoskit_plugin_menu::MenuBar;
+	use leptoskit_plugin_menu::Submenu;
 	use leptoskit_plugin_menu::macos;
 	use leptoskit_plugin_menu::muda;
 	use muda::ContextMenu;
@@ -40,31 +44,25 @@ fn application_menu_events_updates_and_lease_restoration() {
 	let mtm = MainThreadMarker::new().unwrap();
 	let application = macos::application(mtm);
 	let previous = application.mainMenu();
-	let definition = Definition::new(vec![Item::Submenu {
-		id: "file".into(),
-		label: "File".into(),
-		enabled: true,
-		items: vec![
-			Item::Command {
-				id: "save".into(),
-				label: "Save".into(),
-				enabled: true,
-				accelerator: Some("CmdOrCtrl+S".into()),
-			},
-			Item::Separator,
-			Item::Check {
-				id: "toggle".into(),
-				label: "Toggle".into(),
-				enabled: true,
-				checked: false,
-				accelerator: None,
-			},
-		],
-	}])
-	.unwrap();
+	let definition = MenuBar()
+		.submenu(
+			Submenu("file")
+				.label("File")
+				.item(Command("save").label("Save").accelerator("CmdOrCtrl+S"))
+				.separator()
+				.item(Check("toggle").label("Toggle")),
+		)
+		.build()
+		.unwrap();
 	let menu = Rc::new(DesktopMenu::new(definition.clone()).unwrap());
 
-	let other = Rc::new(DesktopMenu::new(definition).unwrap());
+	let other = Rc::new(DesktopMenu::new(definition.clone()).unwrap());
+	let lease = macos::ApplicationMenu::install(definition, &application).unwrap();
+	assert!(matches!(
+		macos::ApplicationMenu::attach(other.clone(), &application),
+		Err(Error::Busy)
+	));
+	drop(lease);
 	let lease = macos::ApplicationMenu::attach(menu.clone(), &application).unwrap();
 	assert!(matches!(
 		macos::ApplicationMenu::attach(other.clone(), &application),
