@@ -972,11 +972,12 @@ pub struct EntryVolume {
 /// The listing for `services`.
 #[must_use]
 pub fn listing(services: &[Service], config: &LeptoskitConfig, root: &Path) -> Listing {
+	// Project-relative paths read the same on every platform.
 	let relative = |path: PathBuf| {
 		path.strip_prefix(root)
 			.unwrap_or(&path)
-			.display()
-			.to_string()
+			.to_string_lossy()
+			.replace('\\', "/")
 	};
 	let services = services
 		.iter()

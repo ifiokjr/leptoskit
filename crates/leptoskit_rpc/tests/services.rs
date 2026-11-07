@@ -102,6 +102,11 @@ fn app_ping_op() -> AppPing {
 	}
 }
 
+/// The tests install the process's server and set the variables `leptoskit
+/// dev` gives the app, which every test in this binary shares under `cargo
+/// test`, so they run one at a time.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn serve(app: axum::Router) -> std::net::SocketAddr {
 	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let address = listener.local_addr().unwrap();
@@ -129,6 +134,7 @@ async fn post(router: axum::Router, path: &str) -> (StatusCode, String) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn each_server_serves_only_its_own_operations() {
+	let _serial = SERIAL.lock().await;
 	let db = leptoskit_db::testing::sqlite().await;
 
 	// The app's server routes its own `ping`, not the service's.
@@ -165,10 +171,17 @@ async fn each_server_serves_only_its_own_operations() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_apps_server_calls_a_service_anonymously_unless_as_the_app() {
+	let _serial = SERIAL.lock().await;
 	let db = leptoskit_db::testing::sqlite().await;
 	// The app's server is installed for in-process calls, and its build
 	// links the service's body: the call still goes to the service.
 	rpc::server::Server::new(db.clone()).install();
+	// SAFETY: the tests run one at a time, and nothing else reads the
+	// variables meanwhile.
+	unsafe {
+		std::env::remove_var("LEPTOSKIT_SERVICE_ECHO_URL");
+		std::env::remove_var("LEPTOSKIT_SERVICE_ECHO_TOKEN");
+	}
 
 	// Before `leptoskit dev` says where the service is, the call says so.
 	let error = client::call(hi()).await.unwrap_err();
@@ -185,8 +198,7 @@ async fn the_apps_server_calls_a_service_anonymously_unless_as_the_app() {
 	// `router` installs the service's server; this process is the app's.
 	rpc::server::Server::new(leptoskit_db::testing::sqlite().await).install();
 
-	// SAFETY: nextest runs each test in its own process, and the variables
-	// are set before anything reads them.
+	// SAFETY: as above.
 	unsafe {
 		std::env::set_var("LEPTOSKIT_SERVICE_ECHO_URL", format!("http://{address}"));
 	}
@@ -207,10 +219,17 @@ async fn the_apps_server_calls_a_service_anonymously_unless_as_the_app() {
 	);
 	let error = client::call_as_app(app_ping_op()).await.unwrap_err();
 	assert!(error.message().contains("app's own operations"), "{error}");
+
+	// SAFETY: as above.
+	unsafe {
+		std::env::remove_var("LEPTOSKIT_SERVICE_ECHO_URL");
+		std::env::remove_var("LEPTOSKIT_SERVICE_ECHO_TOKEN");
+	}
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_service_runs_its_own_operations_in_process() {
+	let _serial = SERIAL.lock().await;
 	let db = leptoskit_db::testing::sqlite().await;
 	// The service's process: its installed server is the service's, and no
 	// URL for itself is set.
@@ -220,6 +239,7 @@ async fn a_service_runs_its_own_operations_in_process() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_services_live_socket_works_under_its_prefix() {
+	let _serial = SERIAL.lock().await;
 	let db = leptoskit_db::testing::sqlite().await;
 	let live = rpc::server::Server::new(db).service("echo").live();
 	let prefix = rpc::service_prefix("echo");
@@ -252,6 +272,7 @@ async fn a_services_live_socket_works_under_its_prefix() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_apps_live_connection_refuses_a_service() {
+	let _serial = SERIAL.lock().await;
 	let db = leptoskit_db::testing::sqlite().await;
 	let live = Live::new(db).identify(ServiceCallers::new(Anonymous).caller("svc", "service:echo"));
 	let address = serve(live.router()).await;
@@ -285,6 +306,7 @@ async fn the_apps_live_connection_refuses_a_service() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_apps_live_connection_refuses_a_service_signing_in_after_it_opens() {
+	let _serial = SERIAL.lock().await;
 	let db = leptoskit_db::testing::sqlite().await;
 	let live = Live::new(db).identify(ServiceCallers::new(Anonymous).caller("svc", "service:echo"));
 	let address = serve(live.router()).await;
@@ -348,6 +370,7 @@ mod elsewhere {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_service_operation_without_its_body_is_a_stub_the_client_sends_away() {
+	let _serial = SERIAL.lock().await;
 	use rpc::Operation as _;
 
 	assert_eq!(elsewhere::Far::SERVICE, Some("far-away"));
@@ -459,6 +482,7 @@ const _: () = {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_app_never_schedules_or_enqueues_a_services_job() {
+	let _serial = SERIAL.lock().await;
 	let db = leptoskit_db::testing::sqlite().await;
 	// The app's process: its server is installed, and its build links the
 	// service's cron job.
@@ -483,6 +507,7 @@ async fn the_app_never_schedules_or_enqueues_a_services_job() {
 	rpc::server::Server::new(db.clone())
 		.service("echo")
 		.install();
+	let rolled_up = ROLLED_UP.load(Ordering::SeqCst);
 	let echo = TestJobs::new(&db).service(Some("echo"));
 	echo.advance(Duration::from_secs(180)).await;
 	let ticks = echo
@@ -494,7 +519,7 @@ async fn the_app_never_schedules_or_enqueues_a_services_job() {
 	assert!(ticks >= 2, "{ticks} ticks");
 	echo.run_jobs_until_idle().await;
 	assert_eq!(
-		ROLLED_UP.load(Ordering::SeqCst),
+		ROLLED_UP.load(Ordering::SeqCst) - rolled_up,
 		u32::try_from(ticks).unwrap()
 	);
 
@@ -505,15 +530,20 @@ async fn the_app_never_schedules_or_enqueues_a_services_job() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_apps_workers_never_run_a_services_job() {
+	let _serial = SERIAL.lock().await;
 	let db = leptoskit_db::testing::sqlite().await;
-	// No server is installed, so nothing stops this row going in: as if a
-	// service's job ended up in the app's database some other way.
+	// The service's server lets the row in: as if a service's job ended up
+	// in the app's database some other way.
+	rpc::server::Server::new(db.clone())
+		.service("echo")
+		.install();
 	rpc::enqueue(&db, Settle {}).await.unwrap();
+	let settled = SETTLED.load(Ordering::SeqCst);
 
 	let app = TestJobs::new(&db);
 	app.run_jobs_until_idle().await;
 	assert_eq!(
-		SETTLED.load(Ordering::SeqCst),
+		SETTLED.load(Ordering::SeqCst) - settled,
 		0,
 		"the app's workers don't run the service's job"
 	);
@@ -522,7 +552,7 @@ async fn the_apps_workers_never_run_a_services_job() {
 	let echo = TestJobs::new(&db).service(Some("echo"));
 	echo.advance(Duration::from_secs(3600)).await;
 	echo.run_jobs_until_idle().await;
-	assert_eq!(SETTLED.load(Ordering::SeqCst), 1);
+	assert_eq!(SETTLED.load(Ordering::SeqCst) - settled, 1);
 }
 
 #[test]
