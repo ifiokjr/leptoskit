@@ -147,6 +147,7 @@ services:
       LEPTOSKIT_SERVICE_BILLING_URL: "https://billing.internal.example"
       LEPTOSKIT_SERVICE_CARDS_TOKEN: ${LEPTOSKIT_SERVICE_CARDS_TOKEN:?set LEPTOSKIT_SERVICE_CARDS_TOKEN}
       LEPTOSKIT_SERVICE_CARDS_URL: "http://cards:3200"
+      LEPTOSKIT_SERVICE_CARDS_IDENTITY: "forward"
     # Nothing in the image changes while it runs; the database lives on a volume.
     read_only: true
     tmpfs:

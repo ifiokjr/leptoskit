@@ -405,9 +405,11 @@ pub fn call_with<O: Operation>(
 /// This is how the app's server reaches what only the app may: a
 /// service's admin queries, say. Nothing else calls as the app. [`call`],
 /// [`query_scope`], [`use_rpc_query`] and the live hooks call a service as
-/// an anonymous caller, also while the server renders, so a page never
-/// renders, or embeds in its HTML, anything the browser couldn't fetch
-/// itself. Keep what this returns on the server.
+/// whoever the browser would: the signed-in person, when the app forwards
+/// identity to the service, and otherwise an anonymous caller, also while
+/// the server renders. So a page never renders, or embeds in its HTML,
+/// anything the person's browser couldn't fetch itself. Keep what this
+/// returns on the server.
 ///
 /// Only a server has a service's token, so this exists only outside
 /// Wasm, with the `services` feature. A service calling one of its own

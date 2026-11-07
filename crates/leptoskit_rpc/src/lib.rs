@@ -183,7 +183,10 @@ pub use server::jobs::enqueue;
 pub use server::jobs::job_registration;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use server::jobs::job_registration_in;
+pub use service::IDENTITY_FORWARDED;
 pub use service::SERVICES_PREFIX;
+pub use service::ServiceToken;
+pub use service::ServiceTokenArgs;
 pub use service::is_service_name;
 pub use service::service_env_name;
 pub use service::service_prefix;

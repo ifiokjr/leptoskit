@@ -114,11 +114,23 @@ pub use run::handle;
 #[cfg(feature = "db")]
 pub use services::APP_CALLER;
 #[cfg(feature = "db")]
+pub use services::ForwardedIdentity;
+#[cfg(feature = "db")]
+pub use services::IDENTITY_LIFETIME;
+#[cfg(feature = "db")]
+pub use services::IdentityKey;
+#[cfg(feature = "db")]
+pub use services::PERSON_CALLER_PREFIX;
+#[cfg(feature = "db")]
 pub use services::SERVICE_CALLER_PREFIX;
 #[cfg(feature = "db")]
 pub use services::ServiceCallers;
 #[cfg(feature = "live")]
 pub(crate) use services::is_service;
+#[cfg(feature = "db")]
+pub use services::service_identity_token;
+#[cfg(feature = "db")]
+pub(crate) use services::service_identity_token_with;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use stream::StreamRegistration;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

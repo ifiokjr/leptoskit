@@ -11,7 +11,12 @@
 //! - a service's jobs, cron schedules, streams and channels belong to the
 //!   service even when linked into the app's build: the app's workers never run
 //!   or schedule them, the app can't enqueue them, and the app's live socket
-//!   doesn't serve them.
+//!   doesn't serve them;
+//! - the app mints, for a signed-in person, a short-lived token that the one
+//!   service it's for accepts as that person, over HTTP and on its live socket,
+//!   and that every other service refuses; it mints none for a service it
+//!   doesn't forward identity to; and server rendering signs a service's calls
+//!   as the person it renders for.
 
 #![cfg(all(feature = "live", feature = "sqlite"))]
 #![allow(
@@ -27,11 +32,18 @@ use axum::body::Body;
 use futures::StreamExt;
 use http::Request;
 use http::StatusCode;
+use leptoskit_db::Actor;
+use leptoskit_db::Context;
+use leptoskit_query::BoxFuture;
 use leptoskit_rpc as rpc;
 use leptoskit_rpc::client;
 use leptoskit_rpc::live::ClientFrame;
 use leptoskit_rpc::live::ServerFrame;
 use leptoskit_rpc::server::Anonymous;
+use leptoskit_rpc::server::IDENTITY_LIFETIME;
+use leptoskit_rpc::server::Identify;
+use leptoskit_rpc::server::Identity;
+use leptoskit_rpc::server::IdentityKey;
 use leptoskit_rpc::server::Live;
 use leptoskit_rpc::server::ServiceCallers;
 use leptoskit_rpc::testing::TestJobs;
@@ -564,4 +576,316 @@ fn the_app_doesnt_serve_a_services_streams_or_channels() {
 	assert!(rpc::server::stream::registration_in(Some("echo"), "tail").is_some());
 	assert!(rpc::server::channel::registration_in(Some("echo"), "room").is_some());
 	assert!(rpc::server::stream::registration_in(Some("other"), "tail").is_none());
+}
+
+/// The app's sign-in, for the tests: an `x-person` header naming the
+/// person's UUID, which becomes their [`Actor`], as `leptoskit_auth` names a
+/// signed-in account.
+struct People;
+
+impl Identify for People {
+	fn identify<'a>(
+		&'a self,
+		request: &'a http::request::Parts,
+	) -> BoxFuture<'a, rpc::Result<Identity>> {
+		let person = request
+			.headers
+			.get("x-person")
+			.and_then(|value| value.to_str().ok())
+			.and_then(|value| uuid::Uuid::parse_str(value).ok());
+		Box::pin(std::future::ready(Ok(match person {
+			Some(person) => {
+				Identity::new(Context::new().with(Actor::from_uuid(person)))
+					.with_caller(format!("session-of-{person}"))
+			}
+			None => Identity::anonymous(),
+		})))
+	}
+}
+
+const ADA: uuid::Uuid = uuid::Uuid::from_u128(0xada);
+
+/// Sends `body` to `path` on `router` with `headers`.
+async fn send(
+	router: axum::Router,
+	path: &str,
+	body: &str,
+	headers: &[(&str, &str)],
+) -> (StatusCode, String) {
+	let mut request = Request::post(path).header("content-type", "application/json");
+
+	for (name, value) in headers {
+		request = request.header(*name, *value);
+	}
+
+	let response = router
+		.oneshot(request.body(Body::from(body.to_owned())).unwrap())
+		.await
+		.unwrap();
+	let status = response.status();
+	let body = http_body_util::BodyExt::collect(response.into_body())
+		.await
+		.unwrap()
+		.to_bytes();
+	(status, String::from_utf8_lossy(&body).into_owned())
+}
+
+/// The `echo` service's server, knowing the app by `t0k3n` and the people it
+/// forwards by the key both derive from it.
+fn echo_service(db: leptoskit_db::Db) -> rpc::server::Server {
+	rpc::server::Server::new(db).service("echo").identify(
+		ServiceCallers::new(Anonymous)
+			.caller("t0k3n", rpc::server::APP_CALLER)
+			.forwarded_identity("echo", "t0k3n"),
+	)
+}
+
+/// Sets the variables `leptoskit dev` gives the app for the `echo` service,
+/// or removes them.
+fn echo_env(url: Option<String>, token: bool, identity: bool) {
+	// SAFETY: the tests run one at a time, and nothing else reads the
+	// variables meanwhile.
+	unsafe {
+		match url {
+			Some(url) => std::env::set_var("LEPTOSKIT_SERVICE_ECHO_URL", url),
+			None => std::env::remove_var("LEPTOSKIT_SERVICE_ECHO_URL"),
+		}
+
+		if token {
+			std::env::set_var("LEPTOSKIT_SERVICE_ECHO_TOKEN", "t0k3n");
+		} else {
+			std::env::remove_var("LEPTOSKIT_SERVICE_ECHO_TOKEN");
+		}
+
+		if identity {
+			std::env::set_var("LEPTOSKIT_SERVICE_ECHO_IDENTITY", "forward");
+		} else {
+			std::env::remove_var("LEPTOSKIT_SERVICE_ECHO_IDENTITY");
+		}
+	}
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_app_mints_a_token_that_only_its_service_accepts_as_the_person() {
+	let _serial = SERIAL.lock().await;
+	echo_env(None, true, true);
+	let app = rpc::server::Server::new(leptoskit_db::testing::sqlite().await).identify(People);
+	let ask = r#"{"service":"echo"}"#;
+	let ada = ADA.to_string();
+
+	// A signed-in person gets a token for the service, through the app's own
+	// sign-in…
+	let (status, body) = send(
+		app.router(),
+		"/api/rpc.service_token",
+		ask,
+		&[("x-person", &ada)],
+	)
+	.await;
+	assert_eq!(status, StatusCode::OK, "{body}");
+	let minted: rpc::ServiceToken = serde_json::from_str::<Option<_>>(&body).unwrap().unwrap();
+	assert_eq!(minted.expires_in, IDENTITY_LIFETIME.as_secs());
+	assert!(!minted.token.contains("t0k3n"));
+	// …and nobody gets nothing.
+	assert_eq!(
+		send(app.router(), "/api/rpc.service_token", ask, &[]).await,
+		(StatusCode::OK, "null".to_owned())
+	);
+
+	// The service knows them as that person, apart from the app.
+	let service = echo_service(leptoskit_db::testing::sqlite().await);
+	let bearer = format!("Bearer {}", minted.token);
+	assert_eq!(
+		send(
+			service.router(),
+			"/api/ping",
+			r#"{"word":"hi"}"#,
+			&[("authorization", &bearer)]
+		)
+		.await,
+		(StatusCode::OK, format!(r#""hi from person:{ada}""#))
+	);
+	assert_eq!(
+		send(
+			service.router(),
+			"/api/ping",
+			r#"{"word":"hi"}"#,
+			&[("authorization", "Bearer t0k3n")]
+		)
+		.await,
+		(StatusCode::OK, r#""hi from app""#.to_owned())
+	);
+
+	// Another service refuses it, even one holding the same token: the key
+	// and the audience are the service's own.
+	let other = rpc::server::Server::new(leptoskit_db::testing::sqlite().await)
+		.service("echo")
+		.identify(ServiceCallers::new(Anonymous).forwarded_identity("other", "t0k3n"));
+	let (status, _) = send(
+		other.router(),
+		"/api/ping",
+		r#"{"word":"hi"}"#,
+		&[("authorization", &bearer)],
+	)
+	.await;
+	assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+	// A changed token, and an expired one, are refused with 401, which
+	// tells the client to fetch a new one.
+	let key = IdentityKey::new("echo", "t0k3n").unwrap();
+	let expired = key.mint(
+		ADA,
+		std::time::SystemTime::now() - Duration::from_secs(3600),
+		IDENTITY_LIFETIME,
+	);
+	let forged = key
+		.mint(ADA, std::time::SystemTime::now(), IDENTITY_LIFETIME)
+		.replacen("lkid1.e", "lkid1.f", 1);
+	for token in [expired, forged] {
+		let service = echo_service(leptoskit_db::testing::sqlite().await);
+		let (status, body) = send(
+			service.router(),
+			"/api/ping",
+			r#"{"word":"hi"}"#,
+			&[("authorization", &format!("Bearer {token}"))],
+		)
+		.await;
+		assert_eq!(status, StatusCode::UNAUTHORIZED, "{token}: {body}");
+	}
+
+	// A service the app doesn't forward identity to, as an isolated one
+	// by default: no token, and the refusal says how to opt in.
+	echo_env(None, true, false);
+	let app = rpc::server::Server::new(leptoskit_db::testing::sqlite().await).identify(People);
+	let (status, body) = send(
+		app.router(),
+		"/api/rpc.service_token",
+		ask,
+		&[("x-person", &ada)],
+	)
+	.await;
+	assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+	assert!(body.contains("forward_identity"), "{body}");
+
+	echo_env(None, false, false);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn server_rendering_signs_a_services_calls_as_the_person_it_renders_for() {
+	let _serial = SERIAL.lock().await;
+	let service = echo_service(leptoskit_db::testing::sqlite().await);
+	let address =
+		serve(axum::Router::new().nest(&rpc::service_prefix("echo"), service.router())).await;
+	// `router` installed the service's server; this process is the app's.
+	rpc::server::Server::new(leptoskit_db::testing::sqlite().await)
+		.identify(People)
+		.install();
+	let rendering_for = |person: Option<uuid::Uuid>| {
+		let owner = leptos::prelude::Owner::new();
+		let mut request = Request::builder();
+		if let Some(person) = person {
+			request = request.header("x-person", person.to_string());
+		}
+		let (parts, ()) = request.body(()).unwrap().into_parts();
+		owner.with(|| {
+			leptos::prelude::provide_context(parts);
+			client::call(hi())
+		})
+	};
+	let as_ada = Ok(format!("hi from person:{ADA}"));
+	let nobody = Ok("hi from nobody".to_owned());
+
+	// The app forwards identity to the service: a page rendered for Ada
+	// calls it as Ada, as her browser would.
+	echo_env(Some(format!("http://{address}")), true, true);
+	assert_eq!(rendering_for(Some(ADA)).await, as_ada);
+	// A page rendered for nobody, and a call outside any request, stay
+	// anonymous.
+	assert_eq!(rendering_for(None).await, nobody);
+	assert_eq!(client::call(hi()).await, nobody);
+	// `call_as_app` is still the one way to call as the app.
+	assert_eq!(
+		client::call_as_app(hi()).await,
+		Ok("hi from app".to_owned())
+	);
+
+	// Without `forward_identity`, a page rendered for Ada calls anonymously.
+	echo_env(Some(format!("http://{address}")), true, false);
+	assert_eq!(rendering_for(Some(ADA)).await, nobody);
+
+	echo_env(None, false, false);
+}
+
+/// The next `AuthStatus` frame on `socket`: whether it was refused, and
+/// whether the credentials are expiring.
+async fn auth_status<S>(socket: &mut S) -> (bool, bool)
+where
+	S: futures::Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin,
+{
+	tokio::time::timeout(Duration::from_secs(20), async {
+		while let Some(Ok(message)) = socket.next().await {
+			if let tungstenite::Message::Text(text) = message
+				&& let Ok(ServerFrame::AuthStatus { refused, expiring }) =
+					serde_json::from_str::<ServerFrame>(&text)
+			{
+				return (refused, expiring);
+			}
+		}
+		panic!("the socket closed before saying how the sign-in went");
+	})
+	.await
+	.expect("an answer arrives")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_services_live_socket_holds_a_forwarded_person_while_their_token_lasts() {
+	let _serial = SERIAL.lock().await;
+	let live = echo_service(leptoskit_db::testing::sqlite().await).live();
+	let prefix = rpc::service_prefix("echo");
+	let address = serve(axum::Router::new().nest(&prefix, live.router())).await;
+	let key = IdentityKey::new("echo", "t0k3n").unwrap();
+	let auth = |token: String| {
+		tungstenite::Message::Text(
+			serde_json::to_string(&ClientFrame::Auth { token })
+				.unwrap()
+				.into(),
+		)
+	};
+
+	// At the upgrade, as a native app's socket presents it.
+	let token = key.mint(ADA, std::time::SystemTime::now(), IDENTITY_LIFETIME);
+	let mut request = format!("ws://{address}{prefix}/live")
+		.into_client_request()
+		.unwrap();
+	request
+		.headers_mut()
+		.insert("authorization", format!("Bearer {token}").parse().unwrap());
+	assert!(connect_async(request).await.is_ok());
+
+	// In an `auth` frame, as the browser sends it: accepted, then asked to
+	// renew a minute before it runs out, then refused once it has.
+	let (mut socket, _) = connect_async(format!("ws://{address}{prefix}/live"))
+		.await
+		.unwrap();
+	let short = key.mint(ADA, std::time::SystemTime::now(), Duration::from_secs(2));
+	futures::SinkExt::send(&mut socket, auth(short))
+		.await
+		.unwrap();
+	assert_eq!(auth_status(&mut socket).await, (false, false), "accepted");
+	assert_eq!(auth_status(&mut socket).await, (false, true), "renew it");
+	assert_eq!(auth_status(&mut socket).await, (true, false), "it ran out");
+
+	// A token minted for another service is refused at once.
+	let (mut socket, _) = connect_async(format!("ws://{address}{prefix}/live"))
+		.await
+		.unwrap();
+	let elsewhere = IdentityKey::new("other", "t0k3n").unwrap().mint(
+		ADA,
+		std::time::SystemTime::now(),
+		IDENTITY_LIFETIME,
+	);
+	futures::SinkExt::send(&mut socket, auth(elsewhere))
+		.await
+		.unwrap();
+	assert_eq!(auth_status(&mut socket).await, (true, false));
 }

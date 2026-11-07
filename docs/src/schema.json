@@ -2859,6 +2859,13 @@
 						"type": "string"
 					}
 				},
+				"forward_identity": {
+					"description": "Whether the app's server tells the service who is signed in: browsers,\nnative apps, and server rendering then sign each call to the service\nwith a short-lived token naming the person, which only this service\naccepts. Defaults to `true` for `first-party` services, which already\nget the app's cookies, and `false` for `isolated` ones.",
+					"type": [
+						"boolean",
+						"null"
+					]
+				},
 				"git": {
 					"description": "A git repository holding the crate, built by `leptoskit`.",
 					"type": [

@@ -16,11 +16,22 @@
 //!   browser would fetch. [`call_as_app`](super::call_as_app) is the one way to
 //!   call as the app, signed with `$LEPTOSKIT_SERVICE_ANALYTICS_TOKEN`; no
 //!   query or live hook ever does, and the token never reaches the browser.
+//!
+//! When the app forwards identity to the service (`forward_identity` in its
+//! `[services.<name>]` table), the browser and a native app sign the
+//! service's calls and its live connection with a token the app's server
+//! mints for the signed-in person and that service alone ([`IdentityToken`]),
+//! and the server signs the calls it makes while rendering a page with one
+//! for the person it renders for. Either way the service sees the same person,
+//! so a rendered page still holds only what that person's browser could fetch.
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::PoisonError;
 use std::sync::RwLock;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use leptoskit_query::BoxFuture;
 use serde_json::Value;
@@ -88,13 +99,203 @@ pub(crate) fn service_origin(origin: Option<&str>, service: &str) -> String {
 /// `service` and no others, and no offline queue. The queue, its storage
 /// and its status belong to the app's own connection: a service's
 /// mutations go over HTTP whenever its socket is down.
+///
+/// A service the app names no credentials for gets, in the browser and in
+/// a native app, an [`IdentityToken`] for it: the signed-in person's token
+/// for that service, when the app forwards identity to it, and nothing
+/// otherwise.
 pub(crate) fn for_service(config: &ClientConfig, service: &str) -> ClientConfig {
 	ClientConfig {
 		origin: config.origin.clone(),
-		credentials: config.service_credentials.get(service).cloned(),
+		credentials: config
+			.service_credentials
+			.get(service)
+			.cloned()
+			.or_else(|| identity_credentials(service)),
 		offline_queue: false,
 		offline_store: None,
 		service_credentials: std::collections::BTreeMap::new(),
+	}
+}
+
+/// In the browser and a native app: asks the app for the signed-in person's
+/// token for `service`.
+#[cfg(target_arch = "wasm32")]
+#[expect(
+	clippy::unnecessary_wraps,
+	reason = "a server's version has nothing to give"
+)]
+fn identity_credentials(service: &str) -> Option<Arc<dyn super::Credentials>> {
+	Some(Arc::new(IdentityToken::new(service, super::api)))
+}
+
+/// A server signs its calls to a service itself: see [`FromEnvironment`].
+#[cfg(not(target_arch = "wasm32"))]
+fn identity_credentials(_service: &str) -> Option<Arc<dyn super::Credentials>> {
+	None
+}
+
+/// Bumped whenever the app's sign-in may have changed
+/// ([`reauthenticate`](super::reauthenticate)), so a token fetched for
+/// whoever was signed in before is never sent after.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Forgets every service's token: the person they named may have signed
+/// out, or someone else signed in.
+pub(crate) fn forget_identities() {
+	GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+/// How long before a token runs out the client asks for a new one.
+const RENEW_BEFORE_MS: u64 = 60_000;
+
+/// How long the client goes without asking again after the app gave no
+/// token: nobody is signed in, the app doesn't forward identity to the
+/// service, or the app couldn't be asked. A sign-in asks again at once.
+const UNSIGNED_FOR_MS: u64 = 300_000;
+
+/// What signs a service's calls in the browser and in a native app: the
+/// signed-in person's token for that service, which the app's server mints
+/// (`rpc.service_token`, over the app's own client and credentials) and
+/// which no other service accepts.
+///
+/// It keeps the token until a minute before it runs out, asks again when
+/// the service refuses it, and forgets it on
+/// [`reauthenticate`](super::reauthenticate), which `leptoskit_auth`'s client
+/// calls on every sign-in and sign-out. When the app gives no token, calls
+/// go without one: they're anonymous, never more than that.
+#[cfg_attr(
+	not(target_arch = "wasm32"),
+	allow(dead_code, reason = "a server signs its calls to a service itself")
+)]
+pub(crate) struct IdentityToken {
+	service: String,
+	/// The app's own client, which asks for the token.
+	app: Arc<dyn Fn() -> Arc<dyn Api> + Send + Sync>,
+	held: Mutex<Option<Held>>,
+}
+
+/// What a service's client holds for it now.
+enum Kept {
+	/// `Bearer <token>`.
+	Token(String),
+	/// The app gave no token: call anonymously.
+	Unsigned,
+	/// Nothing current: ask the app.
+	Nothing,
+}
+
+/// A token, or the lack of one, and how long to keep it.
+struct Held {
+	generation: u64,
+	/// `Bearer <token>`, or `None` to call anonymously.
+	authorization: Option<String>,
+	/// When to ask again, in [`leptoskit_query::now_ms`] milliseconds.
+	until_ms: u64,
+}
+
+#[cfg_attr(
+	not(target_arch = "wasm32"),
+	allow(dead_code, reason = "a server signs its calls to a service itself")
+)]
+impl IdentityToken {
+	pub(crate) fn new(
+		service: &str,
+		app: impl Fn() -> Arc<dyn Api> + Send + Sync + 'static,
+	) -> Self {
+		Self {
+			service: service.to_owned(),
+			app: Arc::new(app),
+			held: Mutex::new(None),
+		}
+	}
+
+	/// What's held, if it's still current.
+	fn current(&self) -> Kept {
+		let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+		let current = held.as_ref().filter(|held| {
+			held.generation == GENERATION.load(Ordering::SeqCst)
+				&& leptoskit_query::now_ms() < held.until_ms
+		});
+
+		match current {
+			Some(Held {
+				authorization: Some(authorization),
+				..
+			}) => Kept::Token(authorization.clone()),
+			Some(_) => Kept::Unsigned,
+			None => Kept::Nothing,
+		}
+	}
+
+	/// Asks the app for a token, and keeps the answer. A sign-in or
+	/// sign-out while it was asked makes the answer someone else's, so the
+	/// call then goes without one.
+	async fn fetch(&self) -> Option<String> {
+		let generation = GENERATION.load(Ordering::SeqCst);
+		let asked = leptoskit_query::now_ms();
+		let answer = (self.app)()
+			.call(
+				crate::service::SERVICE_TOKEN_OPERATION,
+				serde_json::json!({ "service": self.service }),
+				Key::None,
+			)
+			.await;
+		let minted = answer
+			.ok()
+			.and_then(|value| serde_json::from_value::<Option<crate::ServiceToken>>(value).ok())
+			.flatten();
+		let (authorization, until_ms) = match minted {
+			Some(minted) => {
+				let lasts = minted
+					.expires_in
+					.saturating_mul(1000)
+					.saturating_sub(RENEW_BEFORE_MS);
+				(
+					Some(format!("Bearer {}", minted.token)),
+					asked.saturating_add(lasts),
+				)
+			}
+			None => (None, asked.saturating_add(UNSIGNED_FOR_MS)),
+		};
+
+		if GENERATION.load(Ordering::SeqCst) != generation {
+			return None;
+		}
+
+		*self.held.lock().unwrap_or_else(PoisonError::into_inner) = Some(Held {
+			generation,
+			authorization: authorization.clone(),
+			until_ms,
+		});
+		authorization
+	}
+}
+
+impl super::Credentials for IdentityToken {
+	fn authorization(&self) -> BoxFuture<'_, Result<Option<String>, FnError>> {
+		Box::pin(async move {
+			match self.current() {
+				Kept::Token(authorization) => Ok(Some(authorization)),
+				Kept::Unsigned => Ok(None),
+				Kept::Nothing => Ok(self.fetch().await),
+			}
+		})
+	}
+
+	/// The service refused `sent`, or its live connection asked for a new
+	/// one: asks the app again, unless another call already has.
+	fn refused(&self, sent: Option<String>) -> BoxFuture<'_, Result<bool, FnError>> {
+		Box::pin(async move {
+			if let Kept::Token(current) = self.current()
+				&& Some(&current) != sent.as_ref()
+			{
+				return Ok(true);
+			}
+
+			let renewed = self.fetch().await;
+			Ok(renewed.is_some() && renewed != sent)
+		})
 	}
 }
 
@@ -248,6 +449,9 @@ impl<H: super::protocol::Http + Clone> FromEnvironment<H> {
 }
 
 impl<H: super::protocol::Http + Clone> Api for FromEnvironment<H> {
+	/// Anonymous, signed as the app, or, while the server renders a page for
+	/// someone and the app forwards identity to the service, signed with
+	/// that person's token for it.
 	fn call(
 		&self,
 		name: &'static str,
@@ -275,13 +479,60 @@ impl<H: super::protocol::Http + Clone> Api for FromEnvironment<H> {
 		} else {
 			None
 		};
+		let origin = service_origin(Some(&url), self.service);
+
+		#[cfg(any(feature = "postgres", feature = "sqlite"))]
+		if !self.as_app && crate::service::forwards_identity(self.service, &*self.lookup) {
+			// The request being rendered, read before the first await, while
+			// its context is current.
+			let parts = leptos::prelude::use_context::<http::request::Parts>();
+			let (service, lookup, http) =
+				(self.service, Arc::clone(&self.lookup), self.http.clone());
+			return Box::pin(async move {
+				let credentials = match parts {
+					Some(parts) => forwarded(service, &parts, &*lookup).await,
+					None => None,
+				};
+				let config = ClientConfig {
+					origin: Some(origin),
+					credentials,
+					..ClientConfig::default()
+				};
+				super::protocol::Remote::new(config, http)
+					.call(name, arguments, key)
+					.await
+			});
+		}
+
 		let config = ClientConfig {
-			origin: Some(service_origin(Some(&url), self.service)),
+			origin: Some(origin),
 			credentials,
 			..ClientConfig::default()
 		};
 		super::protocol::Remote::new(config, self.http.clone()).call(name, arguments, key)
 	}
+}
+
+/// While the server renders a page: the token for `service` that names the
+/// person `parts` is from, as the installed server identifies them, or
+/// `None` to call anonymously, as that person's browser would when nobody is
+/// signed in.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+async fn forwarded(
+	service: &str,
+	parts: &http::request::Parts,
+	lookup: &Lookup,
+) -> Option<Arc<dyn super::Credentials>> {
+	let server = crate::server::installed()?;
+	let identity = server.identify_request(parts).await.ok()?;
+	let minted = crate::server::service_identity_token_with(
+		service,
+		&identity,
+		std::time::SystemTime::now(),
+		lookup,
+	)
+	.ok()??;
+	Some(Arc::new(Bearer(format!("Bearer {}", minted.token))))
 }
 
 /// A fixed `Authorization` header: a service's token.

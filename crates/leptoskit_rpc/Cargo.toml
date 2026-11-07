@@ -17,10 +17,13 @@ any_spawner = { workspace = true }
 # The live relay's NATS JetStream client.
 async-nats = { workspace = true, optional = true }
 axum = { workspace = true, optional = true, features = ["ws"] }
+# The short-lived tokens that tell a service who is signed in.
+base64 = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 # The secret in a server-sent events connection's name.
 getrandom = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 leptos = { workspace = true }
@@ -41,6 +44,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["rt", "sync", "time"] }
+uuid = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Calls to other services from a server; see the `services` feature.
@@ -132,7 +136,17 @@ server = ["axum", "client", "leptoskit_rpc_macros/server", "dep:tokio", "service
 services = ["client", "dep:reqwest"]
 # Queries and mutations over `leptoskit_db`: their contexts, `Identify`, and
 # the `rpc` schema pack's receipts. Pick a driver with `postgres` or `sqlite`.
-db = ["server", "dep:chrono", "dep:leptoskit_config", "dep:leptoskit_db", "leptoskit_db/server", "dep:sha2"]
+db = [
+	"server",
+	"dep:base64",
+	"dep:chrono",
+	"dep:hmac",
+	"dep:leptoskit_config",
+	"dep:leptoskit_db",
+	"leptoskit_db/server",
+	"dep:sha2",
+	"dep:uuid",
+]
 # Runs operations on Postgres.
 postgres = ["db", "leptoskit_db/postgres"]
 # Runs operations on SQLite.

@@ -8,6 +8,7 @@ expression: listing
       "bindings": [
         "LEPTOSKIT_SERVICE_ANALYTICS_URL",
         "LEPTOSKIT_SERVICE_ANALYTICS_TOKEN",
+        "LEPTOSKIT_SERVICE_ANALYTICS_IDENTITY",
         "ANALYTICS_PUBLIC_PATH",
         "ANALYTICS_URL"
       ],
@@ -19,6 +20,7 @@ expression: listing
       "features": [
         "service"
       ],
+      "forward_identity": true,
       "name": "analytics",
       "port": 3100,
       "public_paths": [
@@ -45,6 +47,7 @@ expression: listing
       ],
       "database": null,
       "features": [],
+      "forward_identity": false,
       "name": "billing",
       "port": null,
       "public_paths": [],

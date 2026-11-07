@@ -149,6 +149,12 @@ pub fn prepare(services: &[BuiltService], session: &Session<'_>) -> Result<Prepa
 		prepared.app_env.push((env::url(name), url.clone()));
 		prepared.app_env.push((env::token(name), token.clone()));
 
+		if settings.forward_identity {
+			prepared
+				.app_env
+				.push((env::identity(name), env::IDENTITY_FORWARDED.to_owned()));
+		}
+
 		for (variable, value) in &settings.bind {
 			prepared.app_env.push((
 				variable.clone(),

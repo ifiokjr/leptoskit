@@ -308,6 +308,10 @@ fn prepares_each_service_and_the_app() {
 		"https://billing.example"
 	);
 	assert_eq!(app["BILLING_API"], "https://billing.example/api");
+	// The app tells the first-party service who is signed in, and not the
+	// remote one, which is isolated by default.
+	assert_eq!(app["LEPTOSKIT_SERVICE_ANALYTICS_IDENTITY"], "forward");
+	assert!(!app.contains_key("LEPTOSKIT_SERVICE_BILLING_IDENTITY"));
 	assert_eq!(prepared.launches.len(), 1, "a remote service isn't started");
 }
 

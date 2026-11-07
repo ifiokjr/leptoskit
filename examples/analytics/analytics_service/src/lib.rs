@@ -18,7 +18,14 @@
 //!   app may call it: the app's server calls it with
 //!   `rpc::client::call_as_app`, which presents the service's token and so
 //!   identifies it as the caller `"app"`. An ordinary `call`, and every query
-//!   hook, goes anonymously, so a page never renders it.
+//!   hook, goes as the browser would, so a page never renders it.
+//! - [`mine`] returns the signed-in person's own events, so it needs to know
+//!   who that is. The app forwards it: a first-party service like this one gets
+//!   `forward_identity` by default, so the browser, a native app, and the app's
+//!   server while it renders sign each call with a short-lived token naming the
+//!   person, which only this service accepts. The service sees them as the
+//!   caller `person:<id>`, and [`capture`] records their events under that id
+//!   instead of the browser's visitor id.
 //!
 //! After changing the table, regenerate the migrations: see `readme.md`.
 
@@ -39,6 +46,13 @@ leptoskit_db::packs!(leptoskit_rpc);
 /// `leptoskit.toml` must use it, because every operation below is addressed
 /// to it.
 pub const SERVICE: &str = "analytics";
+
+/// How a signed-in person's events are recorded: `person:` and the id the
+/// app knows them by, as the service's caller name has it.
+pub const PERSON_PREFIX: &str = "person:";
+
+/// The most events [`mine`] returns.
+pub const MAX_MINE: u32 = 100;
 
 /// The longest event name.
 pub const MAX_EVENT_LEN: usize = 64;
@@ -155,6 +169,14 @@ pub fn check_event(
 		return Err(format!("a visitor id is 1 to {MAX_DISTINCT_ID_LEN} bytes"));
 	}
 
+	// Signed-in people's events are recorded under their `person:` id,
+	// which only the service assigns, so nobody can write to someone else's.
+	if distinct_id.starts_with(PERSON_PREFIX) {
+		return Err(format!(
+			"a visitor id can't start with `{PERSON_PREFIX}`, which names signed-in people"
+		));
+	}
+
 	if properties.len() > MAX_PROPERTIES {
 		return Err(format!("an event has at most {MAX_PROPERTIES} properties"));
 	}
@@ -177,6 +199,8 @@ pub fn check_event(
 }
 
 /// Records one event. Anyone may call it: a browser sends its visitor id.
+/// When the app forwarded a signed-in person, the event is theirs instead,
+/// under their `person:` id.
 #[rpc::mutation(service = "analytics")]
 pub async fn capture(
 	cx: &rpc::MutationCx,
@@ -185,6 +209,7 @@ pub async fn capture(
 	#[serde(default)] properties: BTreeMap<String, String>,
 ) -> rpc::Result<()> {
 	check_event(&event, &distinct_id, &properties).map_err(rpc::Error::invalid)?;
+	let distinct_id = person(cx.identity()).map_or(distinct_id, str::to_owned);
 	let properties = serde_json::to_string(&properties)
 		.map_err(|error| rpc::Error::server(error.to_string()))?;
 	NewEvent {
@@ -270,22 +295,51 @@ pub async fn recent(cx: &rpc::QueryCx, limit: u32) -> rpc::Result<Vec<RecentEven
 		.all(cx.db())
 		.await?;
 
-	Ok(rows
-		.into_iter()
-		.map(|event| {
-			RecentEvent {
-				name: event.name,
-				distinct_id: event.distinct_id,
-				properties: serde_json::from_str(&event.properties).unwrap_or_default(),
-				at: event.created_at.to_rfc3339(),
-			}
-		})
-		.collect())
+	Ok(rows.into_iter().map(recent_event).collect())
+}
+
+/// The signed-in person's own latest events, newest first, at most
+/// [`MAX_MINE`]. Screens watch it live. Only a person the app forwarded may
+/// read it, and only their own events.
+#[rpc::query(service = "analytics")]
+pub async fn mine(cx: &rpc::QueryCx, limit: u32) -> rpc::Result<Vec<RecentEvent>> {
+	let Some(me) = person(cx.identity()) else {
+		return Err(rpc::Error::forbidden("sign in to see your own events"));
+	};
+
+	let rows = Event::query()
+		.filter(|event| event.distinct_id.eq(me.to_owned()))
+		.order_by(|event| event.created_at.desc())
+		.limit(u64::from(limit.clamp(1, MAX_MINE)))
+		.all(cx.db())
+		.await?;
+
+	Ok(rows.into_iter().map(recent_event).collect())
+}
+
+/// The `person:` id of the signed-in person the app forwarded, if it did.
+#[cfg(feature = "service")]
+fn person(identity: &rpc::server::Identity) -> Option<&str> {
+	identity
+		.caller
+		.as_deref()
+		.filter(|caller| caller.starts_with(rpc::server::PERSON_CALLER_PREFIX))
+}
+
+#[cfg(feature = "service")]
+fn recent_event(event: Event) -> RecentEvent {
+	RecentEvent {
+		name: event.name,
+		distinct_id: event.distinct_id,
+		properties: serde_json::from_str(&event.properties).unwrap_or_default(),
+		at: event.created_at.to_rfc3339(),
+	}
 }
 
 /// The service's routes, under `/_leptoskit/services/analytics`: the
 /// operations and the live connection. Callers presenting
-/// `LEPTOSKIT_SERVICE_TOKEN` are the app.
+/// `LEPTOSKIT_SERVICE_TOKEN` are the app, and callers presenting a token the
+/// app minted for this service are the person it names.
 ///
 /// `origin` is the app's public origin, which the live connection checks
 /// browsers against. Start the returned [`rpc::server::Live`] before
