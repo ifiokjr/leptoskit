@@ -174,6 +174,7 @@ mod imp {
 		function: Function,
 		// Keeps the Rust handler alive while the browser can call it.
 		handler: Option<Handler>,
+		on_drop: Option<Box<dyn FnOnce()>>,
 	}
 
 	impl Drop for Listener {
@@ -185,6 +186,9 @@ mod imp {
 			}
 			// Only now can the handler go: the browser no longer calls it.
 			drop(self.handler.take());
+			if let Some(on_drop) = self.on_drop.take() {
+				on_drop();
+			}
 		}
 	}
 
@@ -206,7 +210,53 @@ mod imp {
 			event,
 			function,
 			handler: Some(closure),
+			on_drop: None,
 		})
+	}
+
+	/// A property on a JavaScript object.
+	pub(crate) fn property(this: &JsValue, name: &str) -> Result<JsValue, Error> {
+		Reflect::get(this, &JsValue::from_str(name))
+			.map_err(|error| Error::Browser(message(&error)))
+	}
+
+	/// Listens to an event object (`onMessage`, `onDisconnect`) with one
+	/// argument.
+	pub(crate) fn listen_one(
+		event: &JsValue,
+		handler: impl FnMut(JsValue) + 'static,
+	) -> Result<Listener, Error> {
+		let mut handler = handler;
+		let closure =
+			Closure::<dyn FnMut(JsValue, JsValue, JsValue) -> JsValue>::new(move |first, _, _| {
+				handler(first);
+				JsValue::UNDEFINED
+			});
+		let function: Function = closure.as_ref().clone().unchecked_into();
+		let add = Reflect::get(event, &JsValue::from_str("addListener"))
+			.ok()
+			.and_then(|value| value.dyn_into::<Function>().ok())
+			.ok_or_else(|| Error::Unavailable("addListener".into()))?;
+		add.call1(event, &function)
+			.map_err(|error| Error::Browser(message(&error)))?;
+		Ok(Listener {
+			event: event.clone(),
+			function,
+			handler: Some(closure),
+			on_drop: None,
+		})
+	}
+
+	impl Listener {
+		/// A listener that only runs `on_drop` when dropped.
+		pub(crate) fn guard(on_drop: impl FnOnce() + 'static) -> Self {
+			Self {
+				event: JsValue::NULL,
+				function: Function::new_no_args(""),
+				handler: None,
+				on_drop: Some(Box::new(on_drop)),
+			}
+		}
 	}
 }
 
@@ -248,6 +298,27 @@ pub(crate) fn property<T: DeserializeOwned>(path: &str) -> Result<T, Error> {
 	Err(Error::Unavailable(path.to_owned()))
 }
 
-/// Outside a browser, listening fails as unavailable.
+/// Outside a browser, listening fails as unavailable unless constructed with
+/// [`Listener::guard`], which still runs cleanup when dropped.
 #[cfg(not(target_arch = "wasm32"))]
-pub struct Listener;
+pub struct Listener {
+	on_drop: Option<Box<dyn FnOnce()>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Listener {
+	pub(crate) fn guard(on_drop: impl FnOnce() + 'static) -> Self {
+		Self {
+			on_drop: Some(Box::new(on_drop)),
+		}
+	}
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for Listener {
+	fn drop(&mut self) {
+		if let Some(on_drop) = self.on_drop.take() {
+			on_drop();
+		}
+	}
+}

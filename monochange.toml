@@ -152,6 +152,7 @@ packages = [
 	"leptoskit_auth",
 	"leptoskit_idp",
 	"leptoskit_extension",
+	"leptoskit_service_worker",
 	"leptoskit_devtools_protocol",
 	"leptoskit_plugin_devtools",
 	"leptoskit_devtools",
@@ -491,6 +492,10 @@ type = "cargo"
 
 [package.leptoskit_extension]
 path = "crates/leptoskit_extension"
+type = "cargo"
+
+[package.leptoskit_service_worker]
+path = "crates/leptoskit_service_worker"
 type = "cargo"
 
 [package.leptoskit_devtools_protocol]

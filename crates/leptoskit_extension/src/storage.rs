@@ -72,6 +72,43 @@ impl Area {
 			.await
 			.map(drop)
 	}
+
+	/// Removes every key in this area.
+	///
+	/// # Errors
+	///
+	/// When the area is unavailable.
+	pub async fn clear(self) -> Result<()> {
+		js::call::<Value>(&format!("{}.clear", self.path()), &[])
+			.await
+			.map(drop)
+	}
+
+	/// Every key stored in this area.
+	///
+	/// # Errors
+	///
+	/// When the area is unavailable.
+	pub async fn keys(self) -> Result<Vec<String>> {
+		let values: Map<String, Value> =
+			js::call(&format!("{}.get", self.path()), &[&Value::Null]).await?;
+		Ok(values.into_iter().map(|(key, _)| key).collect())
+	}
+
+	/// Approximate bytes used by `key`, or by the whole area when `key` is
+	/// `None`. Chromium and Firefox support this; Safari may not.
+	///
+	/// # Errors
+	///
+	/// When the area is unavailable, or the browser has no quota API.
+	pub async fn get_bytes_in_use(self, key: Option<&str>) -> Result<u64> {
+		let path = format!("{}.getBytesInUse", self.path());
+		let bytes: f64 = match key {
+			Some(key) => js::call(&path, &[&key]).await?,
+			None => js::call(&path, &[]).await?,
+		};
+		Ok(bytes as u64)
+	}
 }
 
 /// On this device: the area to use unless there's a reason not to.

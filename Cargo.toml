@@ -212,6 +212,7 @@ leptoskit_devtools = { path = "crates/leptoskit_devtools", version = "0.3.0", de
 leptoskit_devtools_protocol = { path = "crates/leptoskit_devtools_protocol", version = "0.3.0" }
 leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.3.0" }
 leptoskit_extension = { path = "crates/leptoskit_extension", version = "0.3.0" }
+leptoskit_service_worker = { path = "crates/leptoskit_service_worker", version = "0.3.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.3.0" }
 leptoskit_form = { path = "crates/leptoskit_form", version = "0.3.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.3.0" }

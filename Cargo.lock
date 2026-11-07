@@ -4834,6 +4834,7 @@ dependencies = [
  "leptoskit_query",
  "leptoskit_rive",
  "leptoskit_rpc",
+ "leptoskit_service_worker",
  "leptoskit_table",
  "leptoskit_tui",
  "leptoskit_uikit",
@@ -6433,6 +6434,19 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_service_worker"
+version = "0.3.0"
+dependencies = [
+ "futures",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
