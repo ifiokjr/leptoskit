@@ -2,6 +2,7 @@
 //! `leptoskit_docs`, plus the handful of components only these docs use.
 
 pub mod ink;
+pub mod play;
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -37,6 +38,8 @@ pub fn site(root: impl Into<PathBuf>) -> Site {
 		.social_image("assets/social.png")
 		.stylesheet("theme/leptoskit.css")
 		.stylesheet("theme/skribble.css")
+		.stylesheet("theme/play.css")
+		.script("theme/play.js")
 		.external_fonts(false)
 		.components(components());
 	for (name, bytes) in ink::files() {
@@ -51,6 +54,10 @@ pub fn site(root: impl Into<PathBuf>) -> Site {
 ///   as the page loads, beside the Markdown it wraps and a call to action.
 /// - `<Gallery>` holding `<Shot src="…" alt="…" title="…" wide>`: rendered
 ///   screens with captions.
+/// - `<Play app="…" title="…" description="…" start="?…" width="…" height="…"
+///   native="…">`: an example's real web build in a framed player, with back,
+///   reload, and open-in-a-new-tab controls and, given `native`, a switch to
+///   the AppKit render (see [`play`]). Works inside a `<Gallery>`.
 /// - `<Swatches>` holding `<Swatch name="…" color="#…" />`: the brand colours.
 /// - `<Logos>` holding `<Logo src="…" label="…" ink />`: logo files on paper or
 ///   ink.
@@ -66,6 +73,7 @@ pub fn components() -> Components {
 			Ok(view! { <div class="lk-gallery">{children()}</div> }.into_any())
 		})
 		.with("Shot", shot)
+		.with("Play", player)
 		.with("Swatches", |_props, children| {
 			Ok(view! { <div class="lk-swatches">{children()}</div> }.into_any())
 		})
@@ -135,6 +143,209 @@ fn shot(props: &Props<'_>, children: Children) -> Result<AnyView, PropError> {
 		</figure>
 	}
 	.into_any())
+}
+
+/// The phone viewport, in CSS pixels, that players use unless told
+/// otherwise: the gallery's phone screens and Field are laid out for it.
+const PHONE: (u32, u32) = (390, 844);
+
+/// A player: the example's web build, loaded into a sandboxed frame by
+/// `theme/play.js` as it nears the viewport, laid out at its own `width` and
+/// `height` and scaled to the column, so it never shifts the page. Without
+/// JavaScript, which the apps need anyway, the native render shows instead.
+fn player(props: &Props<'_>, children: Children) -> Result<AnyView, PropError> {
+	let name = props.require("app")?;
+	let example = play::example(name).ok_or_else(|| {
+		PropError::new(format!(
+			"<Play app=\"{name}\"> is not an example the docs build; add it to `play::EXAMPLES`"
+		))
+	})?;
+	let start = props.get("start").unwrap_or_default();
+	if !(start.is_empty()
+		|| start.starts_with('?')
+			&& start[1..]
+				.bytes()
+				.all(|byte| byte.is_ascii_alphanumeric() || b"=&-_.".contains(&byte)))
+	{
+		return Err(PropError::new(format!(
+			"`start=\"{start}\"` on <Play> must be a query string such as `?screen=chat`"
+		)));
+	}
+	let title = props.require("title")?.to_owned();
+	let description = props.require("description")?.to_owned();
+	let width = props.parse::<u32>("width")?.unwrap_or(PHONE.0);
+	let height = props.parse::<u32>("height")?.unwrap_or(PHONE.1);
+	if width == 0 || height == 0 {
+		return Err(PropError::new(
+			"<Play> needs a `width` and `height` above zero",
+		));
+	}
+	let native = props.url("native").transpose()?;
+	let bar = player_bar(&title, native.is_some());
+
+	let id = format!(
+		"lk-play-{}",
+		title
+			.chars()
+			.map(|character| {
+				if character.is_ascii_alphanumeric() {
+					character.to_ascii_lowercase()
+				} else {
+					'-'
+				}
+			})
+			.collect::<String>()
+	);
+	let description_id = format!("{id}-description");
+	let class = if width > height {
+		"lk-play lk-play-wide"
+	} else {
+		"lk-play"
+	};
+	let source = format!("{}/{}/{start}", play::DIRECTORY, example.name);
+	let native_image = native.clone().map(|source| {
+		view! {
+			<img
+				class="lk-play-native"
+				data-src=source
+				alt=description.clone()
+				width=width
+				height=height
+				hidden
+			/>
+		}
+	});
+	// The apps need JavaScript, so without it the native render stands in.
+	let fallback = match native {
+		Some(source) => {
+			view! {
+				<noscript>
+					<img
+						class="lk-play-native"
+						src=source
+						alt=description.clone()
+						width=width
+						height=height
+					/>
+				</noscript>
+			}
+			.into_any()
+		}
+		None => {
+			view! {
+				<noscript>
+					<p class="lk-play-message">
+						{format!("{title} plays here with JavaScript on.")}
+					</p>
+				</noscript>
+			}
+			.into_any()
+		}
+	};
+
+	Ok(view! {
+		<figure
+			class=class
+			id=id.clone()
+			data-lk-play=""
+			data-width=width
+			data-height=height
+			style=format!("--lk-play-width: {width}px")
+		>
+			<div class="lk-play-device">
+				{bar}
+				<div class="lk-play-stage" style=format!("aspect-ratio: {width} / {height}")>
+					<div class="lk-play-skeleton" aria-hidden="true">
+						<span />
+						<span />
+						<span />
+						<span />
+					</div>
+					<iframe
+						class="lk-play-frame"
+						title=format!("{title}, playable")
+						aria-describedby=description_id.clone()
+						data-src=source
+						sandbox=example.sandbox()
+						referrerpolicy="no-referrer"
+						width=width
+						height=height
+					/>
+					{native_image}
+					{fallback}
+					<p class="lk-play-status" role="status" data-lk-play-status="" />
+				</div>
+			</div>
+			<figcaption>
+				<strong>{title.clone()}</strong>
+				" "
+				<span id=description_id>{description.clone()}</span>
+				" "
+				{children()}
+			</figcaption>
+		</figure>
+	}
+	.into_any())
+}
+
+/// A player's toolbar: back through the app's own history, what renders it
+/// and, with a native render, the switch to it, then reload and open in a new
+/// tab. `theme/play.js` enables the controls once it runs.
+fn player_bar(title: &str, native: bool) -> impl IntoView {
+	let switch = native.then(|| {
+		view! {
+			<span class="lk-play-switch" role="group" aria-label=format!("{title}: renderer")>
+				<button type="button" data-lk-play-view="web" aria-pressed="true" disabled>
+					"Web"
+				</button>
+				<button type="button" data-lk-play-view="native" aria-pressed="false" disabled>
+					"AppKit"
+				</button>
+			</span>
+		}
+	});
+	view! {
+		<div class="lk-play-bar">
+			<button
+				type="button"
+				class="lk-icon-button"
+				data-lk-play-back=""
+				aria-label=format!("Back in {title}")
+				title="Back"
+				disabled
+			>
+				<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+					<path d="M15 5l-7 7 7 7" />
+				</svg>
+			</button>
+			<span class="lk-play-label" data-lk-play-label="">"Web build, in your browser"</span>
+			{switch}
+			<button
+				type="button"
+				class="lk-icon-button"
+				data-lk-play-reload=""
+				aria-label=format!("Reload {title}")
+				title="Reload"
+				disabled
+			>
+				<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+					<path d="M19 12a7 7 0 1 1-2.05-4.95M19 4v4h-4" />
+				</svg>
+			</button>
+			<a
+				class="lk-icon-button"
+				data-lk-play-open=""
+				target="_blank"
+				rel="noopener"
+				aria-label=format!("Open {title} in a new tab")
+				title="Open in a new tab"
+			>
+				<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+					<path d="M14 5h5v5M19 5l-8 8M17 14v5H5V7h5" />
+				</svg>
+			</a>
+		</div>
+	}
 }
 
 #[component]

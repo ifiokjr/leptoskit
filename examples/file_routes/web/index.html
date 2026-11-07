@@ -2,15 +2,27 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!-- The router matches the path after the base, and files load relative
+         to it, so the same page serves from any path: the documentation
+         plays Field under /docs/play/field/. -->
+    <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="data:," />
     <title>Field</title>
-    <link rel="stylesheet" href="/assets/app.css" />
+    <link rel="stylesheet" href="assets/app.css" />
+    <!-- The root view fills the page, so the tab bar sits at its foot. -->
+    <style>
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+    </style>
+    <script type="module" src="main.js"></script>
   </head>
-  <body>
-    <script type="module">
-      import init from "/pkg/file_routes_example.js";
-      await init({ module_or_path: "/pkg/file_routes_example_bg.wasm" });
-    </script>
-  </body>
+  <body></body>
 </html>

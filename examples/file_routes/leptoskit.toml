@@ -19,3 +19,11 @@ package_id = "dev.leptoskit.field"
 # `plugin:router routes` regenerate `src/routes.rs` from `src/routes/`.
 [[plugins]]
 name = "router"
+
+# The documentation plays this example's release build, served by a static
+# host that compresses files itself. The budget keeps what a reader
+# downloads for it in check.
+[bundle]
+optimize = "smallest"
+precompress = false
+budget_kib = 250

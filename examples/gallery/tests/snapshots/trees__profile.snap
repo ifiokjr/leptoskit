@@ -9,7 +9,7 @@ View [flex-col h-full w-full] #cfb2df9a3fe2
       View [flex-col gap-4 px-5] #f38257e690fa
         View [flex-row gap-2 h-12 items-center justify-end pt-3] #51bbfd1b0478
           Button "Message" [h-9 px-[18px] py-0 rounded-[18px]] #43f56f703960
-          Button "Follow" [h-9 px-[18px] py-0 rounded-[18px]] #30b2f38ec783
+          Button "Follow" [h-9 px-[18px] py-0 rounded-[18px]] #0f3e080c4be0
         View [flex-col gap-1] #44d0db187520
           View [flex-row gap-2 items-center] #1c4e55b5a85f
             Text "Amara Okafor" #cb81bbbcc7c2

@@ -5,11 +5,13 @@
 //! Linux, and in the browser through the optional `gallery-web` binary. Every
 //! host renders the same screen functions.
 
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::PoisonError;
 use std::sync::RwLock;
 use std::sync::atomic::AtomicI32;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use leptoskit_native::Element;
@@ -59,7 +61,9 @@ pub struct ScreenState {
 	pub assets: Assets,
 	volume: Arc<RwLock<f64>>,
 	density: Arc<AtomicI32>,
+	range: Arc<AtomicUsize>,
 	password: Arc<RwLock<String>>,
+	drafts: Arc<RwLock<BTreeMap<&'static str, String>>>,
 	on_change: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -77,6 +81,9 @@ impl std::fmt::Debug for ScreenState {
 impl ScreenState {
 	/// The count the counter screen starts at.
 	pub const INITIAL_COUNT: i32 = 12;
+	/// The dashboard's range the revenue chart starts on: the last of
+	/// `7 days`, `30 days`, and `12 months`.
+	pub const INITIAL_RANGE: usize = 2;
 
 	/// Fresh state over a set of assets.
 	pub fn new(assets: Assets) -> Self {
@@ -90,7 +97,9 @@ impl ScreenState {
 			assets,
 			volume: Arc::new(RwLock::new(64.0)),
 			density: Arc::new(AtomicI32::new(0)),
+			range: Arc::new(AtomicUsize::new(Self::INITIAL_RANGE)),
 			password: Arc::new(RwLock::new(String::new())),
+			drafts: Arc::new(RwLock::new(BTreeMap::new())),
 			on_change: None,
 		}
 	}
@@ -209,6 +218,44 @@ impl ScreenState {
 		}
 	}
 
+	/// The index of the dashboard's selected range.
+	pub fn range(&self) -> usize {
+		self.range.load(Ordering::SeqCst)
+	}
+
+	/// A handler that selects the dashboard's range at `index`.
+	pub fn select_range(&self, index: usize) -> impl Fn() + Send + Sync + 'static {
+		let state = self.clone();
+		move || {
+			state.range.store(index, Ordering::SeqCst);
+			state.notify();
+		}
+	}
+
+	/// What the reader has typed into the text field `field` names.
+	pub fn draft(&self, field: &str) -> String {
+		self.drafts
+			.read()
+			.unwrap_or_else(PoisonError::into_inner)
+			.get(field)
+			.cloned()
+			.unwrap_or_default()
+	}
+
+	/// Accepts an edit to the text field `field` names. Text fields are
+	/// controlled, so one without this handler keeps its value.
+	pub fn set_draft(&self, field: &'static str) -> impl Fn(&str) + Send + Sync + 'static {
+		let state = self.clone();
+		move |value| {
+			state
+				.drafts
+				.write()
+				.unwrap_or_else(PoisonError::into_inner)
+				.insert(field, value.to_owned());
+			state.notify();
+		}
+	}
+
 	/// The component demo's application-owned password value.
 	pub fn password(&self) -> String {
 		self.password
@@ -303,8 +350,29 @@ pub fn find_screen(slug: &str) -> Option<&'static Screen> {
 	SCREENS.iter().find(|screen| screen.slug == slug)
 }
 
+/// The screen a page's query string names with `screen`, as in
+/// `?screen=chat`: the browser client then shows that screen alone.
+///
+/// ```
+/// assert_eq!(
+/// 	gallery::screen_in_query("?screen=chat").map(|screen| screen.title),
+/// 	Some("Chat")
+/// );
+/// assert!(gallery::screen_in_query("?screen=missing").is_none());
+/// assert!(gallery::screen_in_query("").is_none());
+/// ```
+pub fn screen_in_query(query: &str) -> Option<&'static Screen> {
+	query
+		.trim_start_matches('?')
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("screen="))
+		.and_then(find_screen)
+}
+
 /// Mounts the gallery when the browser loads the wasm module: a picker of
-/// every screen above the selected one, with working controls. `leptoskit
+/// every screen above the selected one, with working controls. A page whose
+/// query string names a screen, such as `?screen=chat`, shows that screen
+/// alone and filling the page, the way the documentation plays it. `leptoskit
 /// dev` builds it with the `csr` feature.
 #[cfg(all(target_arch = "wasm32", feature = "csr"))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
@@ -323,8 +391,26 @@ pub fn start() {
 	use crate::Assets;
 	use crate::SCREENS;
 	use crate::ScreenState;
+	use crate::screen_in_query;
 
 	let assets = Assets::for_browser().expect("the gallery artwork fits the BMP format");
+	let named = web_sys::window()
+		.and_then(|window| window.location().search().ok())
+		.and_then(|query| screen_in_query(&query));
+
+	if let Some(screen) = named {
+		mount_to_body(move || {
+			let revision = RwSignal::new(0_u64);
+			let state =
+				ScreenState::new(assets).on_change(move || revision.update(|value| *value += 1));
+			move || {
+				let _ = revision.get();
+				leptoskit::web::render(web_preview(screen, &state))
+			}
+		});
+		return;
+	}
+
 	mount_to_body(move || {
 		let revision = RwSignal::new(0_u64);
 		let selected = RwSignal::new(0_usize);

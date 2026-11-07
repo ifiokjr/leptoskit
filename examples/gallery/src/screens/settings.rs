@@ -165,8 +165,10 @@ pub fn Screen(state: &ScreenState) -> Element {
 							border=(2.0, colors.muted)
 						/>
 						<TextInput
+							value=state.draft("Search settings")
 							placeholder="Search"
 							accessibility_label="Search settings"
+							on:change=state.set_draft("Search settings")
 							font=(type_scale::BODY.size, type_scale::BODY.weight)
 							color=colors.ink
 							class="bg-[#00000000]"

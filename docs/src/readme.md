@@ -52,12 +52,12 @@ The same function renders as DOM elements in a browser, and through a platform b
 
 ## See it render
 
-These screens are leptoskit element trees committed as real AppKit views and rendered offscreen. They are not mockups. [See all of them](examples.md).
+These screens are leptoskit element trees, running here as their web build: press, type, and scroll in them. Switch one to **AppKit** to see the same tree committed as real AppKit views and rendered offscreen. They are not mockups. [See all of them](examples.md).
 
 <Gallery>
-	<Shot src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/profile.png" alt="A profile screen rendered with native AppKit views" title="Profile">An avatar over the header and wrapping text measured with AppKit's font metrics.</Shot>
-	<Shot src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/counter.png" alt="A counter screen rendered with native AppKit views" title="Counter">A centred card, a progress bar of nested flex boxes, and a pill button.</Shot>
-	<Shot src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/chat.png" alt="A chat screen rendered with native AppKit views" title="Chat">Bubbles capped with `max_width`, aligned by `align_self`.</Shot>
+	<Play app="gallery" start="?screen=profile" title="Profile" description="A profile screen with a landscape header, an avatar overlapping it, Message and Follow buttons, a bio, a stats row, and three recent work thumbnails." native="https://f002.backblazeb2.com/file/leptoskit/examples/macos/profile.png">An avatar over the header and wrapping text measured with each platform's font metrics. Press **Follow**.</Play>
+	<Play app="gallery" start="?screen=counter" title="Counter" description="A counter screen in the leptoskit palette: a large count of 12, a progress bar at 60%, and a round minus button beside an ember Add one button." native="https://f002.backblazeb2.com/file/leptoskit/examples/macos/counter.png">A centred card, a progress bar of nested flex boxes, and a pill button. Press **Add one**.</Play>
+	<Play app="gallery" start="?screen=chat" title="Chat" description="A chat thread with grey incoming bubbles, indigo outgoing bubbles, an image message, a read receipt, and a message composer." native="https://f002.backblazeb2.com/file/leptoskit/examples/macos/chat.png">Bubbles capped with `max_width`, aligned by `align_self`. Type in the composer.</Play>
 </Gallery>
 
 ## How the pieces fit

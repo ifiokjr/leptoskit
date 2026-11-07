@@ -124,6 +124,52 @@ impl From<Href> for String {
 	}
 }
 
+/// The path a browser app is served under, such as `/docs/play/field/`: the
+/// directory of the page's `<base href>`, or `/` without one. It always
+/// starts and ends with `/`.
+///
+/// Routes match the part of the page's path after it, and every href the
+/// router writes to the address bar or renders as a link starts with it.
+#[cfg(any(test, all(feature = "web", target_arch = "wasm32")))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BasePath(String);
+
+#[cfg(any(test, all(feature = "web", target_arch = "wasm32")))]
+impl BasePath {
+	/// The base of a site's root.
+	pub(crate) fn root() -> Self {
+		Self("/".to_owned())
+	}
+
+	/// The directory of a base URL's path, the way relative links resolve
+	/// against it: `/docs/play/field/` stays as it is, and `/app` (with no
+	/// trailing slash) names a page in `/`.
+	pub(crate) fn of(path: &str) -> Self {
+		match path.rfind('/') {
+			Some(end) if path.starts_with('/') => Self(path[..=end].to_owned()),
+			_ => Self::root(),
+		}
+	}
+
+	/// The route URL for a page's path and query string: the part after the
+	/// base, from its own `/`. A page outside the base keeps its whole path,
+	/// which then matches whatever route it names.
+	pub(crate) fn route_url<'a>(&self, page: &'a str) -> std::borrow::Cow<'a, str> {
+		let inside = self.0.strip_suffix('/').unwrap_or(&self.0);
+
+		match page.strip_prefix(inside) {
+			Some(rest) if rest.starts_with('/') => rest.into(),
+			Some(rest) if rest.is_empty() || rest.starts_with('?') => format!("/{rest}").into(),
+			_ => page.into(),
+		}
+	}
+
+	/// Where `href` is on the page: under the base.
+	pub(crate) fn page_url(&self, href: &Href) -> String {
+		format!("{}{}", self.0, &href.as_str()[1..])
+	}
+}
+
 /// Characters a path segment keeps as they are, besides ASCII letters and
 /// digits.
 const PATH_SAFE: &[u8] = b"-._~!$&'()*+,;=:@";
@@ -289,5 +335,53 @@ mod tests {
 			Href::from_parts(&[], &[("a", "b".to_owned())]).as_str(),
 			"/?a=b"
 		);
+	}
+
+	#[test]
+	fn a_base_is_the_directory_its_links_resolve_against() {
+		assert_eq!(
+			BasePath::of("/docs/play/field/"),
+			BasePath("/docs/play/field/".to_owned())
+		);
+		assert_eq!(BasePath::of("/app"), BasePath::root());
+		assert_eq!(BasePath::of("/app/index.html"), BasePath::of("/app/"));
+		assert_eq!(BasePath::of(""), BasePath::root());
+		assert_eq!(BasePath::of("relative/"), BasePath::root());
+	}
+
+	#[test]
+	fn routes_match_the_path_after_the_base() {
+		let base = BasePath::of("/docs/play/field/");
+		assert_eq!(
+			base.route_url("/docs/play/field/notes/3?q=a"),
+			"/notes/3?q=a"
+		);
+		assert_eq!(base.route_url("/docs/play/field/"), "/");
+		assert_eq!(base.route_url("/docs/play/field"), "/");
+		assert_eq!(base.route_url("/docs/play/field?lang=pl"), "/?lang=pl");
+		// A sibling that only shares a prefix is outside the base.
+		assert_eq!(
+			base.route_url("/docs/play/fieldwork/1"),
+			"/docs/play/fieldwork/1"
+		);
+		assert_eq!(base.route_url("/elsewhere"), "/elsewhere");
+
+		let root = BasePath::root();
+		assert_eq!(root.route_url("/notes/3"), "/notes/3");
+		assert_eq!(root.route_url("/"), "/");
+	}
+
+	#[test]
+	fn hrefs_on_the_page_start_with_the_base() {
+		let note = Href::from_parts(&["notes".to_owned(), "3".to_owned()], &[]);
+		let home = Href::from_parts(&[], &[]);
+		let base = BasePath::of("/docs/play/field/");
+		assert_eq!(base.page_url(&note), "/docs/play/field/notes/3");
+		assert_eq!(base.page_url(&home), "/docs/play/field/");
+		assert_eq!(BasePath::root().page_url(&note), "/notes/3");
+		// Every page URL reads back as the route it came from.
+		for href in [&note, &home] {
+			assert_eq!(base.route_url(&base.page_url(href)), href.as_str());
+		}
 	}
 }

@@ -216,7 +216,7 @@ fn Header(state: &ScreenState, colors: &Palette) -> Element {
 }
 
 #[component]
-fn Composer(colors: &Palette) -> Element {
+fn Composer(state: &ScreenState, colors: &Palette) -> Element {
 	view! {
 		<View class="flex-col">
 			<View background=colors.line class="h-[1px]" />
@@ -236,8 +236,10 @@ fn Composer(colors: &Palette) -> Element {
 					class="rounded-[18px]"
 				>
 					<TextInput
+						value=state.draft("Message")
 						placeholder="Message"
 						accessibility_label="Message"
+						on:change=state.set_draft("Message")
 						font=(type_scale::BODY.size, type_scale::BODY.weight)
 						color=colors.ink
 						class="bg-[#00000000]"
@@ -268,7 +270,7 @@ pub fn Screen(state: &ScreenState) -> Element {
 			<ScrollView class="flex-1">
 				<Thread state=state colors=colors />
 			</ScrollView>
-			<Composer colors=colors />
+			<Composer state=state colors=colors />
 		</View>
 	}
 }

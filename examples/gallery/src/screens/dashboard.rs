@@ -193,6 +193,60 @@ fn StatCard(
 	}
 }
 
+/// Daily revenue over the last week, in thousands.
+const WEEK: [(&str, f32); 7] = [
+	("Wed", 2.4),
+	("Thu", 2.9),
+	("Fri", 3.8),
+	("Sat", 4.6),
+	("Sun", 4.1),
+	("Mon", 2.7),
+	("Tue", 3.3),
+];
+
+/// Weekly revenue over the last thirty days, in thousands.
+const MONTH: [(&str, f32); 5] = [
+	("Sep 22", 17.8),
+	("Sep 29", 19.4),
+	("Oct 6", 21.0),
+	("Oct 13", 22.6),
+	("Oct 20", 11.2),
+];
+
+/// A span of time the revenue chart can cover.
+struct Range {
+	/// The picker's label.
+	name: &'static str,
+	/// Each bar's label and revenue, in thousands.
+	bars: &'static [(&'static str, f32)],
+	/// The revenue at the top of the scale, in thousands.
+	top: f32,
+	/// The total the chart's heading shows.
+	total: &'static str,
+}
+
+/// The ranges the chart covers, in the picker's order.
+const RANGES: [Range; 3] = [
+	Range {
+		name: "7 days",
+		bars: &WEEK,
+		top: 5.0,
+		total: "$23,840",
+	},
+	Range {
+		name: "30 days",
+		bars: &MONTH,
+		top: 25.0,
+		total: "$92,418",
+	},
+	Range {
+		name: "12 months",
+		bars: &REVENUE,
+		top: 100.0,
+		total: "$735,210",
+	},
+];
+
 /// Monthly revenue, in thousands, for the bar chart.
 const REVENUE: [(&str, f32); 12] = [
 	("Nov", 42.0),
@@ -208,9 +262,6 @@ const REVENUE: [(&str, f32); 12] = [
 	("Sep", 81.0),
 	("Oct", 92.0),
 ];
-
-/// The value at the top of the chart's scale, in thousands.
-const CHART_MAX: f32 = 100.0;
 
 /// The first character of a label, for axes too narrow for the whole label.
 fn initial(label: &str) -> String {
@@ -228,11 +279,17 @@ fn Legend(color: Color, colors: &Palette, children: Children) -> Element {
 }
 
 #[component]
-fn RevenueChart(colors: &Palette) -> Element {
-	let last = REVENUE.len() - 1;
+fn RevenueChart(range: usize, colors: &Palette) -> Element {
+	let Range {
+		bars: revenue,
+		top,
+		total,
+		..
+	} = RANGES[range];
+	let last = revenue.len() - 1;
 	// The plot fills whatever height the card has; each bar is a fraction of
 	// its column's plot area.
-	let bars = REVENUE
+	let bars = revenue
 		.iter()
 		.enumerate()
 		.map(|(index, (month, value))| {
@@ -242,7 +299,7 @@ fn RevenueChart(colors: &Palette) -> Element {
 				<View class="flex-col flex-1 gap-2 items-center">
 					<View class="flex-col flex-1 justify-end w-full">
 						<View
-							with_style=|style| style.height = Dimension::Percent(value / CHART_MAX)
+							with_style=|style| style.height = Dimension::Percent(value / top)
 							class="rounded-[6px]"
 							background=if current {
 								colors.accent
@@ -269,7 +326,7 @@ fn RevenueChart(colors: &Palette) -> Element {
 				<View class="flex-col gap-1 min-w-0 grow shrink basis-48">
 					<Label style=type_scale::HEADLINE color=colors.ink>"Revenue"</Label>
 					<View class="flex-row flex-wrap gap-2 items-center">
-						<Text class="font-bold text-[22px]" color=colors.ink>"$735,210"</Text>
+						<Text class="font-bold text-[22px]" color=colors.ink>{total}</Text>
 						<Delta up colors=colors>"+18.2%"</Delta>
 					</View>
 				</View>
@@ -378,31 +435,36 @@ fn TopProducts(state: &ScreenState, colors: &Palette) -> Element {
 	}
 }
 
-/// A segmented range picker.
+/// A segmented range picker that chooses what the chart covers.
 #[component]
-fn RangePicker(colors: &Palette) -> Element {
-	let ranges = ["7 days", "30 days", "12 months"].map(|range| {
-		let selected = range == "12 months";
-		let weight = if selected {
-			FontWeight::Semibold
-		} else {
-			FontWeight::Medium
-		};
-		let button = view! {
-			<Button
-				font=(13.0, weight)
-				color=if selected { colors.ink } else { colors.muted }
-				class="py-0 px-3 rounded-[7px] h-[30px]"
-			>
-				{range}
-			</Button>
-		};
-		if selected {
-			button.background(colors.canvas)
-		} else {
-			button.background(alpha(colors.card, 0.0))
-		}
-	});
+fn RangePicker(state: &ScreenState, colors: &Palette) -> Element {
+	let ranges = RANGES
+		.iter()
+		.enumerate()
+		.map(|(index, range)| {
+			let selected = index == state.range();
+			let weight = if selected {
+				FontWeight::Semibold
+			} else {
+				FontWeight::Medium
+			};
+			let button = view! {
+				<Button
+					font=(13.0, weight)
+					color=if selected { colors.ink } else { colors.muted }
+					class="py-0 px-3 rounded-[7px] h-[30px]"
+					on:press=state.select_range(index)
+				>
+					{range.name}
+				</Button>
+			};
+			if selected {
+				button.background(colors.canvas)
+			} else {
+				button.background(alpha(colors.card, 0.0))
+			}
+		})
+		.collect::<Fragment>();
 
 	view! {
 		<View
@@ -435,7 +497,7 @@ pub fn Screen(state: &ScreenState) -> Element {
 							"Tuesday, 20 October · Store performance across every channel"
 						</Label>
 					</View>
-					<RangePicker colors=colors />
+					<RangePicker state=state colors=colors />
 					<Button
 						font=(13.0, FontWeight::Semibold)
 						color=colors.card
@@ -458,7 +520,7 @@ pub fn Screen(state: &ScreenState) -> Element {
 					<StatCard title="Refund rate" value="2.1%" change="−0.6%" colors=colors />
 				</View>
 				<View class="flex-col gap-4 items-stretch lg:flex-row lg:flex-1">
-					<RevenueChart colors=colors />
+					<RevenueChart range=state.range() colors=colors />
 					<TopProducts state=state colors=colors />
 				</View>
 			</View>

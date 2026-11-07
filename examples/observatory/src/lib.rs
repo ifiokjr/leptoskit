@@ -25,3 +25,27 @@ mod app;
 pub use app::Observatory;
 pub use app::VIEWPORT;
 pub use app::grouped;
+
+/// Mounts the observatory when the browser loads the Wasm module, at the
+/// size it is laid out for. `leptoskit dev` builds it with the `csr` feature
+/// and serves it from `web/index.html`.
+#[cfg(all(target_arch = "wasm32", feature = "csr"))]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn start() {
+	use leptoskit::prelude::*;
+	use leptoskit::yoga::Dimension;
+
+	leptos::mount::mount_to_body(|| {
+		let observatory = Observatory::new();
+		move || {
+			leptoskit::web::render(view! {
+				<View with_style=|style| {
+					style.width = Dimension::Points(VIEWPORT.0);
+					style.height = Dimension::Points(VIEWPORT.1);
+				}>
+					{observatory.render()}
+				</View>
+			})
+		}
+	});
+}

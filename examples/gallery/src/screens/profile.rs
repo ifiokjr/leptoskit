@@ -66,12 +66,27 @@ fn Action(colors: &Palette, #[prop(optional)] filled: bool, children: Children) 
 	}
 }
 
+/// The follow button: filled until the reader follows, then outlined.
+#[component]
+fn Follow(
+	following: bool,
+	colors: &Palette,
+	on_press: impl Fn() + Send + Sync + 'static,
+) -> Element {
+	let label = if following { "Following" } else { "Follow" };
+	view! { <Action colors=colors filled=!following>{label}</Action> }.on_press(on_press)
+}
+
+/// The name [`ScreenState`] keeps the follow button's state under.
+const FOLLOWING: &str = "Following";
+
 /// The profile screen.
 #[component]
 pub fn Screen(state: &ScreenState) -> Element {
 	let colors = palette();
 	let assets = &state.assets;
 	let colors = &colors;
+	let following = state.is_on(FOLLOWING);
 
 	view! {
 		<View class="flex-col w-full h-full" background=colors.surface>
@@ -84,7 +99,11 @@ pub fn Screen(state: &ScreenState) -> Element {
 						// The actions share a band with the lower half of the avatar.
 						<View class="flex-row gap-2 justify-end items-center pt-3 h-12">
 							<Action colors=colors>"Message"</Action>
-							<Action colors=colors filled>"Follow"</Action>
+							<Follow
+								following=following
+								colors=colors
+								on_press=state.toggle(FOLLOWING)
+							/>
 						</View>
 						<View class="flex-col gap-1">
 							<View class="flex-row gap-2 items-center">
@@ -117,7 +136,11 @@ pub fn Screen(state: &ScreenState) -> Element {
 							border=(1.0, colors.line)
 							class="rounded-[14px]"
 						>
-							<Stat value="1,284" caption="Followers" colors=colors />
+							<Stat
+								value=if following { "1,285" } else { "1,284" }
+								caption="Followers"
+								colors=colors
+							/>
 							<StatDivider colors=colors />
 							<Stat value="312" caption="Following" colors=colors />
 							<StatDivider colors=colors />

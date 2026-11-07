@@ -44,28 +44,80 @@ fn main() -> Result<()> {
 	} else {
 		args.cli
 	};
-	let mut build = std::process::Command::new(cli);
-	build
-		.current_dir(&root)
-		.args(["build", "--platform", "web", "--out"])
-		.arg(&out);
-	if args.release {
-		build.arg("--release");
-	}
-	ensure!(
-		build
-			.status()
-			.context("run the LeptosKit web build")?
-			.success(),
-		"the web build failed"
-	);
+	web_build(&cli, &root, &out, args.release).context("could not build the website")?;
 	let mode = if args.public_only {
 		Mode::Public
 	} else {
 		Mode::Hosted
 	};
 	let summary = assemble(&out, &args.url, mode)?;
+	play_examples(&cli, &root.join("../.."), &out, &args.url, args.release)?;
 	println!("{summary}: {}", out.display());
+	Ok(())
+}
+
+/// Runs `leptoskit build --platform web` for the project in `project`,
+/// writing the site into `out`.
+fn web_build(cli: &Path, project: &Path, out: &Path, release: bool) -> Result<()> {
+	let mut build = std::process::Command::new(cli);
+	build
+		.current_dir(project)
+		.args(["build", "--platform", "web", "--out"])
+		.arg(out);
+	if release {
+		build.arg("--release");
+	}
+	ensure!(
+		build
+			.status()
+			.with_context(|| format!("run the LeptosKit web build in {}", project.display()))?
+			.success(),
+		"`leptoskit build --platform web` failed in {}",
+		project.display()
+	);
+	Ok(())
+}
+
+/// Builds every example the book plays into `docs/play/<name>/`, after the
+/// book, whose build replaces `docs/`. Each build's page is pointed at where
+/// it is served under the site at `url` and loads the players' frame script.
+fn play_examples(
+	cli: &Path,
+	repository: &Path,
+	out: &Path,
+	url: &str,
+	release: bool,
+) -> Result<()> {
+	let site_path = url
+		.split_once("://")
+		.and_then(|(_, rest)| rest.find('/').map(|slash| &rest[slash..]))
+		.unwrap_or("/")
+		.trim_end_matches('/');
+	for example in leptoskit_docs_site::play::EXAMPLES {
+		let directory = out
+			.join("docs")
+			.join(leptoskit_docs_site::play::DIRECTORY)
+			.join(example.name);
+		web_build(
+			cli,
+			&repository.join(example.directory),
+			&directory,
+			release,
+		)
+		.with_context(|| format!("could not build the {} example to play", example.name))?;
+		let page = directory.join("index.html");
+		let index =
+			std::fs::read_to_string(&page).with_context(|| format!("read {}", page.display()))?;
+		let base = format!(
+			"{site_path}/docs/{}/{}/",
+			leptoskit_docs_site::play::DIRECTORY,
+			example.name
+		);
+		let framed = leptoskit_docs_site::play::frame_document(&index, &base)
+			.map_err(anyhow::Error::msg)
+			.with_context(|| format!("prepare {}", page.display()))?;
+		std::fs::write(&page, framed).with_context(|| format!("write {}", page.display()))?;
+	}
 	Ok(())
 }
 

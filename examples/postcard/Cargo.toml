@@ -10,7 +10,13 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Postcard, a card home from a trip in five languages: the worked example for leptoskit's typed translations."
 
+# The library is also the browser's Wasm client, which `leptoskit dev` and
+# `leptoskit build` build with `csr`.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
+leptos = { workspace = true, features = ["csr"], optional = true }
 leptoskit = { workspace = true }
 # The generated `src/l10n.rs` calls into the runtime directly.
 leptoskit_l10n = { workspace = true }
@@ -18,6 +24,8 @@ leptoskit_l10n = { workspace = true }
 # renderer.
 leptoskit_testing = { workspace = true }
 reactive_graph = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["Location", "Window"] }
 
 # A real window on macOS, through the AppKit backend.
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -25,6 +33,12 @@ leptoskit = { workspace = true, features = ["appkit"] }
 
 [dev-dependencies]
 leptoskit_l10n_codegen = { workspace = true }
+
+[features]
+# The browser: leptos renders the same screen, which `web/index.html` loads.
+web = ["dep:leptos", "leptoskit/web", "leptoskit_l10n/web"]
+# Mount the postcard when the browser loads the Wasm client.
+csr = ["web", "dep:wasm-bindgen", "dep:web-sys"]
 
 [lints]
 workspace = true

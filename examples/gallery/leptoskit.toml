@@ -12,3 +12,11 @@ name = "gallery_web"
 [build]
 client_package = "gallery"
 features = ["csr"]
+
+# The documentation plays this example's release build, served by a static
+# host that compresses files itself. The budget keeps what a reader
+# downloads for it in check.
+[bundle]
+optimize = "smallest"
+precompress = false
+budget_kib = 250

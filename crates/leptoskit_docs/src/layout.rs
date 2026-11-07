@@ -159,6 +159,11 @@ fn head(
 			.map(|sheet| view! { <link rel="stylesheet" href=at(sheet) /> })
 			.collect::<Vec<_>>()}
 		<script src=at(&format!("{ASSETS}/site.js")) defer=true />
+		{site
+			.scripts
+			.iter()
+			.map(|script| view! { <script src=at(script) defer=true /> })
+			.collect::<Vec<_>>()}
 	}
 }
 

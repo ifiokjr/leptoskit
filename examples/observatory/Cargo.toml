@@ -10,16 +10,30 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Observatory, a star catalogue beside a year's sky log: the worked example for leptoskit's table and virtual features."
 
+# The library is also the browser's Wasm client, which `leptoskit dev` and
+# `leptoskit build` build with `csr`.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
+leptos = { workspace = true, features = ["csr"], optional = true }
 leptoskit = { workspace = true, features = ["table", "virtual"] }
 # The summary prints the screen's accessibility tree from the headless
 # renderer.
 leptoskit_testing = { workspace = true }
 parking_lot = { workspace = true }
+reactive_graph = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
 
 # A real window on macOS, through the AppKit backend.
 [target.'cfg(target_os = "macos")'.dependencies]
 leptoskit = { workspace = true, features = ["appkit", "table", "virtual"] }
+
+[features]
+# The browser: leptos renders the same screen, which `web/index.html` loads.
+web = ["dep:leptos", "leptoskit/web"]
+# Mount the observatory when the browser loads the Wasm client.
+csr = ["web", "dep:wasm-bindgen"]
 
 [lints]
 workspace = true
