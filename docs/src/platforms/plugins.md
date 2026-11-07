@@ -2,7 +2,7 @@
 
 On iOS, Android, and the other native platforms, your app's code runs as WebAssembly inside the host. That keeps it portable and lets [code push](../guide/05-code-push.md) replace it, but WebAssembly can't call UIKit, Android's Java APIs, or any other operating system library directly. A **runtime plugin** bridges that gap: a crate with a Rust API your app calls, and a native implementation that the host runs on its behalf.
 
-leptoskit ships plugins for the clipboard, device and app information, battery and network state, how a foldable is folded, haptics, links, permissions, secure storage, files, SQLite, settings, localization, speech, keeping the screen awake, brightness, orientation, six sensors, cryptography, logging, biometric authentication, location, notifications, sharing, store review, tracking transparency, HTTP, WebSockets, and desktop services such as dialogs, menus, and the tray. The [plugin support matrix](plugin-inventory.md) says what each one does on each platform.
+leptoskit ships plugins for the clipboard, device and app information, battery and network state, how a foldable is folded, haptics, links, permissions, secure storage, files, SQLite, settings, localization, speech, keeping the screen awake, brightness, orientation, picture-in-picture and Android system overlays, six sensors, cryptography, logging, biometric authentication, location, notifications, sharing, store review, tracking transparency, HTTP, WebSockets, and desktop services such as dialogs, menus, and the tray. The [plugin support matrix](plugin-inventory.md) says what each one does on each platform.
 
 Runtime plugins are different from the `[[plugins]]` table in `leptoskit.toml`, which turns on build plugins.
 
@@ -116,6 +116,7 @@ Most runtime names match the crate's suffix: `leptoskit_plugin_clipboard` is `cl
 | `leptoskit_plugin_document_picker`       | `document-picker`       |
 | `leptoskit_plugin_keep_awake`            | `keep-awake`            |
 | `leptoskit_plugin_local_authentication`  | `local-authentication`  |
+| `leptoskit_plugin_picture_in_picture`    | `picture-in-picture`    |
 | `leptoskit_plugin_screen_capture`        | `screen-capture`        |
 | `leptoskit_plugin_screen_orientation`    | `screen-orientation`    |
 | `leptoskit_plugin_secure_store`          | `secure-store`          |
@@ -147,6 +148,7 @@ An origin allows every path on it. There is no wildcard: plain `http://` and `ws
 - **Crypto:** random bytes and UUIDs in the browser need the crate's `web` feature. Native apps get randomness from the host. Hashing works everywhere. A platform without secure randomness returns an error rather than a weaker generator.
 - **Image manipulator:** crop, resize, rotate, flip, and re-encode JPEG and PNG, up to 16 steps per request. Images are limited to 4 MiB in and out, four million pixels, and 8,192 pixels per side, and the dimensions are checked before any pixels are decoded.
 - **Screen capture:** on Android, it can block screenshots and recordings (`FLAG_SECURE`) while your app holds a lease, and on Android 14 or newer it reports screenshots. On iOS it reports recording and screenshots but can't block them. It never reads pixels, and it can't undo a screenshot it reports.
+- **Picture-in-picture:** Android can enter activity picture-in-picture when the hosting activity declares `android:supportsPictureInPicture="true"`, and can hold a system overlay window after the user grants `SYSTEM_ALERT_WINDOW` in settings (`request_overlay` opens that screen; declaring the permission never grants it). iOS reports whether system PiP is supported but does not yet enter it without an attached video player, and has no draw-over-apps overlay. Desktop and the browser return `Unavailable`.
 - **Logging:** writes structured JSON lines under the app's `logs` directory, with severity filtering and rotation. In the browser it writes to the console only.
 - **Pedometer:** iOS reports steps for an interval, Android a running count since boot; they aren't the same number. It needs `NSMotionUsageDescription` on iOS and `ACTIVITY_RECOGNITION` on Android.
 - **Desktop services:** global shortcuts need the platform's event loop running, and need X11 on Linux. Window state works on the app's own macOS window. Autostart and the single-instance guard take the app's identity from the host, and the guard must be acquired before the app starts.

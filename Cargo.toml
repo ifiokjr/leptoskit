@@ -256,6 +256,7 @@ leptoskit_plugin_os = { path = "crates/leptoskit_plugin_os", version = "0.3.0" }
 leptoskit_plugin_passkeys = { path = "crates/leptoskit_plugin_passkeys", version = "0.3.0" }
 leptoskit_plugin_pedometer = { path = "crates/leptoskit_plugin_pedometer", version = "0.3.0" }
 leptoskit_plugin_permissions = { path = "crates/leptoskit_plugin_permissions", version = "0.3.0" }
+leptoskit_plugin_picture_in_picture = { path = "crates/leptoskit_plugin_picture_in_picture", version = "0.3.0" }
 leptoskit_plugin_posture = { path = "crates/leptoskit_plugin_posture", version = "0.3.0" }
 leptoskit_plugin_router = { path = "crates/leptoskit_plugin_router", version = "0.3.0" }
 leptoskit_plugin_screen_capture = { path = "crates/leptoskit_plugin_screen_capture", version = "0.3.0" }

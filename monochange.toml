@@ -107,6 +107,7 @@ packages = [
 	"leptoskit_plugin_localization",
 	"leptoskit_plugin_magnetometer",
 	"leptoskit_plugin_permissions",
+	"leptoskit_plugin_picture_in_picture",
 	"leptoskit_plugin_single_instance",
 	"leptoskit_plugin_menu",
 	"leptoskit_plugin_tray",
@@ -361,6 +362,9 @@ path = "crates/leptoskit_plugin_magnetometer"
 
 [package.leptoskit_plugin_permissions]
 path = "crates/leptoskit_plugin_permissions"
+
+[package.leptoskit_plugin_picture_in_picture]
+path = "crates/leptoskit_plugin_picture_in_picture"
 
 [package.leptoskit_plugin_single_instance]
 path = "crates/leptoskit_plugin_single_instance"

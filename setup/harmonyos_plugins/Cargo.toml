@@ -48,6 +48,7 @@ leptoskit_plugin_notifications = { path = "../../crates/leptoskit_plugin_notific
 leptoskit_plugin_os = { path = "../../crates/leptoskit_plugin_os" }
 leptoskit_plugin_pedometer = { path = "../../crates/leptoskit_plugin_pedometer" }
 leptoskit_plugin_permissions = { path = "../../crates/leptoskit_plugin_permissions" }
+leptoskit_plugin_picture_in_picture = { path = "../../crates/leptoskit_plugin_picture_in_picture" }
 leptoskit_plugin_posture = { path = "../../crates/leptoskit_plugin_posture" }
 leptoskit_plugin_screen_capture = { path = "../../crates/leptoskit_plugin_screen_capture" }
 leptoskit_plugin_screen_orientation = { path = "../../crates/leptoskit_plugin_screen_orientation" }
