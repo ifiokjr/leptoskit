@@ -419,3 +419,64 @@ pub async fn open_options() -> Result<()> {
 pub async fn reload() -> Result<()> {
 	js::call::<Value>("runtime.reload", &[]).await.map(drop)
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+	use serde_json::json;
+
+	use super::*;
+
+	#[test]
+	fn background_ports_listen_post_and_clean_up() {
+		let port = Port::from_background(7, "stream".into());
+		assert_eq!(port.name(), "stream");
+		assert_eq!(port.id(), Some(7));
+		assert!(format!("{port:?}").contains("stream"));
+
+		let seen = Rc::new(std::cell::Cell::new(0_u32));
+		let disconnected = Rc::new(std::cell::Cell::new(false));
+		let message_seen = seen.clone();
+		let listener = port
+			.on_message::<String, _>(move |message| {
+				assert_eq!(message, "hello");
+				message_seen.set(message_seen.get() + 1);
+			})
+			.expect("background ports listen without a browser");
+		let disconnect_seen = disconnected.clone();
+		let disconnect_listener = port
+			.on_disconnect(move || disconnect_seen.set(true))
+			.expect("background ports watch disconnect without a browser");
+
+		assert_eq!(
+			port.post_message(&"hello"),
+			Err(Error::Unavailable("Port.postMessage".into()))
+		);
+		assert_eq!(
+			port.disconnect(),
+			Err(Error::Unavailable("Port.disconnect".into()))
+		);
+
+		deliver_background_message(7, &json!("hello"));
+		// Wrong shape is ignored rather than panicking.
+		deliver_background_message(7, &json!({"no": "string"}));
+		assert_eq!(seen.get(), 1);
+
+		deliver_background_disconnect(7);
+		assert!(disconnected.get());
+		// A second disconnect finds no port.
+		deliver_background_disconnect(7);
+
+		drop(listener);
+		drop(disconnect_listener);
+	}
+
+	#[test]
+	fn connect_is_unavailable_outside_a_browser() {
+		assert!(matches!(
+			connect("highlights"),
+			Err(error) if error == Error::Unavailable("runtime.connect".into())
+		));
+		assert_eq!(id(), Err(Error::Unavailable("runtime.id".into())));
+		assert_eq!(server(), None);
+	}
+}

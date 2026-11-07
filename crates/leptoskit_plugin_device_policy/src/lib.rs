@@ -606,6 +606,24 @@ mod tests {
 		assert_eq!(Status::decode(&inactive.encode().unwrap()), Ok(inactive));
 		assert!(inactive.capabilities.can_lock());
 		assert!(inactive.capabilities.can_wipe());
+		assert!(inactive.capabilities.can_set_password_quality());
+		assert!(inactive.capabilities.can_set_password_length());
+		assert!(inactive.capabilities.can_disable_camera());
+
+		let unavailable = Status {
+			state: AdminState::Unavailable,
+			capabilities: Capabilities::NONE,
+			camera_disabled: None,
+			password_quality: None,
+			password_minimum_length: None,
+		};
+		assert_eq!(
+			Status::decode(&unavailable.encode().unwrap()),
+			Ok(unavailable)
+		);
+		assert!(!unavailable.capabilities.can_set_password_quality());
+		assert!(!unavailable.capabilities.can_set_password_length());
+		assert!(!unavailable.capabilities.can_disable_camera());
 
 		let active = Status {
 			state: AdminState::Active,
@@ -617,10 +635,46 @@ mod tests {
 		assert!(!active.capabilities.can_wipe());
 		let encoded = active.encode().unwrap();
 		assert_eq!(Status::decode(&encoded), Ok(active));
+
+		let camera_off = Status {
+			state: AdminState::Active,
+			capabilities: Capabilities::NONE,
+			camera_disabled: Some(false),
+			password_quality: Some(PasswordQuality::Unspecified),
+			password_minimum_length: Some(0),
+		};
+		assert_eq!(
+			Status::decode(&camera_off.encode().unwrap()),
+			Ok(camera_off)
+		);
+		for quality in [
+			PasswordQuality::Something,
+			PasswordQuality::Numeric,
+			PasswordQuality::Alphabetic,
+			PasswordQuality::Alphanumeric,
+		] {
+			assert_eq!(
+				PasswordQuality::decode_request(&quality.encode()),
+				Ok(quality)
+			);
+		}
+
 		for length in 0..encoded.len() {
 			assert!(Status::decode(&encoded[..length]).is_err());
 		}
 		assert!(Capabilities::decode(1 << 5).is_err());
+		assert_eq!(
+			Status::decode(&flags(&[2, 0, 0, 0, 0, u32::MAX])),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			Status::decode(&flags(&[1, 3, 0, 0, 0, u32::MAX])),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			Status::decode(&flags(&[1, 1, 0, 3, 0, u32::MAX])),
+			Err(Error::InvalidArgument)
+		);
 	}
 
 	#[test]
@@ -642,6 +696,7 @@ mod tests {
 	#[test]
 	fn activation_requests_require_a_clear_explanation() {
 		let request = ActivationRequest::new("Lock lost phones for your team").unwrap();
+		assert_eq!(request.explanation(), "Lock lost phones for your team");
 		assert_eq!(
 			ActivationRequest::decode(&request.encode().unwrap()),
 			Ok(request)
@@ -662,6 +717,9 @@ mod tests {
 		let request = WipeRequest::factory_reset().with_external_storage();
 		assert!(request.wipe_external_storage());
 		assert_eq!(WipeRequest::decode(&request.encode()), Ok(request));
+		let plain = WipeRequest::factory_reset();
+		assert!(!plain.wipe_external_storage());
+		assert_eq!(WipeRequest::decode(&plain.encode()), Ok(plain));
 		assert_eq!(
 			WipeRequest::decode(&flags(&[1, 0, 0])),
 			Err(Error::InvalidArgument)
@@ -691,6 +749,10 @@ mod tests {
 			Ok(true)
 		);
 		assert_eq!(
+			decode_camera_disabled(&encode_camera_disabled(false)),
+			Ok(false)
+		);
+		assert_eq!(
 			decode_camera_disabled(&flags(&[2])),
 			Err(Error::InvalidArgument)
 		);
@@ -702,15 +764,26 @@ mod tests {
 			encode_password_minimum_length(u32::MAX),
 			Err(Error::InvalidArgument)
 		);
+		assert_eq!(
+			decode_password_minimum_length(&u32::MAX.to_le_bytes()),
+			Err(Error::InvalidArgument)
+		);
 		assert_eq!(validate_empty(STATUS, &[]), Ok(()));
 		assert_eq!(validate_empty(LOCK_NOW, &[0]), Err(Error::InvalidArgument));
 		assert_eq!(
 			validate_empty(SET_PASSWORD_QUALITY, &[]),
 			Err(Error::Unavailable)
 		);
+		for outcome in [
+			ActivationOutcome::AlreadyActive,
+			ActivationOutcome::Activated,
+			ActivationOutcome::Declined,
+		] {
+			assert_eq!(ActivationOutcome::decode(&outcome.encode()), Ok(outcome));
+		}
 		assert_eq!(
-			ActivationOutcome::decode(&ActivationOutcome::Activated.encode()),
-			Ok(ActivationOutcome::Activated)
+			ActivationOutcome::decode(&3u32.to_le_bytes()),
+			Err(Error::InvalidArgument)
 		);
 	}
 }

@@ -349,7 +349,17 @@ fn system_idle_time() -> Result<u32, Error> {
 
 #[cfg(not(windows))]
 fn system_idle_time() -> Result<u32, Error> {
+	#[cfg(test)]
+	if let Some(value) = IDLE_OVERRIDE.with(std::cell::Cell::take) {
+		return value;
+	}
 	Err(Error::Unavailable)
+}
+
+#[cfg(all(test, not(windows)))]
+thread_local! {
+	static IDLE_OVERRIDE: std::cell::Cell<Option<Result<u32, Error>>> =
+		const { std::cell::Cell::new(None) };
 }
 
 #[cfg(test)]
@@ -407,5 +417,110 @@ mod tests {
 		assert!(result.is_ok());
 		#[cfg(not(windows))]
 		assert!(matches!(result, Err(Error::Unavailable)));
+		let idle = monitor.is_idle(0);
+		#[cfg(windows)]
+		assert!(idle.is_ok());
+		#[cfg(not(windows))]
+		assert!(matches!(idle, Err(Error::Unavailable)));
+	}
+
+	#[test]
+	fn event_decode_and_snapshot_field_variants() {
+		assert_eq!(Event::decode(1).unwrap(), Event::Suspend);
+		assert_eq!(Event::decode(2).unwrap(), Event::Resume);
+		assert_eq!(Event::decode(3).unwrap(), Event::LockScreen);
+		assert_eq!(Event::decode(4).unwrap(), Event::UnlockScreen);
+		assert_eq!(Event::decode(5).unwrap(), Event::OnAc);
+		assert_eq!(Event::decode(6).unwrap(), Event::OnBattery);
+		assert_eq!(Event::decode(7).unwrap(), Event::Shutdown);
+		assert_eq!(Event::decode(8).unwrap(), Event::UserDidBecomeActive);
+		assert_eq!(Event::decode(9).unwrap(), Event::UserDidBecomeIdle);
+		assert!(Event::decode(0).is_err());
+		assert!(Event::decode(99).is_err());
+
+		let known = Snapshot {
+			on_battery: Some(false),
+			locked: Some(true),
+			idle_ms: Some(10),
+		};
+		assert_eq!(Snapshot::decode(&known.encode()).unwrap(), known);
+		let unlocked = Snapshot {
+			on_battery: Some(true),
+			locked: Some(false),
+			idle_ms: None,
+		};
+		assert_eq!(Snapshot::decode(&unlocked.encode()).unwrap(), unlocked);
+
+		let mut bad_version = Snapshot::default().encode().to_vec();
+		bad_version[..4].copy_from_slice(&2u32.to_le_bytes());
+		assert!(Snapshot::decode(&bad_version).is_err());
+
+		let mut bad_battery = Snapshot::default().encode().to_vec();
+		bad_battery[4..8].copy_from_slice(&2u32.to_le_bytes());
+		assert!(Snapshot::decode(&bad_battery).is_err());
+
+		let mut bad_locked = Snapshot {
+			on_battery: None,
+			locked: Some(false),
+			idle_ms: None,
+		}
+		.encode()
+		.to_vec();
+		bad_locked[8..12].copy_from_slice(&3u32.to_le_bytes());
+		assert!(Snapshot::decode(&bad_locked).is_err());
+
+		let _: BridgeError = Error::Unavailable.into();
+		let _: BridgeError = Error::InvalidArgument.into();
+	}
+
+	#[test]
+	fn push_updates_snapshot_and_bridge_methods() {
+		let mut monitor = PowerMonitor::new();
+		monitor.push(Event::OnAc);
+		assert_eq!(monitor.snapshot().on_battery, Some(false));
+		monitor.push(Event::LockScreen);
+		assert_eq!(monitor.snapshot().locked, Some(true));
+		monitor.push(Event::UnlockScreen);
+		assert_eq!(monitor.snapshot().locked, Some(false));
+		monitor.push(Event::Shutdown);
+		monitor.push(Event::UserDidBecomeActive);
+		monitor.push(Event::UserDidBecomeIdle);
+
+		assert_eq!(monitor.name(), "power-monitor");
+		assert_eq!(monitor.methods(), &[SNAPSHOT, EVENTS, IDLE_TIME, IS_IDLE]);
+
+		let snapshot = monitor.invoke(SNAPSHOT, Bytes::new()).unwrap();
+		assert_eq!(Snapshot::decode(&snapshot).unwrap().on_battery, Some(false));
+		assert_eq!(
+			monitor.invoke(SNAPSHOT, Bytes::from_static(b"x")),
+			Err(BridgeError::InvalidArgument)
+		);
+
+		let idle = monitor.invoke(IDLE_TIME, Bytes::new());
+		#[cfg(windows)]
+		assert!(idle.is_ok());
+		#[cfg(not(windows))]
+		assert_eq!(idle, Err(BridgeError::Unavailable));
+		#[cfg(not(windows))]
+		{
+			IDLE_OVERRIDE.with(|slot| slot.set(Some(Ok(1_250))));
+			let idle = monitor.invoke(IDLE_TIME, Bytes::new()).unwrap();
+			let mut words = [0u32; 1];
+			words[0] = u32::from_le_bytes(idle.as_ref().try_into().unwrap());
+			assert_eq!(words[0], 1_250);
+			IDLE_OVERRIDE.with(|slot| slot.set(None));
+		}
+		assert_eq!(
+			monitor.invoke(IDLE_TIME, Bytes::from_static(b"x")),
+			Err(BridgeError::InvalidArgument)
+		);
+
+		let mut threshold = Encoder::with_capacity(4);
+		threshold.u32(0);
+		let is_idle = monitor.invoke(IS_IDLE, threshold.finish());
+		#[cfg(windows)]
+		assert!(is_idle.is_ok());
+		#[cfg(not(windows))]
+		assert_eq!(is_idle, Err(BridgeError::Unavailable));
 	}
 }

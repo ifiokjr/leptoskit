@@ -282,7 +282,29 @@ pub(crate) async fn call<T: DeserializeOwned>(
 	path: &str,
 	_args: &[&dyn ErasedSerialize],
 ) -> Result<T, Error> {
+	#[cfg(test)]
+	if let Some(value) = CALL_OVERRIDE.with(|slot| slot.borrow().clone()) {
+		return serde_json::from_value(value).map_err(|error| Error::Json(error.to_string()));
+	}
 	Err(Error::Unavailable(path.to_owned()))
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+thread_local! {
+	static CALL_OVERRIDE: std::cell::RefCell<Option<serde_json::Value>> =
+		const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) fn with_call_override<R>(value: serde_json::Value, body: impl FnOnce() -> R) -> R {
+	CALL_OVERRIDE.with(|slot| {
+		*slot.borrow_mut() = Some(value);
+	});
+	let result = body();
+	CALL_OVERRIDE.with(|slot| {
+		*slot.borrow_mut() = None;
+	});
+	result
 }
 
 /// Whether the API at `path` exists: never, outside a browser.
@@ -320,5 +342,27 @@ impl Drop for Listener {
 		if let Some(on_drop) = self.on_drop.take() {
 			on_drop();
 		}
+	}
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+	use std::sync::atomic::AtomicBool;
+	use std::sync::atomic::Ordering;
+
+	use super::*;
+
+	#[test]
+	fn guard_runs_cleanup_on_drop() {
+		static RAN: AtomicBool = AtomicBool::new(false);
+		RAN.store(false, Ordering::SeqCst);
+		{
+			let _listener = Listener::guard(|| {
+				RAN.store(true, Ordering::SeqCst);
+			});
+		}
+		assert!(RAN.load(Ordering::SeqCst));
+		// Dropping a listener with no cleanup is also fine.
+		drop(Listener { on_drop: None });
 	}
 }
