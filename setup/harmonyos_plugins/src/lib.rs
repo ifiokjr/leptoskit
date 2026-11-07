@@ -4,8 +4,10 @@
 
 pub use leptoskit_plugin_accelerometer;
 pub use leptoskit_plugin_application;
+pub use leptoskit_plugin_app_shortcuts;
 pub use leptoskit_plugin_arguments;
 pub use leptoskit_plugin_autostart;
+pub use leptoskit_plugin_badge;
 pub use leptoskit_plugin_barometer;
 pub use leptoskit_plugin_battery;
 pub use leptoskit_plugin_brightness;
@@ -33,6 +35,7 @@ pub use leptoskit_plugin_logging;
 pub use leptoskit_plugin_magnetometer;
 pub use leptoskit_plugin_menu;
 pub use leptoskit_plugin_network;
+pub use leptoskit_plugin_nfc;
 pub use leptoskit_plugin_notifications;
 pub use leptoskit_plugin_os;
 pub use leptoskit_plugin_pedometer;

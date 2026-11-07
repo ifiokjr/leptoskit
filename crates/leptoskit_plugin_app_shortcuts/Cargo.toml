@@ -1,0 +1,27 @@
+[package]
+name = "leptoskit_plugin_app_shortcuts"
+version = "0.3.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Home-screen shortcuts, dock items, and jump-list tasks for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "app-shortcuts"
+apple-module = "LeptosKitAppShortcuts"
+apple-type = "AppShortcutsPlugin"
+android-type = "dev.leptoskit.plugins.appshortcuts.AppShortcutsPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[lints]
+workspace = true

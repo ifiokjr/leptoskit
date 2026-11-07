@@ -18,8 +18,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 leptoskit_plugin_accelerometer = { path = "../../crates/leptoskit_plugin_accelerometer" }
 leptoskit_plugin_application = { path = "../../crates/leptoskit_plugin_application" }
+leptoskit_plugin_app_shortcuts = { path = "../../crates/leptoskit_plugin_app_shortcuts" }
 leptoskit_plugin_arguments = { path = "../../crates/leptoskit_plugin_arguments" }
 leptoskit_plugin_autostart = { path = "../../crates/leptoskit_plugin_autostart" }
+leptoskit_plugin_badge = { path = "../../crates/leptoskit_plugin_badge" }
 leptoskit_plugin_barometer = { path = "../../crates/leptoskit_plugin_barometer" }
 leptoskit_plugin_battery = { path = "../../crates/leptoskit_plugin_battery" }
 leptoskit_plugin_brightness = { path = "../../crates/leptoskit_plugin_brightness" }
@@ -47,6 +49,7 @@ leptoskit_plugin_logging = { path = "../../crates/leptoskit_plugin_logging" }
 leptoskit_plugin_magnetometer = { path = "../../crates/leptoskit_plugin_magnetometer" }
 leptoskit_plugin_menu = { path = "../../crates/leptoskit_plugin_menu" }
 leptoskit_plugin_network = { path = "../../crates/leptoskit_plugin_network" }
+leptoskit_plugin_nfc = { path = "../../crates/leptoskit_plugin_nfc" }
 leptoskit_plugin_notifications = { path = "../../crates/leptoskit_plugin_notifications" }
 leptoskit_plugin_os = { path = "../../crates/leptoskit_plugin_os" }
 leptoskit_plugin_pedometer = { path = "../../crates/leptoskit_plugin_pedometer" }
