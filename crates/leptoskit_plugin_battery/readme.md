@@ -33,7 +33,7 @@
 
 ## Overview
 
-Battery charge, charging state, and system power-saving state, with Swift and Kotlin handlers for generated mobile apps. Unknown readings remain `None`; an iOS simulator is not reported as a fully charged physical battery.
+Battery charge, charging state (unknown, discharging, charging, full, or on power but not charging), and system power-saving state, with Swift and Kotlin handlers for generated mobile apps. Unknown readings remain `None`; an iOS simulator is not reported as a fully charged physical battery.
 
 Add the crate to the native host and select `"battery"` in `native.plugins`. The generator discovers `BatteryPlugin` from Cargo package metadata. No mobile permission prompt is needed.
 

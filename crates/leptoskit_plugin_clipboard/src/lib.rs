@@ -343,10 +343,10 @@ mod android {
 			Ok(Self { platform })
 		}
 
-		/// Reads the first clip item's coerced text, or an empty string when
-		/// the clipboard holds nothing.
+		/// Reads the first clip item's plain text, or an empty string when the
+		/// clipboard holds nothing or only a URI or intent.
 		pub fn read_text(&mut self) -> Result<String, Error> {
-			self.with_clipboard(|env, context, manager| {
+			self.with_clipboard(|env, _context, manager| {
 				let clip = object(
 					env,
 					manager,
@@ -380,13 +380,10 @@ mod android {
 					return Ok(String::new());
 				}
 
-				let sequence = object(
-					env,
-					&item,
-					"coerceToText",
-					"(Landroid/content/Context;)Ljava/lang/CharSequence;",
-					&[JValue::Object(context)],
-				)?;
+				// Only plain text. `coerceToText` would open a content URI on
+				// the UI thread with no size limit, which the
+				// Kotlin plugin also avoids.
+				let sequence = object(env, &item, "getText", "()Ljava/lang/CharSequence;", &[])?;
 
 				if sequence.is_null() {
 					return Ok(String::new());

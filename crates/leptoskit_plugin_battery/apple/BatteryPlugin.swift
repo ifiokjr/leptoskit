@@ -30,6 +30,7 @@ private enum Wire {
     static let discharging: UInt32 = 1
     static let charging: UInt32 = 2
     static let full: UInt32 = 3
+    static let notCharging: UInt32 = 4
 
     /// Method identifiers.
     static let snapshot: UInt32 = 0
@@ -274,6 +275,9 @@ public final class BatteryPlugin: NativePlugin {
 
         if description[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue { return Wire.discharging }
 
+        // On AC power, neither charging nor charged: macOS is holding the charge.
+        if description[kIOPSPowerSourceStateKey] as? String == kIOPSACPowerValue { return Wire.notCharging }
+
         return Wire.stateUnknown
     }
 
@@ -333,7 +337,7 @@ private func validateSnapshot(_ bytes: UnsafeRawBufferPointer) throws {
 
     guard fields[0] <= Wire.flagTrue,
           fields[1] <= Wire.fullCharge || fields[1] == Wire.unknown,
-          fields[2] <= Wire.full,
+          fields[2] <= Wire.notCharging,
           fields[3] <= Wire.flagTrue else { throw PluginError.invalidArgument }
 }
 

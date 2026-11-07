@@ -5,11 +5,10 @@ use leptoskit_bridge::codec::Decoder;
 use leptoskit_bridge::codec::Encoder;
 
 use crate::Header;
+pub(crate) use crate::MAX_HEADERS;
 use crate::Method;
 use crate::Request;
 use crate::Response;
-
-pub(crate) const MAX_HEADERS: usize = 128;
 pub(crate) const MAX_URL: usize = 4096;
 
 fn headers_out(out: &mut Encoder, headers: &[Header]) -> Result<(), Error> {

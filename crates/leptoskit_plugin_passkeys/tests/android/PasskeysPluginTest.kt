@@ -5,6 +5,7 @@ import dev.leptoskit.bridge.PluginException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Test
@@ -30,15 +31,35 @@ class PasskeysPluginTest {
     @Test
     fun optionsAreBoundedJsonWithAChallenge() {
         val options = """{"challenge":"AAEC","rpId":"notes.example"}"""
-        assertEquals(options, webAuthnOptions(bytes(options)))
+        val signIn = JSONObject(webAuthnOptions(bytes(options), creating = false))
+
+        assertEquals("AAEC", signIn.getString("challenge"))
+        assertEquals("notes.example", signIn.getString("rpId"))
 
         for (bad in listOf("", "[]", "{not json", """{"rpId":"a"}""", """{"challenge":""}""")) {
-            assertEquals(PluginException.INVALID_ARGUMENT, code { webAuthnOptions(bytes(bad)) })
+            assertEquals(PluginException.INVALID_ARGUMENT, code { webAuthnOptions(bytes(bad), creating = false) })
         }
 
         val huge = """{"challenge":"${"a".repeat(MAX_JSON_BYTES)}"}"""
-        assertEquals(PluginException.INVALID_ARGUMENT, code { webAuthnOptions(bytes(huge)) })
+        assertEquals(PluginException.INVALID_ARGUMENT, code { webAuthnOptions(bytes(huge), creating = true) })
         assertEquals(PluginException.NATIVE, code { webAuthnAnswer("nope") })
+    }
+
+    @Test
+    fun userVerificationIsAlwaysRequired() {
+        val weak = """{"challenge":"AAEC","userVerification":"discouraged"}"""
+
+        assertEquals("required", JSONObject(webAuthnOptions(bytes(weak), creating = false)).getString("userVerification"))
+
+        val preferred = """{"challenge":"AAEC","authenticatorSelection":{"residentKey":"required","userVerification":"preferred"}}"""
+        val selection = JSONObject(webAuthnOptions(bytes(preferred), creating = true)).getJSONObject("authenticatorSelection")
+
+        assertEquals("required", selection.getString("userVerification"))
+        assertEquals("required", selection.getString("residentKey"))
+
+        val absent = JSONObject(webAuthnOptions(bytes("""{"challenge":"AAEC"}"""), creating = true))
+
+        assertEquals("required", absent.getJSONObject("authenticatorSelection").getString("userVerification"))
     }
 
     @Test

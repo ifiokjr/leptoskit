@@ -180,6 +180,10 @@ class LocationPlugin(
 
     /** Waits for one fix from the best provider the device can offer. */
     private suspend fun acquire(options: LocationOptions): ByteArray {
+        // A second fix would overwrite the first's listener and continuation,
+        // leaving its updates running and its caller waiting forever.
+        if (pending != null || requesting) throw PluginException(PluginException.BUSY)
+
         val manager = manager ?: throw PluginException(PluginException.UNAVAILABLE)
         val selected = providers(manager, options)
         val started = SystemClock.elapsedRealtimeNanos()

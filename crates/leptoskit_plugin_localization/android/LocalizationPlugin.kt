@@ -57,8 +57,12 @@ class LocalizationPlugin(
         output: PreferenceEncoder,
         locale: Locale,
     ) {
-        output.text(locale.toLanguageTag())
-        output.text(locale.language)
+        val tag = locale.toLanguageTag()
+
+        output.text(tag)
+        // Locale.language keeps legacy codes (iw, in, ji) that the tag has
+        // already replaced (he, id, yi), so take the language from the tag.
+        output.text(tag.substringBefore('-').takeUnless { it == UNDETERMINED_LANGUAGE }.orEmpty())
         output.text(locale.country)
     }
 
@@ -66,6 +70,9 @@ class LocalizationPlugin(
     private fun weekStart(icuFirstDay: Int): Int = (icuFirstDay + ICU_WEEK_START) % WEEK_DAYS + 1
 
     private companion object {
+        /** The language subtag BCP 47 uses when a locale names none. */
+        const val UNDETERMINED_LANGUAGE = "und"
+
         /** The only method: the device's locale preferences. */
         const val STATUS = 0
 

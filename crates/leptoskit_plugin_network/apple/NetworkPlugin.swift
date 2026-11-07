@@ -45,7 +45,9 @@ public final class NetworkPlugin: NativePlugin {
     public let name = "network"
     public let methods: [UInt32] = [Wire.snapshot, Wire.waitForChange]
 
-    /// The single in-flight change request. A second one receives `busy`.
+    /// One in-flight request with its own monitor. Snapshots never wait on
+    /// each other; only one change request may be outstanding, and a second
+    /// one receives `busy`.
     private struct Pending {
         let identifier: UUID
         let monitor: NWPathMonitor
@@ -53,7 +55,8 @@ public final class NetworkPlugin: NativePlugin {
         let previous: Data?
     }
 
-    private var pending: Pending?
+    private var pending: [UUID: Pending] = [:]
+    private var changeRequest: UUID?
     private var closed = false
 
     public init() {}
@@ -61,9 +64,11 @@ public final class NetworkPlugin: NativePlugin {
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
 
-        guard pending == nil else { throw PluginError.busy }
+        let previous = try previousReading(method: method, payload: payload)
 
-        return try await awaitChange(previous: previousReading(method: method, payload: payload))
+        guard method != Wire.waitForChange || changeRequest == nil else { throw PluginError.busy }
+
+        return try await awaitChange(previous: previous, change: method == Wire.waitForChange)
     }
 
     /// Reads the reading each method compares against; a snapshot compares against nothing.
@@ -83,7 +88,7 @@ public final class NetworkPlugin: NativePlugin {
     public func close() {
         closed = true
 
-        if let pending { finish(identifier: pending.identifier, result: .failure(PluginError.cancelled)) }
+        for identifier in pending.keys { finish(identifier: identifier, result: .failure(PluginError.cancelled)) }
     }
 
     /// Reads the caller's last reading, refusing fields the wire cannot carry.
@@ -108,7 +113,7 @@ public final class NetworkPlugin: NativePlugin {
     }
 
     /// Starts a monitor and answers the first reading that differs from `previous`.
-    private func awaitChange(previous: Data?) async throws -> Data {
+    private func awaitChange(previous: Data?, change: Bool) async throws -> Data {
         let identifier = UUID()
 
         return try await withTaskCancellationHandler {
@@ -116,9 +121,11 @@ public final class NetworkPlugin: NativePlugin {
 
             return try await withCheckedThrowingContinuation { continuation in
                 let monitor = NWPathMonitor()
-                pending = Pending(
+                pending[identifier] = Pending(
                     identifier: identifier, monitor: monitor, continuation: continuation, previous: previous
                 )
+
+                if change { changeRequest = identifier }
                 monitor.pathUpdateHandler = { [weak self] path in
                     let data = Self.encode(path)
                     Task { @MainActor [weak self] in
@@ -135,17 +142,19 @@ public final class NetworkPlugin: NativePlugin {
     }
 
     private func updated(identifier: UUID, data: Data) {
-        guard let pending, pending.identifier == identifier, pending.previous != data else { return }
+        guard let request = pending[identifier], request.previous != data else { return }
         finish(identifier: identifier, result: .success(data))
     }
 
     /// Answers the waiting caller once, then releases its monitor.
     private func finish(identifier: UUID, result: Result<Data, Error>) {
-        guard let pending, pending.identifier == identifier else { return }
-        self.pending = nil
-        pending.monitor.pathUpdateHandler = nil
-        pending.monitor.cancel()
-        pending.continuation.resume(with: result)
+        guard let request = pending.removeValue(forKey: identifier) else { return }
+
+        if changeRequest == identifier { changeRequest = nil }
+
+        request.monitor.pathUpdateHandler = nil
+        request.monitor.cancel()
+        request.continuation.resume(with: result)
     }
 
     /// Encodes a path; no probe or request is made, so reachability stays a hint.

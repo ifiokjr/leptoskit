@@ -6052,6 +6052,7 @@ dependencies = [
  "leptoskit_router_codegen",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

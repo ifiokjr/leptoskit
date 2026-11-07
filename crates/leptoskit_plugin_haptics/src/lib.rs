@@ -168,7 +168,7 @@ pub fn perform(effect: Effect) -> Result<(), Error> {
 	use objc2_app_kit::NSHapticFeedbackPattern;
 	use objc2_app_kit::NSHapticFeedbackPerformanceTime;
 	use objc2_app_kit::NSHapticFeedbackPerformer as _;
-	let _main = objc2::MainThreadMarker::new().ok_or(Error::InvalidArgument)?;
+	let _main = objc2::MainThreadMarker::new().ok_or(Error::Native)?;
 
 	let pattern = match effect {
 		Effect::Selection => NSHapticFeedbackPattern::Alignment,
@@ -191,7 +191,7 @@ pub fn perform(effect: Effect) -> Result<(), Error> {
 	use objc2_ui_kit::UINotificationFeedbackType;
 	use objc2_ui_kit::UISelectionFeedbackGenerator;
 
-	let main = objc2::MainThreadMarker::new().ok_or(Error::InvalidArgument)?;
+	let main = objc2::MainThreadMarker::new().ok_or(Error::Native)?;
 
 	match effect {
 		Effect::Selection => {
@@ -324,14 +324,23 @@ mod android {
 			return Err(Error::Unavailable);
 		}
 
-		env.call_method(
-			&decor,
-			"performHapticFeedback",
-			"(I)Z",
-			&[JValue::Int(constant)],
-		)
-		.map_err(|_| clear_and_fail(env))?;
-		Ok(())
+		let performed = env
+			.call_method(
+				&decor,
+				"performHapticFeedback",
+				"(I)Z",
+				&[JValue::Int(constant)],
+			)
+			.map_err(|_| clear_and_fail(env))?
+			.z()
+			.map_err(|_| Error::Native)?;
+
+		// False means nothing played: no vibrator, or haptics turned off.
+		if performed {
+			Ok(())
+		} else {
+			Err(Error::Unavailable)
+		}
 	}
 
 	/// `Build.VERSION.SDK_INT`, read once per process.
@@ -583,9 +592,10 @@ mod tests {
 			Err(Error::InvalidArgument)
 		);
 		// Test threads are not AppKit's main thread, and other desktops have no
-		// actuator: a valid effect is rejected without touching hardware.
+		// actuator: a valid effect is rejected without touching hardware. The
+		// request itself is well formed, so the wrong thread is a native error.
 		let expected = if cfg!(any(target_os = "macos", target_os = "ios")) {
-			Error::InvalidArgument
+			Error::Native
 		} else {
 			Error::Unavailable
 		};

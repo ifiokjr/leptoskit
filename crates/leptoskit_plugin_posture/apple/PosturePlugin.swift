@@ -21,6 +21,8 @@ public final class PosturePlugin: NativePlugin {
 
     #if canImport(UIKit)
     private var observer: AnyObject?
+    private var snapshots: [ObjectIdentifier: AnyObject] = [:]
+    private var rigidWaiter: CheckedContinuation<Data, any Error>?
     #endif
 
     public init(context: NativePluginContext) { self.context = context }
@@ -36,7 +38,7 @@ public final class PosturePlugin: NativePlugin {
         #elseif canImport(UIKit)
         _ = try context.requireAttachedOwner()
 
-        return PostureEncoding.rigid
+        return try await rigid(changingFrom: previous)
         #else
         throw PluginError.unavailable
         #endif
@@ -67,7 +69,17 @@ public final class PosturePlugin: NativePlugin {
     private func watch(from previous: Data?) async throws -> Data {
         let owner = try context.requireAttachedOwner()
 
-        guard #available(iOS 27.1, *) else { return PostureEncoding.rigid }
+        guard #available(iOS 27.1, *) else { return try await rigid(changingFrom: previous) }
+
+        // A status read has its own watcher, so it never waits on a change.
+        guard let previous else {
+            let watcher = HingeWatcher(view: owner.view, previous: nil)
+            let key = ObjectIdentifier(watcher)
+            snapshots[key] = watcher
+            defer { snapshots[key] = nil }
+
+            return try await watcher.next()
+        }
 
         guard observer == nil else { throw PluginError.busy }
         let watcher = HingeWatcher(view: owner.view, previous: previous)
@@ -78,13 +90,49 @@ public final class PosturePlugin: NativePlugin {
     }
     #endif
 
+    #if canImport(UIKit)
+    /// A rigid device never changes posture: its status answers at once, but
+    /// a wait for a change from rigid lasts until cancelled or closed, rather
+    /// than answering rigid again and spinning the caller's watch loop.
+    private func rigid(changingFrom previous: Data?) async throws -> Data {
+        guard previous == PostureEncoding.rigid else { return PostureEncoding.rigid }
+
+        guard rigidWaiter == nil else { throw PluginError.busy }
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled, !closed else {
+                    continuation.resume(throwing: PluginError.cancelled)
+
+                    return
+                }
+
+                rigidWaiter = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.endRigidWait() }
+        }
+    }
+
+    private func endRigidWait() {
+        rigidWaiter?.resume(throwing: PluginError.cancelled)
+        rigidWaiter = nil
+    }
+    #endif
+
     public func close() {
         closed = true
 
+        #if canImport(UIKit)
+        endRigidWait()
+        #endif
+
         #if canImport(UIKit, _version: 9127.0.85)
 
-        if #available(iOS 27.1, *), let watcher = observer as? HingeWatcher {
-            watcher.finish(.failure(PluginError.cancelled))
+        if #available(iOS 27.1, *) {
+            for watcher in [observer].compactMap({ $0 }) + Array(snapshots.values) {
+                (watcher as? HingeWatcher)?.finish(.failure(PluginError.cancelled))
+            }
         }
 
         #endif
@@ -206,8 +254,11 @@ enum PostureEncoding {
         let division = view.reservedRegions(kind: .division, options: .includeInactive).first
         var words: [UInt32] = [trueFlag, fold, 1, fold]
 
-        if let division, bounds.width > 0, bounds.height > 0 {
-            let frame = division.frame.intersection(bounds)
+        // A fold outside the view intersects to a null rectangle, whose
+        // infinite origin the wire refuses; report it as no region instead.
+        let frame = division.map { $0.frame.intersection(bounds) } ?? .null
+
+        if !frame.isNull, !frame.isEmpty, bounds.width > 0, bounds.height > 0 {
             let occluded = view.reservedRegions(kind: .occlusion).contains { $0.frame.intersects(frame) }
             words += [
                 frame.height >= frame.width ? 1 : 2,

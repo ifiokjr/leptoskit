@@ -76,12 +76,15 @@ impl Charge {
 pub enum State {
 	/// The platform cannot report the state.
 	Unknown = 0,
-	/// Running on battery / not charging.
+	/// Running on battery.
 	Discharging = 1,
 	/// Charging from external power.
 	Charging = 2,
 	/// Fully charged.
 	Full = 3,
+	/// On external power but not charging, for example while the system holds
+	/// the charge below full to protect the battery.
+	NotCharging = 4,
 }
 
 /// One platform battery reading.
@@ -143,6 +146,7 @@ impl Snapshot {
 			1 => State::Discharging,
 			2 => State::Charging,
 			3 => State::Full,
+			4 => State::NotCharging,
 			_ => return Err(Error::InvalidArgument),
 		};
 
@@ -394,6 +398,23 @@ mod tests {
 			power_save: None,
 		};
 		assert_eq!(Snapshot::decode(&unknown.encode()), Ok(unknown));
+
+		// Every state survives the wire, including plugged in but held, and
+		// the first code past the last one is refused.
+		for state in [
+			State::Unknown,
+			State::Discharging,
+			State::Charging,
+			State::Full,
+			State::NotCharging,
+		] {
+			let reading = Snapshot { state, ..reading };
+			assert_eq!(Snapshot::decode(&reading.encode()), Ok(reading));
+		}
+
+		let mut past_last = reading.encode().to_vec();
+		past_last[8] = 5;
+		assert_eq!(Snapshot::decode(&past_last), Err(Error::InvalidArgument));
 		assert_eq!(
 			Snapshot::decode(&reading.encode()[..SNAPSHOT_BYTES - 1]),
 			Err(Error::InvalidArgument)
@@ -417,7 +438,7 @@ mod tests {
 		}
 		.encode();
 
-		for (field, value) in [(0, 3_u32), (1, ABOVE_FULL), (1, BEYOND_U16), (2, 4), (3, 3)] {
+		for (field, value) in [(0, 3_u32), (1, ABOVE_FULL), (1, BEYOND_U16), (2, 5), (3, 3)] {
 			let mut bytes = snapshot.to_vec();
 			bytes[field * 4..field * 4 + 4].copy_from_slice(&value.to_le_bytes());
 			assert_eq!(Snapshot::decode(&bytes), Err(Error::InvalidArgument));

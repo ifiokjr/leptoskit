@@ -197,7 +197,8 @@ pub mod desktop {
 			.collect();
 		let result = Snapshot {
 			locales,
-			time_zone: Some(iana_time_zone::get_timezone().map_err(|_| Error::Native)?),
+			// An unknown time zone stays unknown rather than failing the locales.
+			time_zone: iana_time_zone::get_timezone().ok(),
 			..Snapshot::default()
 		};
 		Ok(result)

@@ -46,7 +46,10 @@ class HapticsPlugin(
                     throw PluginException(PluginException.UNAVAILABLE)
                 }
             }
-        activity.window.decorView.performHapticFeedback(effect)
+        // False means nothing played: no vibrator, or haptics turned off.
+        if (!activity.window.decorView.performHapticFeedback(effect)) {
+            throw PluginException(PluginException.UNAVAILABLE)
+        }
 
         return byteArrayOf()
     }
