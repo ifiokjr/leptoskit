@@ -99,7 +99,8 @@ The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum
 <Callout kind="important" title="Known gaps">
 
 - **Generated Apple and Android apps** draw the common controls, including `Switch`, `Checkbox`, `Radio`, `Slider`, `LinearProgressIndicator`, and `ActivityIndicator`. Custom widgets remain unsupported. Native controls expose their checked and range states, but other accessibility roles and states remain limited. Android system Back is not yet connected to the file router.
-- **iOS:** iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`. VoiceOver gets fewer roles than macOS, and no expanded or collapsed state.
+- **iOS:** iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`. VoiceOver gets fewer roles than macOS, and no expanded or collapsed state. [Live Activities](platforms/ios.md#live-activities-and-the-dynamic-island) start/update/end through ActivityKit on iOS only; the app must still supply `NSSupportsLiveActivities`, a Widget Extension for `LeptosKitLiveActivityAttributes`, and Push Notifications when using push tokens.
+
 - **Android backend:** a `Custom` widget kind with no registered native implementation stops the app instead of rendering an empty container. TalkBack gets a smaller set of roles than macOS.
 - **Linux:** live regions update their text but are not announced, because announcements need GTK 4.14 and leptoskit supports GTK 4.6.
 - **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state. A `Vector` with no background takes clicks only where it has ink.

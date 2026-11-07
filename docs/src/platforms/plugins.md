@@ -115,6 +115,7 @@ Most runtime names match the crate's suffix: `leptoskit_plugin_clipboard` is `cl
 | ---------------------------------------- | ----------------------- |
 | `leptoskit_plugin_document_picker`       | `document-picker`       |
 | `leptoskit_plugin_keep_awake`            | `keep-awake`            |
+| `leptoskit_plugin_live_activities`       | `live-activities`       |
 | `leptoskit_plugin_local_authentication`  | `local-authentication`  |
 | `leptoskit_plugin_picture_in_picture`    | `picture-in-picture`    |
 | `leptoskit_plugin_screen_capture`        | `screen-capture`        |
@@ -151,6 +152,7 @@ An origin allows every path on it. There is no wildcard: plain `http://` and `ws
 - **Picture-in-picture:** Android can enter activity picture-in-picture when the hosting activity declares `android:supportsPictureInPicture="true"`, and can hold a system overlay window after the user grants `SYSTEM_ALERT_WINDOW` in settings (`request_overlay` opens that screen; declaring the permission never grants it). iOS reports whether system PiP is supported but does not yet enter it without an attached video player, and has no draw-over-apps overlay. Desktop and the browser return `Unavailable`.
 - **Logging:** writes structured JSON lines under the app's `logs` directory, with severity filtering and rotation. In the browser it writes to the console only.
 - **Pedometer:** iOS reports steps for an interval, Android a running count since boot; they aren't the same number. It needs `NSMotionUsageDescription` on iOS and `ACTIVITY_RECOGNITION` on Android.
+- **Live Activities:** iOS only. Start, update, and end ActivityKit activities, and wait for a per-activity push token when remote updates are enabled. Set `NSSupportsLiveActivities` in the iOS `Info.plist`, ship a Widget Extension that renders `LeptosKitLiveActivityAttributes`, and enable Push Notifications for push tokens. Other platforms return `Unavailable`.
 - **Desktop services:** global shortcuts need the platform's event loop running, and need X11 on Linux. Window state works on the app's own macOS window. Autostart and the single-instance guard take the app's identity from the host, and the guard must be acquired before the app starts. Menus use chained builders (`MenuBar`, `Submenu`, `Command`, `Check`); macOS installs with `ApplicationMenu::install`, Windows with an owned HWND lease, and Linux feeds trays only. See [macOS application menus](macos.md#application-menus) and [Windows and Linux](windows-linux.md).
 - **Sensors and brightness on macOS:** the handlers compile and register, but return `Unavailable` where the Mac has no such hardware or control.
 

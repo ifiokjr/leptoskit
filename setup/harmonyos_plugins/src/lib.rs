@@ -23,6 +23,7 @@ pub use leptoskit_plugin_image_manipulator;
 pub use leptoskit_plugin_keep_awake;
 pub use leptoskit_plugin_light_sensor;
 pub use leptoskit_plugin_linking;
+pub use leptoskit_plugin_live_activities;
 pub use leptoskit_plugin_local_authentication;
 pub use leptoskit_plugin_localization;
 pub use leptoskit_plugin_location;

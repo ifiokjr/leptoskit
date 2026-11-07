@@ -68,6 +68,18 @@ xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App \
 - The generated app keeps your screen inside the safe area, below the status bar and above the home indicator. The strips around it take your root view's background, as a browser paints the page's background across the whole window, and the status bar switches to light text on a dark one. A root without an opaque background leaves the system background. With the backend crate, `UIKitHost` reports the insets instead, and `pt-safe` and the other [safe-area utilities](../guide/07-shared-components.md#clear-the-status-bar-and-home-indicator) pad by them.
 - The [`picture-in-picture`](plugins.md) plugin reports whether system PiP is supported. Entering PiP still needs an attached video player, which this release does not provide, and iOS has no draw-over-apps overlay equivalent to Android's `SYSTEM_ALERT_WINDOW`.
 
+## Live Activities and the Dynamic Island
+
+To show a short-lived status on the Lock Screen or in the Dynamic Island while the user is outside the app, add the [`live-activities`](plugins.md) plugin. From Rust, start, update, and end an activity, and optionally wait for the ActivityKit push token your server needs for remote updates.
+
+The plugin talks to ActivityKit only. Your app still has to:
+
+- set `NSSupportsLiveActivities` to `true` in `ios/Info.plist` (and `NSSupportsLiveActivitiesFrequentUpdates` if you need frequent pushes);
+- include a Widget Extension that imports `LeptosKitLiveActivities` and draws `LeptosKitLiveActivityAttributes`;
+- enable Push Notifications when you ask for push updates.
+
+Other platforms, and an iOS build without ActivityKit wiring, return `Unavailable`. A successful start means ActivityKit accepted the request, not that chrome appeared: Focus modes and a missing Widget Extension can still hide it. See the [plugin inventory](plugin-inventory.md) for the exact operations.
+
 ## Ship an update without the App Store
 
 The App Store build carries the UIKit host, the interpreter, and a copy of your screens. To change the screens afterwards, publish a code push release for iOS:

@@ -22,6 +22,7 @@ plugin_image_manipulator = "crates/leptoskit_plugin_image_manipulator/Cargo.toml
 plugin_keep_awake = "crates/leptoskit_plugin_keep_awake/Cargo.toml"
 plugin_light_sensor = "crates/leptoskit_plugin_light_sensor/Cargo.toml"
 plugin_linking = "crates/leptoskit_plugin_linking/Cargo.toml"
+plugin_live_activities = "crates/leptoskit_plugin_live_activities/Cargo.toml"
 plugin_local_authentication = "crates/leptoskit_plugin_local_authentication/Cargo.toml"
 plugin_localization = "crates/leptoskit_plugin_localization/Cargo.toml"
 plugin_location = "crates/leptoskit_plugin_location/Cargo.toml"

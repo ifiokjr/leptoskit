@@ -37,6 +37,7 @@ leptoskit_plugin_image_manipulator = { path = "../../crates/leptoskit_plugin_ima
 leptoskit_plugin_keep_awake = { path = "../../crates/leptoskit_plugin_keep_awake" }
 leptoskit_plugin_light_sensor = { path = "../../crates/leptoskit_plugin_light_sensor" }
 leptoskit_plugin_linking = { path = "../../crates/leptoskit_plugin_linking" }
+leptoskit_plugin_live_activities = { path = "../../crates/leptoskit_plugin_live_activities" }
 leptoskit_plugin_local_authentication = { path = "../../crates/leptoskit_plugin_local_authentication" }
 leptoskit_plugin_localization = { path = "../../crates/leptoskit_plugin_localization" }
 leptoskit_plugin_location = { path = "../../crates/leptoskit_plugin_location" }
